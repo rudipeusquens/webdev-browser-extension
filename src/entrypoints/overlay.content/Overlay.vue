@@ -1,6 +1,7 @@
 <script setup lang="ts">
-import { computed, onBeforeUnmount, onMounted, ref, shallowRef } from 'vue'
+import { computed, onBeforeUnmount, onMounted, ref, shallowReactive, shallowRef } from 'vue'
 import { browser } from 'wxt/browser'
+import { useCollection } from '@/composables/use-collection'
 import { pageInfo, snapshotElement } from '@/lib/capture/snapshot'
 import type { ElementSnapshot, Rect } from '@/lib/collection/model'
 import { pageKey } from '@/lib/collection/page-key'
@@ -16,6 +17,7 @@ import HoverBox from './HoverBox.vue'
 import { newId } from './ids'
 import { pageShortcut } from './keys'
 import { deepActiveElement, isEditable, pickAt, scrollableAncestor, TargetPath } from './picker'
+import { pinPosition, resolveTargets } from './pins'
 import { useTracking } from './use-tracking'
 
 const props = defineProps<{ host: HTMLElement }>()
@@ -23,18 +25,24 @@ const props = defineProps<{ host: HTMLElement }>()
 interface Draft {
   key: number
   el: Element
-  /** Taken when the element was picked: what was true at the moment of marking. */
-  snapshot: ElementSnapshot
   label: string
   busy: boolean
   error?: string
+  /** A new item: taken when the element was picked, what was true at the moment of marking. */
+  snapshot?: ElementSnapshot
+  /** An existing item being edited. */
+  edit?: { id: string; number: number; comment: string }
 }
 
 const mode = ref<Mode>('browse')
 const path = shallowRef<TargetPath | null>(null)
 const hovered = shallowRef<Element | null>(null)
 const draft = shallowRef<Draft | null>(null)
+const highlighted = ref<string | null>(null)
 const frame = useTracking()
+const { collection } = useCollection()
+// Elements marked in this session, by item id: more precise than the stored selector.
+const live = shallowReactive(new Map<string, Element>())
 let pointed: Element | null = null
 let drafts = 0
 
@@ -54,6 +62,28 @@ const hoverLabel = computed(() =>
   hovered.value && hoverRect.value ? describe(hovered.value, hoverRect.value) : '',
 )
 const draftRect = computed(() => (draft.value ? rectOf(draft.value.el) : null))
+
+const pageItems = computed(() =>
+  collection.value.items.filter((item) => item.pageKey === pageKey(location.href)),
+)
+const targets = computed(() => {
+  // Re-resolve after DOM changes: an element may have been replaced.
+  void frame.value
+  return resolveTargets(pageItems.value, live, document)
+})
+const pins = computed(() => {
+  const viewport = { width: window.innerWidth, height: window.innerHeight }
+  return pageItems.value.flatMap((item) => {
+    const el = targets.value.get(item.id)
+    const at = el && pinPosition(rectOf(el), viewport)
+    return at ? [{ id: item.id, number: item.number, left: `${at.x}px`, top: `${at.y}px` }] : []
+  })
+})
+const highlight = computed(() => {
+  const item = pageItems.value.find((i) => i.id === highlighted.value)
+  const el = item && targets.value.get(item.id)
+  return item && el ? { rect: rectOf(el), label: `Item ${item.number}` } : null
+})
 
 function notifyPanel() {
   browser.runtime.sendMessage({ type: 'overlay:changed' }).catch(() => undefined)
@@ -83,6 +113,27 @@ function select(el: Element | null) {
   draft.value = { key: ++drafts, el, snapshot, label: describe(el, rectOf(el)), busy: false }
 }
 
+/** Opens the popover of an existing item; false when its element is not on the page. */
+function openEdit(id: string): boolean {
+  const item = pageItems.value.find((i) => i.id === id)
+  const el = targets.value.get(id)
+  if (!item || !el) return false
+  const edit = { id, number: item.number, comment: item.comment }
+  draft.value = { key: ++drafts, el, label: describe(el, rectOf(el)), busy: false, edit }
+  return true
+}
+
+function reveal(id: string): boolean {
+  const el = targets.value.get(id)
+  if (!el) return false
+  el.scrollIntoView({ block: 'center', inline: 'nearest' })
+  return openEdit(id)
+}
+
+function onPinClick(e: MouseEvent, id: string) {
+  if (e.isTrusted) openEdit(id)
+}
+
 function cancel() {
   draft.value = null
 }
@@ -91,13 +142,16 @@ async function save(comment: string) {
   const current = draft.value
   if (!current || current.busy) return
   draft.value = { ...current, busy: true, error: undefined }
-  const message: BackgroundMessage = {
-    type: 'annotation:add',
-    id: newId(),
-    page: pageInfo(window),
-    target: { kind: 'element', element: current.snapshot },
-    comment,
-  }
+  const id = current.edit?.id ?? newId()
+  const message: BackgroundMessage = current.edit
+    ? { type: 'annotation:update', id, comment }
+    : {
+        type: 'annotation:add',
+        id,
+        page: pageInfo(window),
+        target: { kind: 'element', element: current.snapshot as ElementSnapshot },
+        comment,
+      }
   let reply: Reply | undefined
   try {
     reply = (await browser.runtime.sendMessage(message)) as Reply | undefined
@@ -106,6 +160,7 @@ async function save(comment: string) {
   }
   if (draft.value?.key !== current.key) return
   if (reply?.ok) {
+    if (!current.edit) live.set(id, current.el)
     draft.value = null
     return
   }
@@ -177,6 +232,17 @@ const onMessage: Parameters<typeof browser.runtime.onMessage.addListener>[0] = (
       setMode(message.mode)
       sendResponse({ ok: true } satisfies Reply)
       return
+    case 'overlay:highlight':
+      highlighted.value = message.id
+      sendResponse({ ok: true } satisfies Reply)
+      return
+    case 'overlay:reveal':
+      sendResponse(
+        (reveal(message.id)
+          ? { ok: true }
+          : { ok: false, error: 'Not found on this page.' }) satisfies Reply,
+      )
+      return
   }
 }
 
@@ -207,12 +273,32 @@ onBeforeUnmount(() => {
       @contextmenu.prevent
     />
     <HoverBox v-if="hoverRect" :rect="hoverRect" :label="hoverLabel" />
+    <HoverBox
+      v-if="highlight && !draft"
+      :rect="highlight.rect"
+      :label="highlight.label"
+      testid="overlay-highlight"
+    />
+    <button
+      v-for="pin in pins"
+      :key="pin.id"
+      type="button"
+      data-testid="overlay-pin"
+      class="fixed z-[2147483647] flex size-5 items-center justify-center rounded-full bg-blue-600 text-xs leading-none font-semibold text-white shadow-md ring-2 ring-white"
+      :style="{ left: pin.left, top: pin.top }"
+      :aria-label="`Edit item ${pin.number}`"
+      @click="onPinClick($event, pin.id)"
+    >
+      {{ pin.number }}
+    </button>
     <HoverBox v-if="draftRect" :rect="draftRect" tone="selected" />
     <CommentPopover
       v-if="draft && draftRect"
       :key="draft.key"
       :rect="draftRect"
       :label="draft.label"
+      :initial="draft.edit?.comment"
+      :number="draft.edit?.number"
       :busy="draft.busy"
       :error="draft.error"
       :frame="frame"

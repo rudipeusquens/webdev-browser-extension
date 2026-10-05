@@ -12,7 +12,7 @@ import ClearAllDialog from './ClearAllDialog.vue'
 import CopyFallbackDialog from './CopyFallbackDialog.vue'
 import ItemList from './ItemList.vue'
 import { useActiveTab } from './use-active-tab'
-import { useCollection } from './use-collection'
+import { useCollection } from '@/composables/use-collection'
 
 const { collection } = useCollection()
 const { tabId, status, refresh } = useActiveTab()
