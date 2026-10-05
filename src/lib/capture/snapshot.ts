@@ -4,7 +4,8 @@ import type { ElementSnapshot, PageInfo } from '../collection/model'
 import { LIMITS } from '../collection/model'
 import { pageKey } from '../collection/page-key'
 import { clean, collapse, truncate } from '../text'
-import { attributesOf, ownerDocumentOf, rectOf, tagOf, textOf } from './dom'
+import { attributesOf, ownerDocumentOf, rectOf, tagOf } from './dom'
+import { shownText } from './reader'
 import { buildSelector } from './selector'
 import { pickStyles } from './styles'
 
@@ -25,10 +26,10 @@ export function openingTag(el: Element): string {
   return `<${truncate([tagOf(el), ...parts].join(' '), LIMITS.tag - 2)}>`
 }
 
-/** Rendered text, never the value or options of a form field. */
+/** Text the element shows, never the value or options of a form field. */
 export function visibleText(el: Element): string {
-  if (isFormField(el)) return ''
-  return clean(textOf(el), LIMITS.text)
+  const view = ownerDocumentOf(el).defaultView
+  return isFormField(el) || !view ? '' : shownText(el, view, LIMITS.text)
 }
 
 export function snapshotElement(el: Element): ElementSnapshot {

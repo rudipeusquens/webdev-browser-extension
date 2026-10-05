@@ -56,6 +56,20 @@ describe('visibleText', () => {
     expect(text.endsWith('…')).toBe(true)
   })
 
+  it('leaves out field values, option labels, scripts and styles inside the element', () => {
+    document.body.innerHTML =
+      '<form><label>Plan <select><option>Secret plan</option></select></label>' +
+      '<textarea>Draft</textarea><input value="typed">' +
+      '<script>var inline = 1</script><style>p { color: red }</style>' +
+      '<button>Send</button></form>'
+    expect(visibleText($('form'))).toBe('Plan Send')
+  })
+
+  it('keeps text that cannot be selected', () => {
+    document.body.innerHTML = '<button style="user-select: none">Save</button>'
+    expect(visibleText($('button'))).toBe('Save')
+  })
+
   it('is empty for form fields', () => {
     document.body.innerHTML =
       '<textarea>secret</textarea><select><option>Pro</option><option>Free</option></select>'

@@ -24,8 +24,6 @@ const ATTRIBUTES = getter<NamedNodeMap>(Element.prototype, 'attributes')
 const CHILDREN = getter<HTMLCollection>(Element.prototype, 'children')
 const FIRST_CHILD = getter<Element | null>(Element.prototype, 'firstElementChild')
 const NEXT_SIBLING = getter<Element | null>(Element.prototype, 'nextElementSibling')
-const TEXT_CONTENT = getter<string | null>(Element.prototype, 'textContent')
-const INNER_TEXT = getter<string>(HTMLElement.prototype, 'innerText')
 const SHADOW_ROOT = getter<ShadowRoot | null>(Element.prototype, 'shadowRoot')
 
 export const parentOf = (el: Element): Element | null => PARENT.call(el)
@@ -89,10 +87,6 @@ export function queryAll(root: Document | Element, selector: string): Element[] 
     return []
   }
 }
-
-/** Rendered text for HTML elements, text content otherwise (SVG). */
-export const textOf = (el: Element): string =>
-  el instanceof HTMLElement ? INNER_TEXT.call(el) : (TEXT_CONTENT.call(el) ?? '')
 
 /** Longest walk up the tree any loop may take: a guard against cycles nobody foresaw. */
 export const MAX_DEPTH = 4096
