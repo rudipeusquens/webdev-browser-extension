@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { chipPosition, placeNear } from '@/entrypoints/overlay.content/place'
+import { chipPosition, placeNear, rectBetween } from '@/entrypoints/overlay.content/place'
 
 const viewport = { width: 1000, height: 800 }
 const size = { width: 288, height: 160 }
@@ -64,5 +64,17 @@ describe('chipPosition', () => {
       x: 902,
       y: 326,
     })
+  })
+})
+
+describe('rectBetween', () => {
+  it('spans two points in any order', () => {
+    expect(rectBetween({ x: 300, y: 50 }, { x: 100, y: 250 })).toEqual({
+      x: 100,
+      y: 50,
+      width: 200,
+      height: 200,
+    })
+    expect(rectBetween({ x: 5, y: 5 }, { x: 5, y: 5 })).toEqual({ x: 5, y: 5, width: 0, height: 0 })
   })
 })

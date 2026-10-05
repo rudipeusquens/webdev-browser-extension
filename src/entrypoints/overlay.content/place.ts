@@ -31,3 +31,13 @@ export function chipPosition(line: Rect, size: Size, viewport: Size): { x: numbe
   const y = below + size.height + MARGIN <= viewport.height || above < MARGIN ? below : above
   return { x, y: clamp(y, MARGIN, viewport.height - size.height - MARGIN) }
 }
+
+/** The rectangle spanned by two points, e.g. where a drag started and where it is now. */
+export function rectBetween(a: { x: number; y: number }, b: { x: number; y: number }): Rect {
+  return {
+    x: Math.min(a.x, b.x),
+    y: Math.min(a.y, b.y),
+    width: Math.abs(a.x - b.x),
+    height: Math.abs(a.y - b.y),
+  }
+}

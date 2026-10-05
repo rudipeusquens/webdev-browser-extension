@@ -3,6 +3,7 @@ import { computed, onBeforeUnmount, onMounted, ref, shallowReactive, shallowRef,
 import { browser } from 'wxt/browser'
 import { useCollection } from '@/composables/use-collection'
 import { closestOf, tagOf } from '@/lib/capture/dom'
+import { snapshotArea } from '@/lib/capture/area'
 import { pageInfo, snapshotElement } from '@/lib/capture/snapshot'
 import { rangeContainer, rangeHasText, selectionRange, snapshotRange } from '@/lib/capture/text'
 import type { Rect, Target } from '@/lib/collection/model'
@@ -19,9 +20,17 @@ import CommentPopover from './CommentPopover.vue'
 import HoverBox from './HoverBox.vue'
 import { newId } from './ids'
 import { pageShortcut } from './keys'
-import { deepActiveElement, isEditable, pickAt, scrollableAncestor, TargetPath } from './picker'
+import {
+  deepActiveElement,
+  forwardsWheel,
+  isEditable,
+  pickAt,
+  scrollableAncestor,
+  TargetPath,
+} from './picker'
 import { boxOf, type LiveAnchor, pinPositions, placeItems, pruneLive } from './pins'
 import type { Layer } from './top-layer'
+import { rectBetween } from './place'
 import SelectionChip from './SelectionChip.vue'
 import TextHighlight from './TextHighlight.vue'
 import { useTracking } from './use-tracking'
@@ -31,9 +40,12 @@ const props = defineProps<{ host: HTMLElement; layer: Layer }>()
 // Containers that script focus traps (Radix, reka-ui, focus-trap) usually guard.
 const TRAP = '[aria-modal="true"], [role="dialog"], [role="alertdialog"]'
 const FOCUS_TAKEN = 'This page took the focus. Click into the comment field to continue.'
+/** Smaller drags are clicks, not areas. */
+const MIN_AREA = 4
 
 interface Draft {
   key: number
+  kind: Target['kind']
   /** The element that holds the target: focus traps are looked for around it. */
   el: Element
   /** The target's box in viewport coordinates, now. */
@@ -58,6 +70,10 @@ const draft = shallowRef<Draft | null>(null)
 const highlighted = ref<string | null>(null)
 // The page's selection the Comment chip offers to comment on (browse mode).
 const chip = shallowRef<Range | null>(null)
+// The rectangle being dragged in area mode, in viewport coordinates.
+const drag = shallowRef<{ from: { x: number; y: number }; to: { x: number; y: number } } | null>(
+  null,
+)
 const frame = useTracking()
 const { collection } = useCollection()
 // What was marked in this session, by item id: more precise than the stored selector.
@@ -81,6 +97,7 @@ const hoverRect = computed(() =>
 const hoverLabel = computed(() =>
   hovered.value && hoverRect.value ? describe(hovered.value, hoverRect.value) : '',
 )
+const dragRect = computed(() => drag.value && rectBetween(drag.value.from, drag.value.to))
 const draftRect = computed(() => {
   void frame.value
   return draft.value?.rect() ?? null
@@ -137,6 +154,7 @@ function setMode(next: Mode) {
   if (mode.value === next) return
   mode.value = next
   chip.value = null
+  drag.value = null
   pointed = null
   lastPointer = null
   hover(null)
@@ -172,7 +190,40 @@ function select(el: Element | null) {
   } catch {
     return
   }
-  openDraft({ el, rect: () => boxOf(el), target, live: el, label: describe(el, boxOf(el)) })
+  openDraft({
+    kind: 'element',
+    el,
+    rect: () => boxOf(el),
+    target,
+    live: el,
+    label: describe(el, boxOf(el)),
+  })
+}
+
+/** Opens the popover for the area `rect` (viewport coordinates) that was just dragged. */
+function selectArea(rect: Rect) {
+  let snapshot: ReturnType<typeof snapshotArea>
+  try {
+    snapshot = snapshotArea(document, rect, props.host)
+  } catch {
+    return
+  }
+  const { container, target } = snapshot
+  // The area keeps its place inside the container, as its pin will later.
+  const at = boxOf(container)
+  const dx = rect.x - at.x
+  const dy = rect.y - at.y
+  openDraft({
+    kind: 'area',
+    el: container,
+    rect: () => {
+      const box = boxOf(container)
+      return { x: box.x + dx, y: box.y + dy, width: rect.width, height: rect.height }
+    },
+    target,
+    live: container,
+    label: labelOf(target, container, rect),
+  })
 }
 
 /** Short description of an item's target for the popover header. */
@@ -194,6 +245,7 @@ function openEdit(id: string): boolean {
   if (!item || !placement) return false
   const { el, rect, range } = placement
   openDraft({
+    kind: item.target.kind,
     el,
     rect,
     range,
@@ -260,6 +312,7 @@ function commentOnSelection() {
     return { x: r.x, y: r.y, width: r.width, height: r.height }
   }
   openDraft({
+    kind: 'text',
     el: rangeContainer(range),
     rect,
     range,
@@ -274,7 +327,8 @@ function onPinClick(e: MouseEvent, id: string) {
 }
 
 function cancel() {
-  draft.value = null
+  if (drag.value) drag.value = null
+  else draft.value = null
 }
 
 async function save(comment: string) {
@@ -317,7 +371,26 @@ function pointAt(x: number, y: number) {
 }
 
 function onPointerMove(e: PointerEvent) {
-  if (e.isTrusted && !draft.value) pointAt(e.clientX, e.clientY)
+  if (!e.isTrusted || draft.value) return
+  if (mode.value === 'element') pointAt(e.clientX, e.clientY)
+  else if (drag.value) drag.value = { ...drag.value, to: { x: e.clientX, y: e.clientY } }
+}
+
+/** Area mode: a primary button press on the glass starts a rectangle. */
+function onPointerDown(e: PointerEvent) {
+  if (!e.isTrusted || mode.value !== 'area' || draft.value || e.button !== 0) return
+  const at = { x: e.clientX, y: e.clientY }
+  drag.value = { from: at, to: at }
+  // Keeps the drag going when the pointer leaves the window.
+  ;(e.currentTarget as Element).setPointerCapture(e.pointerId)
+}
+
+function onPointerUp(e: PointerEvent) {
+  const current = drag.value
+  if (!e.isTrusted || !current) return
+  drag.value = null
+  const rect = rectBetween(current.from, { x: e.clientX, y: e.clientY })
+  if (rect.width >= MIN_AREA && rect.height >= MIN_AREA) selectArea(rect)
 }
 
 // Scrolling and layout changes move elements under a pointer that stands still.
@@ -329,13 +402,13 @@ watch(frame, () => {
 
 function onGlassClick(e: MouseEvent) {
   e.preventDefault()
-  if (!e.isTrusted || draft.value) return
+  if (!e.isTrusted || draft.value || mode.value !== 'element') return
   pointAt(e.clientX, e.clientY)
   select(path.value?.current ?? null)
 }
 
 function onWheel(e: WheelEvent) {
-  if (!e.isTrusted) return
+  if (!e.isTrusted || !forwardsWheel(e)) return
   // The glass takes the pointer, so scroll what lies under it ourselves.
   const vertical = Math.abs(e.deltaY) >= Math.abs(e.deltaX)
   const target = scrollableAncestor(pickAt(document, e.clientX, e.clientY, props.host), vertical)
@@ -362,6 +435,7 @@ function onKeydown(e: KeyboardEvent) {
     mode: mode.value,
     hovering: path.value !== null,
     drafting: draft.value !== null,
+    dragging: drag.value !== null,
     editableFocus: isEditable(deepActiveElement(document)),
   })
   if (!action) return
@@ -433,10 +507,13 @@ onBeforeUnmount(() => {
   <!-- Every positioned layer has the maximum z-index: pages use it too. -->
   <div data-testid="overlay-root" class="font-sans text-sm text-foreground">
     <div
-      v-if="mode === 'element'"
+      v-if="mode === 'element' || mode === 'area'"
       data-testid="overlay-glass"
       class="fixed inset-0 z-[2147483647] cursor-crosshair"
+      @pointerdown="onPointerDown"
       @pointermove="onPointerMove"
+      @pointerup="onPointerUp"
+      @lostpointercapture="drag = null"
       @mousedown.prevent
       @click="onGlassClick"
       @wheel="onWheel"
@@ -462,7 +539,18 @@ onBeforeUnmount(() => {
       {{ pin.number }}
     </button>
     <TextHighlight v-if="draft?.range" :range="draft.range" :frame="frame" />
-    <HoverBox v-else-if="draftRect" :rect="draftRect" tone="selected" />
+    <HoverBox
+      v-else-if="draftRect"
+      :rect="draftRect"
+      :tone="draft?.kind === 'area' ? 'area' : 'selected'"
+    />
+    <HoverBox
+      v-if="dragRect"
+      :rect="dragRect"
+      :label="`${Math.round(dragRect.width)}×${Math.round(dragRect.height)}`"
+      tone="area"
+      testid="overlay-area"
+    />
     <SelectionChip v-if="chipLine" :line="chipLine" @comment="commentOnSelection" />
     <CommentPopover
       v-if="draft && draftRect"

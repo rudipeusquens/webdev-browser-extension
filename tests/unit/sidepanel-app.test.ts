@@ -183,6 +183,17 @@ describe('side panel', () => {
     })
   })
 
+  it('switches to area mode from the panel', async () => {
+    overlayReply = active
+    await render()
+    byTestId('mode-area').click()
+    await flushPromises()
+    expect(fakeBrowser.tabs.sendMessage).toHaveBeenCalledWith(1, {
+      type: 'overlay:set-mode',
+      mode: 'area',
+    })
+  })
+
   it('disables the mode switch while the page is not active', async () => {
     await render()
     expect(byTestId('mode-element').hasAttribute('disabled')).toBe(true)

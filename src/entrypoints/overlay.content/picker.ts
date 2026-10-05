@@ -76,6 +76,11 @@ export function deepActiveElement(doc: Document): Element | null {
   return active
 }
 
+/** Whether the glass scrolls the page for this wheel turn; Ctrl or Cmd zooms instead. */
+export function forwardsWheel(e: Pick<WheelEvent, 'ctrlKey' | 'metaKey'>): boolean {
+  return !e.ctrlKey && !e.metaKey
+}
+
 /** The nearest ancestor that scrolls on `axis`, else the document's scrolling element. */
 export function scrollableAncestor(el: Element | null, vertical: boolean): Element | null {
   let node = el

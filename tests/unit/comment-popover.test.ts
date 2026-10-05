@@ -1,10 +1,39 @@
 import { mount } from '@vue/test-utils'
-import { describe, expect, it } from 'vitest'
+import { nextTick } from 'vue'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 import CommentPopover from '@/entrypoints/overlay.content/CommentPopover.vue'
 
 const rect = { x: 10, y: 10, width: 100, height: 20 }
 
 describe('CommentPopover', () => {
+  afterEach(() => {
+    vi.unstubAllGlobals()
+  })
+
+  it('moves when it grows and would no longer fit below its target', async () => {
+    let resized: (() => void) | undefined
+    vi.stubGlobal(
+      'ResizeObserver',
+      class {
+        constructor(callback: () => void) {
+          resized = callback
+        }
+        observe() {}
+        disconnect() {}
+      },
+    )
+    const low = { x: 10, y: 500, width: 100, height: 20 }
+    const wrapper = mount(CommentPopover, { props: { rect: low, label: 'button' } })
+    await nextTick()
+    await nextTick()
+    const card = wrapper.get('[data-testid="overlay-popover"]')
+    expect(card.attributes('style')).toContain(`top: ${500 + 20 + 8}px`)
+    Object.defineProperty(card.element, 'offsetHeight', { value: 300, configurable: true })
+    resized?.()
+    await nextTick()
+    expect(card.attributes('style')).toContain(`top: ${500 - 8 - 300}px`)
+  })
+
   it('disables Save until there is a comment', () => {
     const empty = mount(CommentPopover, { props: { rect, label: 'button' } })
     expect(empty.get('[data-testid="overlay-save"]').attributes('disabled')).toBeDefined()
