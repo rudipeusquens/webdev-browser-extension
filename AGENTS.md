@@ -76,6 +76,11 @@ pnpm check               # everything CI runs, except build, E2E and gitleaks
 - **Dependencies:** `pnpm add`. `pnpm-workspace.yaml` refuses versions younger than three days
   and runs install scripts only for packages listed in `allowBuilds`
 - **GitHub Actions** are pinned to commit SHAs with the version as a comment
+- **shadcn-vue components** are copied into `src/components/ui/` with
+  `pnpm dlx shadcn-vue@2.8.2 add <name> -y`, style `new-york`; never add them as a dependency,
+  and revert any change the CLI makes to `src/assets/tailwind.css` (no remote font imports).
+  The `shadcn` MCP (`.mcp.json`, no tokens, version pinned) can look up components; a session
+  restart loads it
 - **Tests for scripts** live next to them as `*.test.mjs` (`node --test`)
 
 ## Never do

@@ -27,5 +27,10 @@ export default defineConfig(
   },
   // shadcn-vue components use single-word names (Button, Popover).
   { rules: { 'vue/multi-word-component-names': 'off' } },
+  // Copied shadcn-vue components declare optional props without defaults on purpose.
+  {
+    files: ['src/components/ui/**/*.vue'],
+    rules: { 'vue/require-default-prop': 'off' },
+  },
   eslintConfigPrettier,
 )

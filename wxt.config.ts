@@ -1,3 +1,4 @@
+import tailwindcss from '@tailwindcss/vite'
 import { defineConfig } from 'wxt'
 
 export default defineConfig({
@@ -5,6 +6,7 @@ export default defineConfig({
   modules: ['@wxt-dev/module-vue'],
   // Explicit imports keep every module readable on its own.
   imports: false,
+  vite: () => ({ plugins: [tailwindcss()] }),
   manifest: {
     name: 'Webdev Browser Extension',
     description:
