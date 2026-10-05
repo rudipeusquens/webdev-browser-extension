@@ -3,6 +3,26 @@ import { type App as VueApp, createApp } from 'vue'
 import { createShadowRootUi } from 'wxt/utils/content-script-ui/shadow-root'
 import { defineContentScript } from 'wxt/utils/define-content-script'
 import Overlay from './Overlay.vue'
+import { keepOnTop } from './top-layer'
+
+// Stopped at the shadow root, so page listeners in the bubble phase never see what happens
+// inside the overlay (shortcuts, outside-click handlers, focus traps).
+const ISOLATED_EVENTS = [
+  'keydown',
+  'keyup',
+  'keypress',
+  'beforeinput',
+  'input',
+  'pointerdown',
+  'pointerup',
+  'mousedown',
+  'mouseup',
+  'click',
+  'dblclick',
+  'contextmenu',
+  'focusin',
+  'focusout',
+]
 
 declare global {
   // Set in the content-script world only, for E2E tests to reach the closed shadow root.
@@ -26,6 +46,7 @@ export default defineContentScript({
       append: 'last',
       mode: 'closed',
       css: styles.replaceAll(':root', ':host'),
+      isolateEvents: ISOLATED_EVENTS,
       onMount(container) {
         const app = createApp(Overlay, { portalTarget: container })
         app.mount(container)
@@ -36,6 +57,8 @@ export default defineContentScript({
       },
     })
     ui.mount()
+    // Registered after WXT's own cleanup, so the host is gone before this stops watching.
+    ctx.onInvalidated(keepOnTop(ui.shadowHost, ui.shadow))
     globalThis.__webdevOverlay = { shadow: ui.shadow }
   },
 })

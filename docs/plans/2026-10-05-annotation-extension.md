@@ -1504,7 +1504,7 @@ the overlay entry of Task 12.
   `Rect = { x; y; width; height }`, `Target = ElementTarget | TextTarget | AreaTarget` and
   `LIMITS = { text: 120, selected: 500, context: 40, originChain: 5, areaElements: 10,
 selectorDepth: 8, comment: 5000, title: 120, tag: 200, attribute: 60, styleValue: 80,
-url: 2048, selector: 1000, path: 500, name: 100 }`.
+url: 8192, selector: 1000, path: 500, name: 100 }`.
 - Produces (ops.ts, pure): `emptyCollection(): Collection`;
   `addAnnotation(c, input: NewAnnotation, now: string): Collection` with
   `NewAnnotation = { id: string; page: PageInfo; target: Target; comment: string }`;

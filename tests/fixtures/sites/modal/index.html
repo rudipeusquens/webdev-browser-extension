@@ -1,0 +1,33 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <title>Modal fixture</title>
+    <style>
+      /* A transformed, clipped dialog: the overlay must still use viewport coordinates. */
+      dialog {
+        width: 360px;
+        transform: translate(10px, 10px);
+        overflow: hidden;
+      }
+      /* A page popover covering the whole viewport, e.g. a mobile menu. */
+      #sheet {
+        width: 100vw;
+        height: 100vh;
+        margin: 0;
+      }
+    </style>
+  </head>
+  <body>
+    <h1>Modal fixture</h1>
+    <button id="open" type="button">Open dialog</button>
+    <button id="menu" type="button" popovertarget="sheet">Open sheet</button>
+    <div id="sheet" popover="manual">A full-viewport sheet</div>
+    <dialog id="dialog">
+      <p>Inside the modal</p>
+      <button id="inside" type="button">Confirm</button>
+      <button id="close" type="button">Close</button>
+    </dialog>
+    <script src="modal.js"></script>
+  </body>
+</html>
