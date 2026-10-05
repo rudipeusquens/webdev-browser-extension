@@ -60,8 +60,11 @@ export default defineContentScript({
       // no page uses.
       css: styles.replaceAll(':root', ':host').replaceAll('--tw-', '--webdev-tw-'),
       isolateEvents: ISOLATED_EVENTS,
-      onMount(container, _shadow, host) {
-        const app = createApp(Overlay, { host })
+      onMount(container, shadow, host) {
+        const layer = keepOnTop(host, shadow)
+        // Registered after WXT's own cleanup, so the host is gone before this stops watching.
+        ctx.onInvalidated(layer.stop)
+        const app = createApp(Overlay, { host, layer })
         app.mount(container)
         return app
       },
@@ -70,8 +73,6 @@ export default defineContentScript({
       },
     })
     ui.mount()
-    // Registered after WXT's own cleanup, so the host is gone before this stops watching.
-    ctx.onInvalidated(keepOnTop(ui.shadowHost, ui.shadow))
     globalThis.__webdevOverlay = { shadow: ui.shadow }
   },
 })

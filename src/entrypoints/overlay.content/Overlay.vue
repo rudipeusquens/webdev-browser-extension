@@ -18,9 +18,14 @@ import { newId } from './ids'
 import { pageShortcut } from './keys'
 import { deepActiveElement, isEditable, pickAt, scrollableAncestor, TargetPath } from './picker'
 import { pinPosition, resolveTargets } from './pins'
+import type { Layer } from './top-layer'
 import { useTracking } from './use-tracking'
 
-const props = defineProps<{ host: HTMLElement }>()
+const props = defineProps<{ host: HTMLElement; layer: Layer }>()
+
+// Containers that script focus traps (Radix, reka-ui, focus-trap) usually guard.
+const TRAP = '[aria-modal="true"], [role="dialog"], [role="alertdialog"]'
+const FOCUS_TAKEN = 'This page took the focus. Click into the comment field to continue.'
 
 interface Draft {
   key: number
@@ -104,6 +109,19 @@ function setMode(next: Mode) {
   notifyPanel()
 }
 
+/**
+ * Lets a script focus trap accept the comment field: the host goes into the container that
+ * holds the focus (or the target) while a comment is written.
+ */
+function containForComment(el: Element) {
+  const trap = deepActiveElement(document)?.closest(TRAP) ?? el.closest(TRAP)
+  props.layer.contain(trap)
+}
+
+watch(draft, (current, previous) => {
+  if (!current && previous) props.layer.contain(null)
+})
+
 function select(el: Element | null) {
   if (!el) return
   let snapshot: ElementSnapshot
@@ -112,6 +130,7 @@ function select(el: Element | null) {
   } catch {
     return
   }
+  containForComment(el)
   draft.value = { key: ++drafts, el, snapshot, label: describe(el, rectOf(el)), busy: false }
 }
 
@@ -121,6 +140,7 @@ function openEdit(id: string): boolean {
   const el = targets.value.get(id)
   if (!item || !el) return false
   const edit = { id, number: item.number, comment: item.comment }
+  containForComment(el)
   draft.value = { key: ++drafts, el, label: describe(el, rectOf(el)), busy: false, edit }
   return true
 }
@@ -209,6 +229,18 @@ function onWheel(e: WheelEvent) {
 }
 
 function onKeydown(e: KeyboardEvent) {
+  // This capture-phase listener also sees keys on their way into the overlay (the target is
+  // then the host); those belong to the comment field.
+  if (e.target === props.host) return
+  // A key for the page while a comment is open: a focus trap took the focus. Enter and
+  // Space would trigger the page's focused control; keep them away from it.
+  const current = draft.value
+  if (current && e.isTrusted && (e.key === 'Enter' || e.key === ' ') && !e.isComposing) {
+    e.preventDefault()
+    e.stopImmediatePropagation()
+    draft.value = { ...current, error: FOCUS_TAKEN }
+    return
+  }
   const action = pageShortcut(e, {
     mode: mode.value,
     hovering: path.value !== null,
@@ -218,12 +250,12 @@ function onKeydown(e: KeyboardEvent) {
   if (!action) return
   e.preventDefault()
   e.stopImmediatePropagation()
-  const current = path.value
+  const walk = path.value
   if (typeof action === 'object') setMode(action.mode)
   else if (action === 'cancel') cancel()
-  else if (current && action === 'up') hovered.value = current.up()
-  else if (current && action === 'down') hovered.value = current.down()
-  else if (current && action === 'select') select(current.current)
+  else if (walk && action === 'up') hovered.value = walk.up()
+  else if (walk && action === 'down') hovered.value = walk.down()
+  else if (walk && action === 'select') select(walk.current)
 }
 
 const status = (): OverlayStatus => ({

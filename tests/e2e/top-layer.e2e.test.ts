@@ -99,4 +99,33 @@ describe('overlay above modal dialogs', () => {
     })
     await expectUsable('h1')
   })
+
+  describe('a modal dialog inside a web component', () => {
+    type Component = HTMLElement & { buttonCenter(): { x: number; y: number }; close(): void }
+    const component = 'shadow-dialog'
+
+    it('stays usable above it', async () => {
+      await clickAction(session)
+      await overlayMounted(session)
+      await session.page.click('#open-shadow')
+      await sleep(200)
+      const { x, y } = await session.page.$eval(component, (el) => (el as Component).buttonCenter())
+      await session.page.keyboard.press('e')
+      await waitInOverlay(session, '[data-testid="overlay-glass"]')
+      await session.page.mouse.move(x, y)
+      await session.page.mouse.click(x, y)
+      await waitInOverlay(session, '[data-testid="overlay-popover"]')
+    })
+
+    it('goes back to the body when it closes', async () => {
+      await clickAction(session)
+      await overlayMounted(session)
+      await session.page.click('#open-shadow')
+      await sleep(200)
+      await session.page.$eval(component, (el) => (el as Component).close())
+      await sleep(200)
+      expect(await hostParent()).toBe('body')
+      await expectUsable('h1')
+    })
+  })
 })
