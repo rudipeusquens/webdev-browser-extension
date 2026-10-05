@@ -2,9 +2,9 @@
 import { computed, onBeforeUnmount, onMounted, ref, shallowReactive, shallowRef, watch } from 'vue'
 import { browser } from 'wxt/browser'
 import { useCollection } from '@/composables/use-collection'
-import { closestOf, rectOf as boundingRect, tagOf } from '@/lib/capture/dom'
+import { closestOf, tagOf } from '@/lib/capture/dom'
 import { pageInfo, snapshotElement } from '@/lib/capture/snapshot'
-import type { ElementSnapshot, Rect } from '@/lib/collection/model'
+import type { Rect, Target } from '@/lib/collection/model'
 import { pageKey } from '@/lib/collection/page-key'
 import {
   type BackgroundMessage,
@@ -18,7 +18,7 @@ import HoverBox from './HoverBox.vue'
 import { newId } from './ids'
 import { pageShortcut } from './keys'
 import { deepActiveElement, isEditable, pickAt, scrollableAncestor, TargetPath } from './picker'
-import { pinPosition, resolveTargets } from './pins'
+import { boxOf, type LiveAnchor, pinPositions, placeItems, pruneLive } from './pins'
 import type { Layer } from './top-layer'
 import { useTracking } from './use-tracking'
 
@@ -30,12 +30,19 @@ const FOCUS_TAKEN = 'This page took the focus. Click into the comment field to c
 
 interface Draft {
   key: number
+  /** The element that holds the target: focus traps are looked for around it. */
   el: Element
+  /** The target's box in viewport coordinates, now. */
+  rect: () => Rect
+  /** A selected text, drawn line by line. */
+  range?: Range
   label: string
   busy: boolean
   error?: string
-  /** A new item: taken when the element was picked, what was true at the moment of marking. */
-  snapshot?: ElementSnapshot
+  /** A new item: taken when it was marked, what was true at that moment. */
+  target?: Target
+  /** What to remember for a new item once it is saved: more precise than its selector. */
+  live?: LiveAnchor
   /** An existing item being edited. */
   edit?: { id: string; number: number; comment: string }
 }
@@ -47,16 +54,15 @@ const draft = shallowRef<Draft | null>(null)
 const highlighted = ref<string | null>(null)
 const frame = useTracking()
 const { collection } = useCollection()
-// Elements marked in this session, by item id: more precise than the stored selector.
-const live = shallowReactive(new Map<string, Element>())
+// What was marked in this session, by item id: more precise than the stored selector.
+const live = shallowReactive(new Map<string, LiveAnchor>())
 let pointed: Element | null = null
 let lastPointer: { x: number; y: number } | null = null
 let drafts = 0
 
 function rectOf(el: Element): Rect {
   void frame.value
-  const r = boundingRect(el)
-  return { x: r.x, y: r.y, width: r.width, height: r.height }
+  return boxOf(el)
 }
 
 const describe = (el: Element, r: Rect) =>
@@ -68,29 +74,40 @@ const hoverRect = computed(() =>
 const hoverLabel = computed(() =>
   hovered.value && hoverRect.value ? describe(hovered.value, hoverRect.value) : '',
 )
-const draftRect = computed(() => (draft.value ? rectOf(draft.value.el) : null))
+const draftRect = computed(() => {
+  void frame.value
+  return draft.value?.rect() ?? null
+})
 
 const pageItems = computed(() =>
   collection.value.items.filter((item) => item.pageKey === pageKey(location.href)),
 )
-const targets = computed(() => {
-  // Re-resolve after DOM changes: an element may have been replaced.
+const placements = computed(() => {
+  // Again after DOM changes: an element may have been replaced.
   void frame.value
-  return resolveTargets(pageItems.value, live, document)
+  return placeItems(pageItems.value, live, document)
 })
 const pins = computed(() => {
   const viewport = { width: window.innerWidth, height: window.innerHeight }
-  return pageItems.value.flatMap((item) => {
-    const el = targets.value.get(item.id)
-    const at = el && pinPosition(rectOf(el), viewport)
-    return at ? [{ id: item.id, number: item.number, left: `${at.x}px`, top: `${at.y}px` }] : []
+  const numbers = new Map(pageItems.value.map((item) => [item.id, item.number]))
+  const onPage = pageItems.value.flatMap((item) => {
+    const placement = placements.value.get(item.id)
+    return placement ? [{ id: item.id, rect: placement.rect() }] : []
   })
+  return pinPositions(onPage, viewport).map(({ id, x, y }) => ({
+    id,
+    number: numbers.get(id),
+    left: `${x}px`,
+    top: `${y}px`,
+  }))
 })
 const highlight = computed(() => {
   const item = pageItems.value.find((i) => i.id === highlighted.value)
-  const el = item && targets.value.get(item.id)
-  return item && el ? { rect: rectOf(el), label: `Item ${item.number}` } : null
+  const placement = item && placements.value.get(item.id)
+  return item && placement ? { rect: placement.rect(), label: `Item ${item.number}` } : null
 })
+
+watch(collection, (current) => pruneLive(live, current.items))
 
 function notifyPanel() {
   browser.runtime.sendMessage({ type: 'overlay:changed' }).catch(() => undefined)
@@ -124,33 +141,55 @@ watch(draft, (current, previous) => {
   if (!current && previous) props.layer.contain(null)
 })
 
+/** Opens the popover for a new item or an edit. */
+function openDraft(next: Omit<Draft, 'key' | 'busy'>) {
+  containForComment(next.el)
+  draft.value = { ...next, key: ++drafts, busy: false }
+}
+
 function select(el: Element | null) {
   if (!el) return
-  let snapshot: ElementSnapshot
+  let target: Target
   try {
-    snapshot = snapshotElement(el)
+    target = { kind: 'element', element: snapshotElement(el) }
   } catch {
     return
   }
-  containForComment(el)
-  draft.value = { key: ++drafts, el, snapshot, label: describe(el, rectOf(el)), busy: false }
+  openDraft({ el, rect: () => boxOf(el), target, live: el, label: describe(el, boxOf(el)) })
 }
 
-/** Opens the popover of an existing item; false when its element is not on the page. */
+/** Short description of an item's target for the popover header. */
+function labelOf(target: Target, el: Element, rect: Rect): string {
+  switch (target.kind) {
+    case 'element':
+      return describe(el, rect)
+    case 'text':
+      return 'text'
+    case 'area':
+      return `area · ${Math.round(rect.width)}×${Math.round(rect.height)}`
+  }
+}
+
+/** Opens the popover of an existing item; false when its target is not on the page. */
 function openEdit(id: string): boolean {
   const item = pageItems.value.find((i) => i.id === id)
-  const el = targets.value.get(id)
-  if (!item || !el) return false
-  const edit = { id, number: item.number, comment: item.comment }
-  containForComment(el)
-  draft.value = { key: ++drafts, el, label: describe(el, rectOf(el)), busy: false, edit }
+  const placement = placements.value.get(id)
+  if (!item || !placement) return false
+  const { el, rect, range } = placement
+  openDraft({
+    el,
+    rect,
+    range,
+    label: labelOf(item.target, el, rect()),
+    edit: { id, number: item.number, comment: item.comment },
+  })
   return true
 }
 
 function reveal(id: string): boolean {
-  const el = targets.value.get(id)
-  if (!el) return false
-  el.scrollIntoView({ block: 'center', inline: 'nearest' })
+  const placement = placements.value.get(id)
+  if (!placement) return false
+  placement.el.scrollIntoView({ block: 'center', inline: 'nearest' })
   return openEdit(id)
 }
 
@@ -173,7 +212,7 @@ async function save(comment: string) {
         type: 'annotation:add',
         id,
         page: pageInfo(window),
-        target: { kind: 'element', element: current.snapshot as ElementSnapshot },
+        target: current.target as Target,
         comment,
       }
   let reply: Reply | undefined
@@ -184,7 +223,7 @@ async function save(comment: string) {
   }
   if (draft.value?.key !== current.key) return
   if (reply?.ok) {
-    if (!current.edit) live.set(id, current.el)
+    if (!current.edit && current.live) live.set(id, current.live)
     draft.value = null
     return
   }
