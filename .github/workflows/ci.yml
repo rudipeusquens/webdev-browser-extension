@@ -37,6 +37,8 @@ jobs:
       - run: pnpm lint
       - run: pnpm format:check
       - run: pnpm compile
+      - run: pnpm build
+      - run: pnpm manifest:check
       - run: pnpm test
       - run: pnpm secrets:check
       - name: privacy check (tree + history)

@@ -24,7 +24,8 @@
     "test:unit": "vitest run",
     "secrets:check": "git ls-files -z | xargs -0 secretlint --maskSecrets",
     "privacy:check": "node scripts/privacy-check.mjs --all",
-    "check": "pnpm lint && pnpm format:check && pnpm compile && pnpm test && pnpm secrets:check && pnpm privacy:check"
+    "check": "pnpm lint && pnpm format:check && pnpm compile && pnpm test && pnpm secrets:check && pnpm privacy:check",
+    "manifest:check": "node scripts/check-manifest.mjs"
   },
   "lint-staged": {
     "*": [
