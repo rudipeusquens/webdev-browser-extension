@@ -68,7 +68,7 @@ describe('snapshotElement', () => {
   it('builds a valid snapshot with the box in page coordinates', () => {
     document.body.innerHTML = '<main><button class="primary">Save</button></main>'
     const button = $('button')
-    vi.spyOn(button, 'getBoundingClientRect').mockReturnValue(
+    vi.spyOn(Element.prototype, 'getBoundingClientRect').mockReturnValue(
       DOMRect.fromRect({ x: 10.4, y: 20.6, width: 99.5, height: 30 }),
     )
     vi.spyOn(window, 'scrollX', 'get').mockReturnValue(5)

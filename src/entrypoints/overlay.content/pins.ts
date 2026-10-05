@@ -1,5 +1,6 @@
 // Numbered pins on marked elements of the current page.
 
+import { isConnected } from '@/lib/capture/dom'
 import type { Annotation, Rect } from '@/lib/collection/model'
 
 /**
@@ -15,7 +16,7 @@ export function resolveTargets(
   for (const item of items) {
     if (item.target.kind !== 'element') continue
     const marked = live.get(item.id)
-    if (marked?.isConnected) {
+    if (marked && isConnected(marked)) {
       found.set(item.id, marked)
       continue
     }

@@ -1,4 +1,15 @@
-// Finding and walking the element under the pointer in element mode.
+// Finding and walking the element under the pointer in element mode. DOM reads go through
+// src/lib/capture/dom.ts: page markup cannot redirect them.
+
+import {
+  closestOf,
+  firstChildOf,
+  MAX_DEPTH,
+  nextSiblingOf,
+  ownerDocumentOf,
+  parentOf,
+  tagOf,
+} from '@/lib/capture/dom'
 
 /** The page element under a viewport point, skipping the overlay host; never the root. */
 export function pickAt(doc: Document, x: number, y: number, host: Element): Element | null {
@@ -16,8 +27,8 @@ export class TargetPath {
   ) {}
 
   up(): Element {
-    const parent = this.current.parentElement
-    if (parent && this.current.localName !== 'body' && parent.localName !== 'html') {
+    const parent = parentOf(this.current)
+    if (parent && tagOf(this.current) !== 'body' && tagOf(parent) !== 'html') {
       this.trail.push(this.current)
       this.current = parent
     }
@@ -27,8 +38,8 @@ export class TargetPath {
   down(): Element {
     const back = this.trail.pop()
     if (back) return (this.current = back)
-    let child = this.current.firstElementChild
-    while (child && child === this.skip) child = child.nextElementSibling
+    let child = firstChildOf(this.current)
+    while (child && child === this.skip) child = nextSiblingOf(child)
     if (child) this.current = child
     return this.current
   }
@@ -54,7 +65,7 @@ export function isEditable(el: Element | null): boolean {
   if (!el) return false
   if (el instanceof HTMLTextAreaElement || el instanceof HTMLSelectElement) return true
   if (el instanceof HTMLInputElement) return TEXT_INPUTS.has(el.type)
-  const region = el.closest('[contenteditable]')
+  const region = closestOf(el, '[contenteditable]')
   return region !== null && region.getAttribute('contenteditable') !== 'false'
 }
 
@@ -67,11 +78,9 @@ export function deepActiveElement(doc: Document): Element | null {
 
 /** The nearest ancestor that scrolls on `axis`, else the document's scrolling element. */
 export function scrollableAncestor(el: Element | null, vertical: boolean): Element | null {
-  for (
-    let node = el;
-    node && node !== node.ownerDocument.documentElement;
-    node = node.parentElement
-  ) {
+  let node = el
+  for (let depth = 0; node && depth < MAX_DEPTH; depth++, node = parentOf(node)) {
+    if (node === ownerDocumentOf(node).documentElement) break
     const style = getComputedStyle(node)
     const overflow = vertical ? style.overflowY : style.overflowX
     const room = vertical
@@ -79,5 +88,5 @@ export function scrollableAncestor(el: Element | null, vertical: boolean): Eleme
       : node.scrollWidth > node.clientWidth
     if (room && /auto|scroll|overlay/.test(overflow)) return node
   }
-  return el?.ownerDocument.scrollingElement ?? null
+  return el ? ownerDocumentOf(el).scrollingElement : null
 }

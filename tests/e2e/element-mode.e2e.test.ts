@@ -150,4 +150,41 @@ describe('element mode', () => {
     )
     expect(underPointer, selector).toBe(true)
   })
+
+  describe('a form whose inputs shadow its DOM properties', () => {
+    const input = 'form.clobbered input[name="parentElement"]'
+
+    it('marks the form through its input with the arrow keys', async () => {
+      await session.page.keyboard.press('e')
+      await waitInOverlay(session, '[data-testid="overlay-glass"]')
+      const { x, y } = await centerOf(session.page, input)
+      await session.page.mouse.move(x, y)
+      await waitInOverlay(session, '[data-testid="overlay-hover-label"]')
+      await session.page.keyboard.press('ArrowUp')
+      await sleep(100)
+      expect(await label()).toMatch(/^form · /)
+      await session.page.keyboard.press('Enter')
+      await waitInOverlay(session, '[data-testid="overlay-popover"]')
+      await session.page.keyboard.type('Group these fields')
+      await session.page.keyboard.press('Enter')
+      const c = await waitForItems(panel, 1)
+      const selector = (c?.items[0]?.target as unknown as { element: { selector: string } }).element
+        .selector
+      const same = await session.page.evaluate(
+        (sel) => document.querySelector(sel) === document.querySelector('form.clobbered'),
+        selector,
+      )
+      expect(same, selector).toBe(true)
+    })
+
+    it('scrolls over the form without hanging the page', { timeout: 15_000 }, async () => {
+      await session.page.keyboard.press('e')
+      await waitInOverlay(session, '[data-testid="overlay-glass"]')
+      const { x, y } = await centerOf(session.page, input)
+      await session.page.mouse.move(x, y)
+      await session.page.mouse.wheel({ deltaY: 50 })
+      await sleep(200)
+      expect(await session.page.evaluate(() => 1 + 1)).toBe(2)
+    })
+  })
 })

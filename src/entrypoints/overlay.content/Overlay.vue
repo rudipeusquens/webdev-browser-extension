@@ -2,6 +2,7 @@
 import { computed, onBeforeUnmount, onMounted, ref, shallowReactive, shallowRef, watch } from 'vue'
 import { browser } from 'wxt/browser'
 import { useCollection } from '@/composables/use-collection'
+import { closestOf, rectOf as boundingRect, tagOf } from '@/lib/capture/dom'
 import { pageInfo, snapshotElement } from '@/lib/capture/snapshot'
 import type { ElementSnapshot, Rect } from '@/lib/collection/model'
 import { pageKey } from '@/lib/collection/page-key'
@@ -54,12 +55,12 @@ let drafts = 0
 
 function rectOf(el: Element): Rect {
   void frame.value
-  const r = el.getBoundingClientRect()
+  const r = boundingRect(el)
   return { x: r.x, y: r.y, width: r.width, height: r.height }
 }
 
 const describe = (el: Element, r: Rect) =>
-  `${el.localName} · ${Math.round(r.width)}×${Math.round(r.height)}`
+  `${tagOf(el)} · ${Math.round(r.width)}×${Math.round(r.height)}`
 
 const hoverRect = computed(() =>
   hovered.value && mode.value === 'element' && !draft.value ? rectOf(hovered.value) : null,
@@ -114,7 +115,8 @@ function setMode(next: Mode) {
  * holds the focus (or the target) while a comment is written.
  */
 function containForComment(el: Element) {
-  const trap = deepActiveElement(document)?.closest(TRAP) ?? el.closest(TRAP)
+  const focused = deepActiveElement(document)
+  const trap = (focused && closestOf(focused, TRAP)) ?? closestOf(el, TRAP)
   props.layer.contain(trap)
 }
 

@@ -1,5 +1,17 @@
 // A CSS selector that matches exactly one element (spec section 6, "Selector").
 
+import {
+  attributeOf,
+  childrenOf,
+  classesOf,
+  idOf,
+  MAX_DEPTH,
+  matchesSelector,
+  ownerDocumentOf,
+  parentOf,
+  tagOf,
+} from './dom'
+
 const GENERATED_ID = [
   /^:r[0-9a-z]*:$/i, // React useId (≤ 19.0)
   /^«r[0-9a-z]*»$/i, // React useId (19.1)
@@ -60,14 +72,6 @@ export function cssEscape(value: string): string {
   return result
 }
 
-function matches(el: Element, selector: string): boolean {
-  try {
-    return el.matches(selector)
-  } catch {
-    return false
-  }
-}
-
 function isUnique(root: ParentNode, selector: string): boolean {
   try {
     return root.querySelectorAll(selector).length === 1
@@ -79,9 +83,10 @@ function isUnique(root: ParentNode, selector: string): boolean {
 /** `#id`, `[data-testid="…"]` or `[data-test="…"]` when it is stable and unique. */
 function anchorOf(el: Element, root: ParentNode): string | undefined {
   const candidates: string[] = []
-  if (isStableId(el.id)) candidates.push(`#${cssEscape(el.id)}`)
+  const id = idOf(el)
+  if (isStableId(id)) candidates.push(`#${cssEscape(id)}`)
   for (const name of TEST_ATTRIBUTES) {
-    const value = el.getAttribute(name)
+    const value = attributeOf(el, name)
     if (value && value.length <= 64) candidates.push(`[${name}="${cssEscape(value)}"]`)
   }
   return candidates.find((selector) => isUnique(root, selector))
@@ -89,14 +94,16 @@ function anchorOf(el: Element, root: ParentNode): string | undefined {
 
 /** Tag plus up to two stable classes, with `:nth-of-type` when a sibling matches as well. */
 function segment(el: Element): string {
-  const classes = [...el.classList]
+  const classes = classesOf(el)
     .filter(isStableClass)
     .sort((a, b) => Number(/\d/.test(a)) - Number(/\d/.test(b)))
     .slice(0, 2)
-  const base = [cssEscape(el.localName), ...classes.map((name) => `.${cssEscape(name)}`)].join('')
-  const siblings = el.parentElement ? [...el.parentElement.children] : []
-  if (siblings.filter((sibling) => matches(sibling, base)).length <= 1) return base
-  const sameTag = siblings.filter((sibling) => sibling.localName === el.localName)
+  const tag = tagOf(el)
+  const base = [cssEscape(tag), ...classes.map((name) => `.${cssEscape(name)}`)].join('')
+  const parent = parentOf(el)
+  const siblings = parent ? childrenOf(parent) : []
+  if (siblings.filter((sibling) => matchesSelector(sibling, base)).length <= 1) return base
+  const sameTag = siblings.filter((sibling) => tagOf(sibling) === tag)
   return `${base}:nth-of-type(${sameTag.indexOf(el) + 1})`
 }
 
@@ -105,9 +112,10 @@ function segment(el: Element): string {
  * `LIMITS.selectorDepth` levels. In self-similar trees it goes further, up to the root: a
  * selector matching the wrong element is worse than a long one.
  */
-export function buildSelector(el: Element, root: ParentNode = el.ownerDocument): string {
+export function buildSelector(el: Element, root: ParentNode = ownerDocumentOf(el)): string {
   const parts: string[] = []
-  for (let node: Element | null = el; node; node = node.parentElement) {
+  let node: Element | null = el
+  for (let depth = 0; node && depth < MAX_DEPTH; depth++, node = parentOf(node)) {
     const anchor = anchorOf(node, root)
     if (anchor) return [anchor, ...parts].join(' > ')
     parts.unshift(segment(node))

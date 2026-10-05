@@ -4,35 +4,36 @@ import type { ElementSnapshot, PageInfo } from '../collection/model'
 import { LIMITS } from '../collection/model'
 import { pageKey } from '../collection/page-key'
 import { clean, collapse, truncate } from '../text'
+import { attributesOf, ownerDocumentOf, rectOf, tagOf, textOf } from './dom'
 import { buildSelector } from './selector'
 import { pickStyles } from './styles'
 
 const FORM_FIELDS = new Set(['input', 'textarea', 'select'])
-const isFormField = (el: Element) => FORM_FIELDS.has(el.localName)
+const isFormField = (el: Element) => FORM_FIELDS.has(tagOf(el))
 
 export function openingTag(el: Element): string {
+  const all = attributesOf(el)
   const attributes = isFormField(el)
-    ? [...el.attributes].filter((a) => a.name === 'type' || a.name === 'name')
-    : [...el.attributes]
+    ? all.filter((a) => a.name === 'type' || a.name === 'name')
+    : all
   const parts = attributes.map(({ name, value }) =>
     value === ''
       ? name
       : `${name}="${truncate(collapse(value), LIMITS.attribute).replace(/"/g, '&quot;')}"`,
   )
   // The closing bracket survives truncation, so the tag still reads as a tag.
-  return `<${truncate([el.localName, ...parts].join(' '), LIMITS.tag - 2)}>`
+  return `<${truncate([tagOf(el), ...parts].join(' '), LIMITS.tag - 2)}>`
 }
 
 /** Rendered text, never the value or options of a form field. */
 export function visibleText(el: Element): string {
   if (isFormField(el)) return ''
-  const rendered = (el as Partial<HTMLElement>).innerText
-  return clean(typeof rendered === 'string' ? rendered : (el.textContent ?? ''), LIMITS.text)
+  return clean(textOf(el), LIMITS.text)
 }
 
 export function snapshotElement(el: Element): ElementSnapshot {
-  const view = el.ownerDocument.defaultView
-  const rect = el.getBoundingClientRect()
+  const view = ownerDocumentOf(el).defaultView
+  const rect = rectOf(el)
   return {
     selector: truncate(buildSelector(el), LIMITS.selector),
     openingTag: openingTag(el),

@@ -19,6 +19,11 @@
     <div class="scroll-box"><p>Scrollable content</p></div>
     <p id="2col">An id that starts with a digit</p>
     <p data-testid='say "hi"'>A test id with quotes</p>
+    <!-- Named inputs shadow the form's own properties ("DOM clobbering"). -->
+    <form class="clobbered">
+      <input name="parentElement" /><input name="localName" /><input name="classList" />
+      <input name="attributes" /><input name="getAttribute" /><input name="matches" />
+    </form>
     <script src="page.js"></script>
   </body>
 </html>
