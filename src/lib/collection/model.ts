@@ -105,7 +105,7 @@ export const LIMITS = {
   tag: 200,
   attribute: 60,
   styleValue: 80,
-  url: 2048,
+  url: 8192,
   selector: 1000,
   path: 500,
   name: 100,

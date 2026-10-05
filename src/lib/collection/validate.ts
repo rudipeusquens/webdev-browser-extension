@@ -14,17 +14,17 @@ import {
 } from './model'
 import { pageKey } from './page-key'
 
-type Fields = Record<string, unknown>
+export type Fields = Record<string, unknown>
 
 const STYLE_KEYS: ReadonlySet<string> = new Set(CURATED_STYLES)
 const PROTOCOLS = new Set(['http:', 'https:', 'file:'])
 
-function isObject(x: unknown): x is Fields {
+export function isObject(x: unknown): x is Fields {
   return typeof x === 'object' && x !== null && !Array.isArray(x)
 }
 
 /** `x` is an object with all `required` keys and nothing beyond `required` and `optional`. */
-function hasKeys(x: unknown, required: string[], optional: string[] = []): x is Fields {
+export function hasKeys(x: unknown, required: string[], optional: string[] = []): x is Fields {
   if (!isObject(x)) return false
   const keys = Object.keys(x)
   return (
@@ -48,7 +48,7 @@ export function codePoints(s: string): number {
   return n
 }
 
-function isText(x: unknown, max: number, min = 0): x is string {
+export function isText(x: unknown, max: number, min = 0): x is string {
   if (typeof x !== 'string' || x.length > max * 2) return false
   const n = codePoints(x)
   return n >= min && n <= max

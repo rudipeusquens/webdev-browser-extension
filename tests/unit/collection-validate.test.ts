@@ -132,7 +132,7 @@ describe('isPageInfo', () => {
   it('rejects other schemes, unparsable URLs and bad fields', () => {
     expect(isPageInfo(page('javascript:alert(1)'))).toBe(false)
     expect(isPageInfo(page('not a url'))).toBe(false)
-    expect(isPageInfo(page(`https://example.com/${'a'.repeat(2048)}`))).toBe(false)
+    expect(isPageInfo(page(`https://example.com/${'a'.repeat(8192)}`))).toBe(false)
     expect(isPageInfo(page(URL_A, { colorScheme: 'blue' as 'light' }))).toBe(false)
     expect(isPageInfo(page(URL_A, { title: 'x'.repeat(121) }))).toBe(false)
   })
