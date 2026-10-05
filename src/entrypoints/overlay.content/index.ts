@@ -3,6 +3,36 @@ import { type App as VueApp, createApp } from 'vue'
 import { createShadowRootUi } from 'wxt/utils/content-script-ui/shadow-root'
 import { defineContentScript } from 'wxt/utils/define-content-script'
 import Overlay from './Overlay.vue'
+import { keepOnTop } from './top-layer'
+
+// Stopped at the shadow root, so page listeners in the bubble phase never see what happens
+// inside the overlay (shortcuts, outside-click handlers, focus traps, paste handlers).
+const ISOLATED_EVENTS = [
+  'keydown',
+  'keyup',
+  'keypress',
+  'beforeinput',
+  'input',
+  'pointerdown',
+  'pointerup',
+  'mousedown',
+  'mouseup',
+  'click',
+  'dblclick',
+  'contextmenu',
+  'focusin',
+  'focusout',
+  'paste',
+  'copy',
+  'cut',
+  'dragenter',
+  'dragover',
+  'dragleave',
+  'drop',
+  'compositionstart',
+  'compositionupdate',
+  'compositionend',
+]
 
 declare global {
   // Set in the content-script world only, for E2E tests to reach the closed shadow root.
@@ -25,9 +55,16 @@ export default defineContentScript({
       anchor: 'body',
       append: 'last',
       mode: 'closed',
-      css: styles.replaceAll(':root', ':host'),
-      onMount(container) {
-        const app = createApp(Overlay, { portalTarget: container })
+      // WXT moves @property rules into the page's <head>, where they would also apply to the
+      // page's own --tw-* variables (`inherits: false` breaks inheritance). Ours get a name
+      // no page uses.
+      css: styles.replaceAll(':root', ':host').replaceAll('--tw-', '--webdev-tw-'),
+      isolateEvents: ISOLATED_EVENTS,
+      onMount(container, shadow, host) {
+        const layer = keepOnTop(host, shadow)
+        // Registered after WXT's own cleanup, so the host is gone before this stops watching.
+        ctx.onInvalidated(layer.stop)
+        const app = createApp(Overlay, { host, layer })
         app.mount(container)
         return app
       },

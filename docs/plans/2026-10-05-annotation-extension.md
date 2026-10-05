@@ -53,7 +53,8 @@ that starts it) once the spike results of milestone 1 are recorded in the spec.
 1. **Text selected inside a form field** (`input`, `textarea`): the value must never be
    captured; no Comment chip appears. → milestone 3 test.
 2. **Page text containing backticks, Markdown, HTML or line breaks**: the output stays valid
-   Markdown, fences never break, nothing is interpreted. → milestone 2 formatter tests.
+   Markdown, fences and quotes never break, no page text starts a line or injects HTML (inline
+   emphasis inside quotes may render; spec section 7). → milestone 2 formatter tests.
 3. **Identical sibling structures** (list items, cards without ids): the selector must still
    match exactly one element. → milestone 2 selector tests.
 4. **Same page, different URL spelling** (hash, query, trailing slash): hash dropped, query
@@ -1452,49 +1453,566 @@ findings.
 ## Milestone 2: Element marking end to end (first usable version)
 
 **Goal:** Activate on a tab, pick an element, comment, see it in the side panel, copy the
-Markdown. Single page; no reload persistence of pins yet (the collection itself persists).
+Markdown. Single page; pins come back when the overlay is activated again, re-anchoring after
+DOM changes is milestone 4. The collection itself persists.
+
+**Expanded on 2026-10-05** from the milestone 1 results. Tasks 7–15 name files, interfaces and
+the tests to write first; the implementation follows in the same pull request. Steps are
+test-first: write the listed tests, watch them fail, implement, watch them pass, commit.
+
+**Facts this milestone relies on** (verified on 2026-10-05, Chrome for Testing 154):
+
+- A modal `<dialog>` makes every node outside it inert, including an overlay host shown as
+  `popover="manual"` above it in the top layer: hit testing skips it, clicks and focus fail.
+- An overlay host that is a **descendant of the open modal dialog** and shown as a popover is
+  on top, receives trusted clicks, takes focus and keyboard input, and is positioned against
+  the viewport even when the dialog has `transform`, `overflow: hidden` and `contain: paint`.
+  `document.elementsFromPoint()` under it returns `[host, …elements inside the dialog…]`.
+- Closing the dialog leaves the host inside it; removing the dialog element removes the host
+  too. Both must be detected (attribute `open`, child list) and the host moved back to `body`.
+- `hidePopover()` + `showPopover()` on a manual popover re-raises it above later top-layer
+  elements and does not close the page's `popover="auto"` elements.
+- WXT's `createShadowRootUi` moves `@property` rules into a `<style>` in the page's `<head>`;
+  `isolateEvents` stops the listed events at the shadow root, so page listeners in the bubble
+  phase never see them (capture-phase page listeners still do).
+- `crypto.randomUUID()` exists only in secure contexts; content scripts on plain-HTTP hosts
+  other than `localhost` must build ids from `crypto.getRandomValues()`.
+- Chrome 116 does not accept a promise returned from `runtime.onMessage` listeners; use
+  `sendResponse` and `return true`.
+- Found in the final review: `document.execCommand()` from the page edits a focused textarea
+  inside a closed shadow root, with trusted `input` events but no `beforeinput`; modal dialogs
+  inside web components need `chrome.dom.openOrClosedShadowRoot()` to be found; script focus
+  traps accept the overlay only when its host is inside their container; named form controls
+  shadow DOM properties of their form.
+
+**Known limits** (documented in the spec, not fixed in this milestone): clicking to mark closes
+page popovers that light-dismiss (`popover="auto"`, `dialog closedby="any"`, script menus that
+close on an outside `pointerdown`) — hovering and pressing `Enter` selects without a click;
+hover-only menus cannot be reached by pointing; a page can observe what is typed into the
+comment field.
+
+**Pre-flight (shared interfaces):** Task 7 types are consumed by Tasks 8–14; Task 9
+`snapshotElement` feeds the `annotation:add` message of Tasks 10 and 12; Task 10's message
+union is used by the overlay (12, 14) and the panel (13); Task 11's `keepOnTop` is called by
+the overlay entry of Task 12.
+
+### Task 7: Collection model, operations and validation
 
 **Files:**
 
-- `lib/capture/selector.ts` — `buildSelector(el: Element, root?: ParentNode): string`
-- `lib/capture/snapshot.ts` — `snapshotElement(el: Element): ElementSnapshot` (opening tag,
-  text, box, curated styles; form values excluded)
-- `lib/capture/styles.ts` — `CURATED_STYLES` (spec section 6 order) and `pickStyles()`
-- `lib/collection/model.ts` — types from spec section 5 (`Collection`, `Annotation`, …)
-- `lib/collection/ops.ts` — `addAnnotation`, `updateComment`, `removeAnnotation`, `clearAll`,
-  `groupByPage` (pure functions over `Collection`)
-- `lib/format/markdown.ts` — `formatCollection(c: Collection): string`
-- `lib/format/escape.ts` — `inlineCode()`, `quoted()`, `clean()`
-- `lib/messages.ts` — typed message union + `isMessage()` guard
-- `entrypoints/background.ts` — message handling, storage writes
-- `entrypoints/overlay.content/` — element mode, hover chip, `↑`/`↓`, popover, pins
-- `entrypoints/sidepanel/` — list, empty state, Copy as prompt, Clear all, copy-failure dialog
-- `tests/fixtures/sites/plain/`, `tests/fixtures/sites/hostile/`
+- Create: `src/lib/collection/model.ts`, `src/lib/collection/ops.ts`,
+  `src/lib/collection/validate.ts`, `src/lib/collection/store.ts`
+- Test: `tests/unit/collection-ops.test.ts`, `tests/unit/collection-validate.test.ts`
 
-**Required tests:**
+**Interfaces:**
 
-- Unit `selector`: unique id; generated-looking ids skipped (`:r1:`, `v-12`, `el-123456`);
-  `data-testid`; hashed and CSS-module classes skipped; **identical siblings** resolved with
-  `:nth-of-type` (Review Focus 3); result always matches exactly one element; depth ≤ 8.
-- Unit `snapshot`: text truncated at 120 with `…`; styles only from the curated list in order;
-  `input`/`textarea`/`select` → only type and name, never value.
-- Unit `formatter` (golden files in `tests/unit/golden/`): the spec section 7 example
-  reproduced exactly; empty fields omitted; **backticks, Markdown, HTML and line breaks in page
-  text** (Review Focus 2); multi-line comments as blockquote; **gaps in numbering** after
-  deletion; pages ordered by first annotation.
-- Unit `ops`: numbering stable with gaps, reset by `clearAll`; update keeps number;
-  grouping order.
-- Unit `messages`: `isMessage()` rejects unknown types and wrong shapes.
-- E2E: activate → element mode → click a fixture button → type comment → Enter → panel shows
-  item → Copy as prompt → clipboard equals expected Markdown. Same flow on the hostile page:
-  overlay visible above `z-index: 2147483647` content, styles intact under `all: unset`.
-  **Top layer** (found in the milestone 1 review): a fixture that opens `dialog.showModal()`;
-  the overlay must stay visible and usable above the modal, and an element inside the modal
-  can be marked (spec section 13, spike 3 limit).
+- Produces (model.ts): the spec section 5 types `Collection`, `PageInfo`, `Annotation`,
+  `ElementSnapshot`, `CodeOrigin`, `ElementTarget`, `TextTarget`, `AreaTarget`, plus
+  `Rect = { x; y; width; height }`, `Target = ElementTarget | TextTarget | AreaTarget` and
+  `LIMITS = { text: 120, selected: 500, context: 40, originChain: 5, areaElements: 10,
+selectorDepth: 8, comment: 5000, title: 120, tag: 200, attribute: 60, styleValue: 80,
+url: 8192, selector: 1000, path: 500, name: 100 }`.
+- Produces (ops.ts, pure): `emptyCollection(): Collection`;
+  `addAnnotation(c, input: NewAnnotation, now: string): Collection` with
+  `NewAnnotation = { id: string; page: PageInfo; target: Target; comment: string }`;
+  `updateComment(c, id, comment, now): Collection`; `removeAnnotation(c, id): Collection`;
+  `clearAll(): Collection`; `groupByPage(c): PageGroup[]` with
+  `PageGroup = { key: string; page: PageInfo; items: Annotation[] }`.
+- Produces (validate.ts): `isAnnotationId(x)` (`/^[A-Za-z0-9_-]{1,64}$/`), `isPageInfo(x)`,
+  `isElementSnapshot(x)`, `isTarget(x)`, `isCollection(x)` — type guards that also enforce the
+  `LIMITS` (lengths in code points), finite numbers, `http:`/`https:`/`file:` URLs and style
+  keys from the curated list.
+- Produces (store.ts): `COLLECTION_KEY = 'collection'`; `loadCollection(): Promise<Collection>`
+  (invalid or missing → `emptyCollection()`); `watchCollection(cb): () => void`.
 
-Also in this milestone: side panel tab status ("Active on …", "Can't run on this page"),
-hovering a panel entry highlights its target, clicking scrolls to it; E2E: events dispatched by
-the page (`isTrusted: false`) never open the popover or save an annotation.
+- [ ] **Step 1: Write the failing tests**
+
+`collection-ops.test.ts` (fixtures built with a local `element(selector)` helper):
+
+- `addAnnotation` numbers items 1, 2, 3 and stores `pages[pageKey(url)]` with the latest page
+  info; `createdAt === updatedAt === now`.
+- An id that already exists leaves the collection unchanged.
+- `removeAnnotation` of item 2 keeps numbers 1 and 3 and `nextNumber` 4 (gap); removing the
+  last item of a page removes its page entry.
+- `updateComment` changes comment and `updatedAt`, keeps number and `createdAt`; unknown id →
+  unchanged.
+- `clearAll()` resets `nextNumber` to 1; the next add gets number 1.
+- `groupByPage`: pages ordered by their first annotation's number (page B marked first, then
+  A, then B again → B, A), items inside a page by number; the input is not mutated.
+
+`collection-validate.test.ts`:
+
+- A valid collection with element, text and area targets passes `isCollection`.
+- Rejected: wrong `version`, a `text` of 121 code points, a non-finite box value, a style key
+  outside the curated list, a `javascript:` page URL, an origin chain of 6, an area with 11
+  elements, an id with a space, an item whose `pageKey` has no `pages` entry.
+- 120 emoji (240 UTF-16 units) still pass the 120 limit: limits count code points.
+
+- [ ] **Step 2: Run them to see them fail**
+
+Run: `pnpm vitest run tests/unit/collection-ops.test.ts tests/unit/collection-validate.test.ts`
+Expected: FAIL, modules not found.
+
+- [ ] **Step 3: Implement** `model.ts`, `ops.ts` (no mutation of the input), `validate.ts`,
+      `store.ts` (reads `browser.storage.local`, validates with `isCollection`).
+
+- [ ] **Step 4: Run them to see them pass** (same command). Expected: PASS.
+
+- [ ] **Step 5: Commit** — `Add the collection model, operations and validation`
+
+### Task 8: Markdown formatter
+
+**Files:**
+
+- Create: `src/lib/text.ts`, `src/lib/format/escape.ts`, `src/lib/format/markdown.ts`,
+  `tests/unit/golden/spec-example.md`, `tests/unit/golden/hostile-text.md`
+- Modify: `.prettierignore` (golden files are compared byte for byte)
+- Test: `tests/unit/text.test.ts`, `tests/unit/format-escape.test.ts`,
+  `tests/unit/format-markdown.test.ts`
+
+**Interfaces:**
+
+- Consumes: Task 7 types and `groupByPage`.
+- Produces: `clean(s: string, max?: number): string` (removes C0/C1 control characters and
+  bidirectional formatting characters, collapses whitespace including line breaks to one
+  space, trims, truncates to `max` code points ending in `…`); `truncate(s, max)`;
+  `inlineCode(s)` (fence one backtick longer than the longest run inside, padded with spaces
+  when `s` starts or ends with a backtick); `quoted(s)` (`"…"`, escaping `\` and `"`);
+  `blockquote(comment)` (each line prefixed with `> `, empty lines `>`);
+  `formatCollection(c: Collection): string` (ends with one newline).
+
+Formatter rules beyond spec section 7: the heading counts items and pages with singular forms
+("1 item on 1 page"); a page line omits `Title:` when the title is empty; text targets render
+`Context: "<before>**<selected>**<after>"` with `before`/`after` exactly as captured (the
+capture adds `…` when it cut text); area targets list each element as
+`` `<selector>` "<text>" · <innermost component> `` and end with `  - …and N more` when
+`moreCount > 0`; `In:`/`Container:` lines show the innermost component, the element `Component:`
+line the whole chain joined with `›`, each entry `Name (file)` or `Name (file:line)`.
+
+- [ ] **Step 1: Write the failing tests**
+
+- `text.test.ts`: control characters, `\u202E` and `\u2066` removed; `"a\n\n b\tc"` →
+  `"a b c"`; 121 code points capped to 120 ending in `…`; a surrogate pair is never split.
+- `format-escape.test.ts`: ``inlineCode('a`b')`` → ``` ``a`b`` ```; ``inlineCode('`x')`` →
+  ``` `` `x `` ```; `quoted('say "hi" \\o/')` → `"say \"hi\" \\\\o/"`; `blockquote('a\n\nb')`
+  → `"> a\n>\n> b"`.
+- `format-markdown.test.ts`:
+  - the spec section 7 collection (element with a two-entry Vue chain, text, area with three
+    elements, two pages) → equals `golden/spec-example.md` exactly;
+  - page text with backticks, `# heading`, `<img src=x onerror=alert(1)>`, `**bold**` and line
+    breaks in text, tag, selector and title → equals `golden/hostile-text.md` (every fence
+    holds, nothing starts a new line, `"` escaped);
+  - a two-line comment becomes a two-line blockquote;
+  - after deleting item 2 of 3 the output numbers `### 1.` and `### 3.`;
+  - empty text, empty styles and no origin → those lines are absent (never "unknown");
+  - one item → heading `# UI feedback: 1 item on 1 page`.
+
+- [ ] **Step 2: Run them to see them fail**
+
+Run: `pnpm vitest run tests/unit/text.test.ts tests/unit/format-escape.test.ts tests/unit/format-markdown.test.ts`
+Expected: FAIL, modules not found.
+
+- [ ] **Step 3: Implement**, add `tests/unit/golden` to `.prettierignore`.
+
+- [ ] **Step 4: Run them to see them pass** (same command). Expected: PASS.
+
+- [ ] **Step 5: Commit** — `Format the collection as a Markdown prompt`
+
+### Task 9: Capture library
+
+**Files:**
+
+- Create: `src/lib/capture/selector.ts`, `src/lib/capture/styles.ts`,
+  `src/lib/capture/snapshot.ts`
+- Test: `tests/unit/capture-selector.test.ts`, `tests/unit/capture-styles.test.ts`,
+  `tests/unit/capture-snapshot.test.ts`
+
+**Interfaces:**
+
+- Consumes: Task 7 `ElementSnapshot`, `PageInfo`, `LIMITS`; Task 8 `clean`, `truncate`.
+- Produces: `buildSelector(el: Element, root?: ParentNode): string`; `cssEscape(s)`;
+  `isStableId(id)`; `isStableClass(name)`; `CURATED_STYLES` (spec section 6 order);
+  `pickStyles(style: Pick<CSSStyleDeclaration, 'getPropertyValue'>): Record<string, string>`;
+  `openingTag(el)`; `visibleText(el)`; `snapshotElement(el: Element): ElementSnapshot`;
+  `pageInfo(win: Window): PageInfo`.
+
+Selector algorithm: from the element upwards, usually at most 8 levels: an element with a stable
+unique `#id`, `[data-testid]` or `[data-test]` becomes the root of the selector; otherwise the
+segment is the tag plus up to two stable classes (classes without digits first), with
+`:nth-of-type(n)` when another sibling matches the same segment; stop at the first unique
+selector. If 8 levels are not unique, continue up to `body` (uniqueness wins over length; rare,
+deep generic DOMs). Generated ids: React `useId` forms (`:r1:`, `«r1»`, `_r_1_`), `v-12`, runs
+of four or more digits, library prefixes (`radix-`, `reka-`, `headlessui-`), longer than 64.
+Unstable classes: CSS-module and hash shapes (`Button_root__x7f2a`, `css-1h2k3l`, `sc-…`,
+`jsx-123`, `svelte-1abc2d`), Tailwind arbitrary values and variants (`[`, `:`, `/`, `!`),
+state classes (`active`, `is-open`, `selected`, …), longer than 40.
+
+Styles: `display`, `width`, `height`, `font-*`, `line-height`, `color` always; `position`
+unless `static`; `margin`, `padding`, `border-radius` unless `0px`; `background-color` unless
+transparent; `border` unless its width is `0px` or its style `none`; `gap`, `flex-direction`,
+`justify-content`, `align-items` only on flex and grid containers and unless `normal`;
+`grid-template-columns` only on grid containers and unless `none`; values capped at 80.
+
+Snapshot: `input`, `textarea` and `select` keep only `type` and `name` in the opening tag and
+an empty text; other elements keep attributes in source order, each value capped at 60, the
+tag at 200; text is `innerText` (fallback `textContent`) cleaned to 120; the box is the
+bounding rect plus scroll offset, rounded.
+
+- [ ] **Step 1: Write the failing tests** (happy-dom documents built per test)
+
+- selector: unique stable id → `#save`; `id=":r1:"`, `"v-12"`, `"el-123456"` skipped;
+  `data-testid="save"` → `[data-testid="save"]`; `class="Button_root__x7f2a card"` →
+  `div.card`; **three identical `li.item` siblings → each gets its own
+  `:nth-of-type(n)` selector** (Review Focus 3); a 20-level generic `div` tree → selector depth
+  ≤ 8 and unique; ids and classes with special characters (`a.b`, `1st`) escaped and still
+  matching; for every case `root.querySelectorAll(result)` has length 1 and contains `el`.
+- styles: a fake declaration with every curated property → keys in curated order, defaults
+  dropped per the rules above, a 200-character `font-family` capped.
+- snapshot: text of 300 characters → 120 ending in `…`; `<input type="email" name="email"
+value="person@example.com" placeholder="x">` → opening tag `<input type="email"
+name="email">`, text `""`; `<textarea name="note">secret</textarea>` and `<select>` with
+  options → no value, no text; an attribute value of 100 characters capped at 60; the box
+  adds `scrollX`/`scrollY`.
+
+- [ ] **Step 2: Run them to see them fail**
+
+Run: `pnpm vitest run tests/unit/capture-selector.test.ts tests/unit/capture-styles.test.ts tests/unit/capture-snapshot.test.ts`
+Expected: FAIL, modules not found.
+
+- [ ] **Step 3: Implement** the three modules.
+
+- [ ] **Step 4: Run them to see them pass** (same command). Expected: PASS.
+
+- [ ] **Step 5: Commit** — `Capture selectors, styles and element snapshots`
+
+### Task 10: Messages and the background as single writer
+
+**Files:**
+
+- Create: `src/lib/messages.ts`, `src/lib/background/writer.ts`,
+  `src/lib/background/tab-status.ts`
+- Modify: `src/entrypoints/background.ts`
+- Test: `tests/unit/messages.test.ts`, `tests/unit/background-writer.test.ts`,
+  `tests/unit/tab-status.test.ts`
+
+**Interfaces:**
+
+- Consumes: Task 7 ops, validators, `COLLECTION_KEY`, `loadCollection`.
+- Produces (messages.ts): `Mode = 'browse' | 'element'`;
+  `BackgroundMessage = { type: 'annotation:add'; id; page: PageInfo; target: Target; comment }
+| { type: 'annotation:update'; id; comment } | { type: 'annotation:remove'; id }
+| { type: 'collection:clear' }`;
+  `OverlayMessage = { type: 'overlay:status' } | { type: 'overlay:set-mode'; mode: Mode }
+| { type: 'overlay:highlight'; id: string | null } | { type: 'overlay:reveal'; id }`;
+  `PanelMessage = { type: 'overlay:changed' }`; `Message` (all three);
+  `OverlayStatus = { host: string; pageKey: string; mode: Mode }`;
+  `Reply = { ok: true } | { ok: false; error: string }`; guards `isMessage`,
+  `isBackgroundMessage`, `isOverlayMessage`. Comments: 1 to 5000 code points after trimming.
+- Produces (writer.ts): `createWriter(): (msg: BackgroundMessage) => Promise<Reply>` — reads,
+  applies one op and writes `storage.local`, with all calls serialized through one promise
+  chain.
+- Produces (tab-status.ts): `markBlocked(tabId)`, `clearBlocked(tabId)`,
+  `isBlocked(tabId): Promise<boolean>` on `storage.session` (key `blocked:<tabId>`; runtime
+  state only, never `storage.local`).
+- Background: `onClicked` marks the tab blocked when injection fails and clears it on success;
+  `runtime.onMessage` accepts only `sender.id === runtime.id` and `isBackgroundMessage`,
+  requires `sender.tab` for `annotation:add`, answers with `sendResponse` + `return true`;
+  `tabs.onUpdated` (status `loading`) and `tabs.onRemoved` clear the blocked flag.
+
+- [ ] **Step 1: Write the failing tests** (WXT fake browser, `fakeBrowser.reset()` before each)
+
+- messages: every message type accepted with a valid shape; rejected: unknown `type`,
+  missing or extra-long `id`, empty or 5001-code-point comment, `mode: 'area'`, an
+  `annotation:add` whose target fails `isTarget`, `null`, strings, arrays.
+- writer: add → storage holds item 1; **two adds started in parallel → numbers 1 and 2, both
+  stored**; update keeps the number; remove leaves a gap; clear empties; an add with an
+  existing id → `{ ok: false }` and storage unchanged; invalid stored data is replaced by an
+  empty collection on the next write.
+- tab-status: mark → `isBlocked` true; clear → false; keys live in `storage.session`, none in
+  `storage.local`.
+
+- [ ] **Step 2: Run them to see them fail**
+
+Run: `pnpm vitest run tests/unit/messages.test.ts tests/unit/background-writer.test.ts tests/unit/tab-status.test.ts`
+Expected: FAIL, modules not found.
+
+- [ ] **Step 3: Implement** the modules and wire `background.ts`.
+
+- [ ] **Step 4: Run them to see them pass**, then `pnpm build && pnpm test:e2e`.
+      Expected: PASS; the milestone 1 E2E tests still pass.
+
+- [ ] **Step 5: Commit** — `Route annotations through the background as the only writer`
+
+### Task 11: Overlay in the top layer above modal dialogs
+
+**Files:**
+
+- Create: `src/entrypoints/overlay.content/top-layer.ts`,
+  `tests/fixtures/sites/modal/index.html`, `tests/fixtures/sites/modal/modal.js`,
+  `tests/e2e/top-layer.e2e.test.ts`
+- Modify: `src/entrypoints/overlay.content/index.ts`
+
+**Interfaces:**
+
+- Produces: `keepOnTop(host: HTMLElement, shadow: ShadowRoot): () => void` — makes the host a
+  `popover="manual"` with `!important` inline resets, shows it, and from then on: when a modal
+  dialog opens, moves the host into the topmost open modal dialog and re-shows it; when that
+  dialog closes or leaves the DOM, moves the host back to `body`; re-raises the host after a
+  page popover opens (`toggle` events in the capture phase, ignoring the host's own) and after
+  `fullscreenchange`; removes an `inert` attribute a page puts on the host; restores focus to
+  the element that had it inside the shadow root after every move. Returns a stop function.
+- `index.ts` passes `isolateEvents` (key, pointer, mouse, focus and click events) to
+  `createShadowRootUi` and calls `keepOnTop` after mounting; `ctx.onInvalidated` stops it.
+
+- [ ] **Step 1: Modal fixture and failing E2E**
+
+`modal/index.html` has a button `#open` that calls `dialog.showModal()` on `#dialog` (script
+in `modal.js`, no inline script) and a button `#inside` within the dialog; the dialog uses
+`transform` and `overflow: hidden`. `top-layer.e2e.test.ts`:
+
+- modal opened **after** activation: `document.elementFromPoint()` at the overlay trigger
+  returns `webdev-overlay`, and a real mouse click on the trigger opens the overlay popover;
+- overlay activated **while** the modal is open: same two checks;
+- modal closed again: the host is a child of `body` and still on top;
+- the dialog element removed while open: the host is back in `body` and mounted.
+
+- [ ] **Step 2: Run it to see it fail**
+
+Run: `pnpm build && pnpm vitest run --config vitest.e2e.config.ts tests/e2e/top-layer.e2e.test.ts`
+Expected: FAIL, `elementFromPoint` returns the dialog, the click does not open the popover.
+
+- [ ] **Step 3: Implement** `top-layer.ts` and wire it in `index.ts`.
+
+- [ ] **Step 4: Run it to see it pass**, then the whole E2E suite. Expected: PASS.
+
+- [ ] **Step 5: Commit** — `Keep the overlay usable above modal dialogs`
+
+### Task 12: Element mode, comment popover and saving
+
+**Files:**
+
+- Create: `src/entrypoints/overlay.content/picker.ts`, `src/entrypoints/overlay.content/place.ts`,
+  `src/entrypoints/overlay.content/ids.ts`, `src/entrypoints/overlay.content/HoverBox.vue`,
+  `src/entrypoints/overlay.content/CommentPopover.vue`, `src/components/ui/textarea/*`
+  (shadcn-vue CLI), `tests/fixtures/sites/plain/page.js`, `tests/e2e/element-mode.e2e.test.ts`
+- Modify: `src/entrypoints/overlay.content/Overlay.vue` (replaces the placeholder),
+  `src/entrypoints/overlay.content/index.ts`, `tests/fixtures/sites/plain/index.html`,
+  `tests/e2e/overlay.e2e.test.ts`, `tests/e2e/reactivate.e2e.test.ts`,
+  `tests/e2e/top-layer.e2e.test.ts`
+- Test: `tests/unit/overlay-picker.test.ts`, `tests/unit/overlay-place.test.ts`,
+  `tests/unit/overlay-ids.test.ts`, `tests/unit/comment-popover.test.ts`
+
+**Interfaces:**
+
+- Consumes: Task 9 `snapshotElement`, `pageInfo`; Task 10 messages; Task 11 `keepOnTop`.
+- Produces: `pickAt(doc: Document, x, y, host: Element): Element | null` (first element under
+  the point that is not the host; `html` → `null`); `class TargetPath { current; up(); down() }`
+  (`↑` parent up to `body`, `↓` back along the way up, else first element child);
+  `isEditable(el: Element | null): boolean`; `placeNear(target: Rect, size: { width; height },
+viewport: { width; height }): { x; y }` (below the target if it fits, else above, else
+  clamped, 8 px margins); `newId(): string` (16 random bytes from `getRandomValues`, hex);
+  `CommentPopover` props `{ rect: Rect; initial?: string; number?: number }`, emits
+  `save(comment)` and `cancel`.
+
+Behavior: in element mode a full-viewport glass inside the shadow root takes the pointer;
+`pointermove` sets the hover target via `pickAt`, the hover box shows the outline and a chip
+`tag · W×H`; `↑`/`↓` walk the `TargetPath`; a click or `Enter` selects the hovered element
+and opens the popover next to it; `wheel` over the glass scrolls the nearest scrollable
+ancestor of the hovered element. Page clicks never reach the page. Mode keys `E` (element)
+and `Esc` (browse; first closes an open popover) act only on trusted events, without
+modifiers, while focus is not in a page field. In the popover `Enter` saves (not while
+`isComposing`), `Shift+Enter` adds a line, `Esc` cancels; Save is disabled while the comment is
+empty. Saving sends `annotation:add` with `newId()`, `pageInfo(window)` and
+`{ kind: 'element', element: snapshotElement(el) }`; the mode stays. The overlay answers
+`overlay:status` and `overlay:set-mode`, and sends `overlay:changed` when the mode changes.
+
+- [ ] **Step 1: Write the failing unit tests**
+
+- picker: `pickAt` skips the host and returns the next element, maps `html` to `null`;
+  `TargetPath` up/up/down/down returns the original element, `up` stops at `body`, `down` on
+  a fresh path goes to the first element child, stays put without children; `isEditable` true
+  for text `input`, `textarea`, `select`, `[contenteditable]`, false for `button`, checkbox
+  `input` and `null`.
+- place: fits below → below, aligned with the target's left edge; no room below → above;
+  target at the right edge → clamped to `viewport.width - width - 8`; huge target → clamped
+  inside the viewport.
+- ids: 32 hex characters; two calls differ; works with `crypto.randomUUID` deleted.
+- comment-popover (mounted): `Enter` emits `save` with the trimmed text; `Shift+Enter` does
+  not; `Enter` with `isComposing` does not; an untrusted `Enter` does not; empty text →
+  Save disabled and `Enter` does nothing; `Esc` emits `cancel`.
+
+- [ ] **Step 2: Run them to see them fail**
+
+Run: `pnpm vitest run tests/unit/overlay-picker.test.ts tests/unit/overlay-place.test.ts tests/unit/overlay-ids.test.ts tests/unit/comment-popover.test.ts`
+Expected: FAIL, modules not found.
+
+- [ ] **Step 3: Write the failing E2E** `element-mode.e2e.test.ts` on the plain fixture
+      (`page.js` counts page clicks in `window.pageClicks`; the fixture gains a scroll box):
+      activate → press `e` → hover the Save button → the chip reads `button · W×H`; `↑` → chip
+      `div`; `↓` → `button`; click → popover open, `pageClicks` still 0, URL unchanged (the
+      form did not submit); type `Make it wider` + `Enter` → `storage.local.collection` holds item
+      1 with the comment and an element target whose selector matches the button; the mode is
+      still element; `wheel` over the scroll box scrolls it. Update the milestone 1 overlay tests
+      to the new UI (styles checked on the hover chip, layering checked with the glass).
+
+- [ ] **Step 4: Implement** the modules, components and `Overlay.vue`; add the textarea with
+      `pnpm dlx shadcn-vue@2.8.2 add textarea -y` (revert CLI changes to `tailwind.css`).
+
+- [ ] **Step 5: Run unit and E2E tests to see them pass**
+
+Run: `pnpm test:unit && pnpm build && pnpm test:e2e`
+Expected: PASS.
+
+- [ ] **Step 6: Commit** — `Pick elements and save comments from the overlay`
+
+### Task 13: Side panel list, copy, clear and tab status
+
+**Files:**
+
+- Create: `src/entrypoints/sidepanel/use-collection.ts`,
+  `src/entrypoints/sidepanel/use-active-tab.ts`, `src/entrypoints/sidepanel/ItemList.vue`,
+  `src/entrypoints/sidepanel/CopyFallbackDialog.vue`, `src/entrypoints/sidepanel/ClearAllDialog.vue`,
+  `src/components/ui/{alert-dialog,dialog,toggle-group}/*` (shadcn-vue CLI),
+  `tests/e2e/element-flow.e2e.test.ts`
+- Modify: `src/entrypoints/sidepanel/App.vue`, `tests/unit/sidepanel-app.test.ts`,
+  `tests/e2e/activate.e2e.test.ts`
+
+**Interfaces:**
+
+- Consumes: Task 7 `groupByPage`, `loadCollection`, `watchCollection`; Task 8
+  `formatCollection`; Task 10 messages and `isBlocked`.
+- Produces: `useCollection(): { collection: Ref<Collection> }`;
+  `useActiveTab(): { tabId: Ref<number | undefined>; status: Ref<TabStatus> }` with
+  `TabStatus = { kind: 'active'; host; pageKey; mode } | { kind: 'blocked' } | { kind: 'idle' }`
+  (pings the overlay with `overlay:status` via `tabs.sendMessage`; refreshes on
+  `tabs.onActivated`, `tabs.onUpdated`, `overlay:changed` and `storage.session` changes).
+
+UI: header with the item count and the status line ("Active on localhost:3000", "Can't run on
+this page", "Not active on this page. Click the toolbar icon or press Alt+Shift+A."); a mode
+switch Browse / Element, enabled only while active, sending `overlay:set-mode`; the list
+grouped by page with the current page first and marked "This page"; each entry shows number,
+type icon, comment (two lines) and the tag or selector, plus a delete button; footer **Copy as
+prompt** (status "Copied 3 items" in a live region) and **Clear all** with a confirmation
+dialog. A failing clipboard write opens a dialog with the text in a read-only, pre-selected
+textarea. Page-derived strings are rendered as text only.
+
+- [ ] **Step 1: Write the failing unit tests** (`sidepanel-app.test.ts`, mounted with the fake
+      browser): empty state and disabled buttons; two stored items on two pages → grouped, numbered,
+      comments shown; a tag `<img src=x onerror=alert(1)>` renders literally and creates no `img`;
+      Copy → `navigator.clipboard.writeText` receives `formatCollection(stored)` and "Copied 2
+      items" appears; a rejected write → the fallback dialog shows the same text; Clear all →
+      confirm → `collection:clear` sent; Cancel → nothing sent; delete on an entry →
+      `annotation:remove` with its id; status texts for `active`, `blocked` and `idle`.
+
+- [ ] **Step 2: Run them to see them fail**
+
+Run: `pnpm vitest run tests/unit/sidepanel-app.test.ts`
+Expected: FAIL.
+
+- [ ] **Step 3: Write the failing E2E** `element-flow.e2e.test.ts`: activate on the plain
+      fixture → the panel says "Active on localhost:…" → switch to Element in the panel → click
+      the Save button → comment + `Enter` → the panel lists item 1 → Copy as prompt → the clipboard
+      text equals `formatCollection` of the stored collection and contains `### 1. Element` and the
+      comment as a blockquote. A `chrome://` tab → "Can't run on this page".
+
+- [ ] **Step 4: Implement**; add the components with
+      `pnpm dlx shadcn-vue@2.8.2 add alert-dialog dialog toggle-group -y`.
+
+- [ ] **Step 5: Run unit and E2E tests to see them pass**
+
+Run: `pnpm test:unit && pnpm build && pnpm test:e2e`
+Expected: PASS.
+
+- [ ] **Step 6: Commit** — `List, copy and clear feedback in the side panel`
+
+### Task 14: Pins, editing, and linking panel entries to the page
+
+**Files:**
+
+- Create: `src/entrypoints/overlay.content/Pins.vue`,
+  `src/entrypoints/overlay.content/use-tracking.ts`, `tests/e2e/pins.e2e.test.ts`
+- Modify: `src/entrypoints/overlay.content/Overlay.vue`, `src/entrypoints/sidepanel/ItemList.vue`
+- Test: `tests/unit/overlay-pins.test.ts`
+
+**Interfaces:**
+
+- Consumes: Task 7 `groupByPage`, `watchCollection`; Task 10 `overlay:highlight`,
+  `overlay:reveal`, `annotation:update`; Task 12 `CommentPopover`, `placeNear`.
+- Produces: `resolveTargets(items: Annotation[], live: Map<string, Element>, doc): Map<string,
+Element>` (live references first, else `querySelector(selector)`, invalid selectors ignored);
+  `pinPosition(rect: Rect, viewport): { x; y }` (top-right corner, clamped);
+  `useTracking(): Ref<number>` (a frame counter bumped on scroll in the capture phase, resize
+  and `ResizeObserver` callbacks, throttled to animation frames).
+
+Behavior: numbered pins at the top-right of each target on the current page, following scroll
+and resize; clicking a pin (trusted) opens the popover with the comment, Save sends
+`annotation:update`. Hovering a panel entry sends `overlay:highlight` (the overlay outlines the
+target), leaving sends `null`; clicking an entry of the current page sends `overlay:reveal`
+(scroll into view, open the popover).
+
+- [ ] **Step 1: Write the failing unit tests**: `resolveTargets` prefers a live element, falls
+      back to the selector, skips a selector that throws and one that matches nothing;
+      `pinPosition` puts the pin at the corner and clamps it into the viewport.
+
+- [ ] **Step 2: Run them to see them fail**
+
+Run: `pnpm vitest run tests/unit/overlay-pins.test.ts`
+Expected: FAIL.
+
+- [ ] **Step 3: Write the failing E2E** `pins.e2e.test.ts`: after saving, pin `1` sits within
+      16 px of the button's top-right corner; after `window.scrollBy(0, 200)` it moved with the
+      button; clicking the pin opens the popover with the comment; editing + `Enter` updates the
+      stored comment and keeps number 1; activating again on the same page shows the pin again;
+      hovering the panel entry shows the highlight box; clicking it opens the popover.
+
+- [ ] **Step 4: Implement.**
+
+- [ ] **Step 5: Run unit and E2E tests to see them pass**
+
+Run: `pnpm test:unit && pnpm build && pnpm test:e2e`
+Expected: PASS.
+
+- [ ] **Step 6: Commit** — `Show pins and link panel entries to the page`
+
+### Task 15: Hostile pages, untrusted events, page isolation and docs
+
+**Files:**
+
+- Create: `tests/e2e/robustness.e2e.test.ts`, `tests/fixtures/sites/plain/inherit.html`
+- Modify: `src/entrypoints/overlay.content/index.ts`, `docs/specs/2026-10-05-annotation-extension.md`
+  (sections 8, 10, 13), `AGENTS.md` (status), this plan (milestone 3 note)
+
+- [ ] **Step 1: Write the failing E2E** `robustness.e2e.test.ts`:
+  - hostile fixture: press `e`, click the page → the popover is visible, styled (14 px text)
+    and above the maximum-z-index layer; `Enter` saves an item for `div.layer`;
+  - modal fixture: open the dialog, press `e`, click `#inside`, comment + `Enter` → the stored
+    selector matches `#inside`;
+  - untrusted events: the page dispatches `keydown` `e`, `click` on the host and on the
+    button, and `keydown` `Enter` → the mode stays browse, no popover, nothing stored; after a
+    trusted `e` and click, a page-dispatched `Enter` on the document saves nothing;
+  - page isolation: on `inherit.html` an element whose `box-shadow` uses an inherited
+    `--tw-shadow` keeps its computed style after activation (WXT moves the overlay's
+    `@property --tw-*` rules into the page head; `inherits: false` breaks the page's value).
+
+- [ ] **Step 2: Run it to see it fail**
+
+Run: `pnpm build && pnpm vitest run --config vitest.e2e.config.ts tests/e2e/robustness.e2e.test.ts`
+Expected: the isolation case FAILS; the other cases pass if Tasks 11–12 hold.
+
+- [ ] **Step 3: Fix** by renaming the overlay's custom properties (`--tw-` → `--wbe-tw-`) in
+      the inline CSS, so its registrations cannot collide with the page's.
+
+- [ ] **Step 4: Run all checks**
+
+Run: `pnpm check && pnpm build && pnpm manifest:check && pnpm test:e2e`
+Expected: PASS.
+
+- [ ] **Step 5: Docs.** Spec section 13 spike 3: the top-layer result; section 8: `Enter`
+      selects the hovered element; section 10: rows for modal dialogs, page popovers and focus
+      traps with the known limits above. AGENTS.md: status milestone 2. Milestone 3 below: the
+      formatter already renders text and area targets.
+
+- [ ] **Step 6: Commit** — `Harden the overlay against hostile pages and untrusted events`
 
 **Acceptance:** E2E flow green in CI; manual smoke in a real Chrome on a local dev server.
 
@@ -1505,8 +2023,9 @@ the page (`isTrusted: false`) never open the popover or save an annotation.
 **Goal:** Browse mode with the Comment chip for text selections; Area mode with rectangle drag.
 
 **Files:** `lib/capture/text.ts` (`snapshotSelection(sel: Selection): TextTarget | null`),
-`lib/capture/area.ts` (`snapshotArea(rect): AreaTarget`), overlay modes, formatter sections
-for text and area (golden files).
+`lib/capture/area.ts` (`snapshotArea(rect): AreaTarget`), overlay modes. The formatter already
+renders text and area targets (milestone 2, `tests/unit/golden/`); the capture adds the `…` to
+cut context itself.
 
 **Required tests:**
 

@@ -1,0 +1,65 @@
+import { describe, expect, it } from 'vitest'
+import { isBackgroundMessage, isMessage, isOverlayMessage, isOverlayStatus } from '@/lib/messages'
+import { page, snapshot } from './helpers/collection'
+
+const add = {
+  type: 'annotation:add',
+  id: 'a1',
+  page: page('http://localhost:3000/'),
+  target: { kind: 'element', element: snapshot() },
+  comment: 'Make it wider.',
+}
+
+describe('isMessage', () => {
+  it.each([
+    add,
+    { type: 'annotation:update', id: 'a1', comment: 'x' },
+    { type: 'annotation:remove', id: 'a1' },
+    { type: 'collection:clear' },
+    { type: 'overlay:status' },
+    { type: 'overlay:set-mode', mode: 'element' },
+    { type: 'overlay:highlight', id: 'a1' },
+    { type: 'overlay:highlight', id: null },
+    { type: 'overlay:reveal', id: 'a1' },
+    { type: 'overlay:changed' },
+  ])('accepts $type', (message) => {
+    expect(isMessage(message)).toBe(true)
+  })
+
+  it.each([
+    ['an unknown type', { type: 'annotation:delete', id: 'a1' }],
+    ['a missing id', { type: 'annotation:remove' }],
+    ['a long id', { type: 'annotation:remove', id: 'a'.repeat(65) }],
+    ['an empty comment', { type: 'annotation:update', id: 'a1', comment: '  \n ' }],
+    ['a comment over 5000', { type: 'annotation:update', id: 'a1', comment: 'x'.repeat(5001) }],
+    ['an unknown mode', { type: 'overlay:set-mode', mode: 'area' }],
+    ['an invalid target', { ...add, target: { kind: 'element', element: { selector: 'x' } } }],
+    ['an invalid page', { ...add, page: page('chrome://settings/') }],
+    ['an extra key', { type: 'collection:clear', all: true }],
+    ['null', null],
+    ['a string', 'collection:clear'],
+    ['an array', [{ type: 'collection:clear' }]],
+  ])('rejects %s', (_, message) => {
+    expect(isMessage(message)).toBe(false)
+  })
+})
+
+describe('message groups', () => {
+  it('separates background and overlay messages', () => {
+    expect(isBackgroundMessage(add)).toBe(true)
+    expect(isOverlayMessage(add)).toBe(false)
+    expect(isBackgroundMessage({ type: 'overlay:status' })).toBe(false)
+    expect(isOverlayMessage({ type: 'overlay:status' })).toBe(true)
+    expect(isOverlayMessage({ type: 'overlay:changed' })).toBe(false)
+  })
+})
+
+describe('isOverlayStatus', () => {
+  it('checks the reply to overlay:status', () => {
+    const status = { host: 'localhost:3000', pageKey: 'http://localhost:3000/', mode: 'browse' }
+    expect(isOverlayStatus(status)).toBe(true)
+    expect(isOverlayStatus({ ...status, mode: 'x' })).toBe(false)
+    expect(isOverlayStatus({ ...status, host: 'x'.repeat(300) })).toBe(false)
+    expect(isOverlayStatus(undefined)).toBe(false)
+  })
+})

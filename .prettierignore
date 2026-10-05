@@ -17,3 +17,6 @@ pnpm-lock.yaml
 
 # Plan workspaces of the superpowers skills (ledgers, briefs)
 .superpowers
+
+# Golden files are compared byte for byte
+tests/unit/golden

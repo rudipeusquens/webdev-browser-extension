@@ -1,0 +1,13 @@
+.scroll-box {
+  height: 80px;
+  overflow: auto;
+  border: 1px solid #ccc;
+}
+.scroll-box p {
+  height: 300px;
+  margin: 0;
+}
+body {
+  /* Tall enough to scroll the marked elements around. */
+  min-height: 2400px;
+}

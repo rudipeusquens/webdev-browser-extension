@@ -9,9 +9,10 @@ A Chrome extension (desktop) for web development work. On any page you can highl
 or add comments; the extension bundles everything into a format you can hand to an AI agent
 that has access to the code.
 
-**Status:** milestone 1 of `docs/plans/2026-10-05-annotation-extension.md` (scaffold, test
-harness, spikes). The spec is `docs/specs/2026-10-05-annotation-extension.md` — read both
-before working on a feature.
+**Status:** milestones 1–2 of `docs/plans/2026-10-05-annotation-extension.md` are done
+(scaffold, test harness, spikes; element marking end to end). Next: milestone 3 (text and area
+marking). The spec is `docs/specs/2026-10-05-annotation-extension.md` — read both before working
+on a feature.
 
 ## This repository is public
 
@@ -68,8 +69,9 @@ If Chrome for Testing fails to start because system libraries are missing
   staged files; `eslint --fix` + `prettier --write` on staged files
 - **commit-msg:** `privacy-check` on the message
 - **CI** (`.github/workflows/ci.yml`, check name `ci`, required for merging): install → lint →
-  format:check → test → secretlint over all tracked files → `privacy-check` over the tree and
-  the full history → gitleaks over the full history
+  format:check → compile → build → manifest:check → E2E in Chrome for Testing → unit tests →
+  secretlint over all tracked files → `privacy-check` over the tree and the full history →
+  gitleaks over the full history
 - `main` changes only through pull requests; the owner approves and merges
 
 ## Conventions

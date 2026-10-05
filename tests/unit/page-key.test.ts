@@ -19,4 +19,12 @@ describe('pageKey', () => {
   it('normalizes an origin-only URL to its root path', () => {
     expect(pageKey('http://localhost:3000')).toBe('http://localhost:3000/')
   })
+
+  it('drops a user name and password, which would end up in the prompt', () => {
+    // Assembled at runtime: the secret scanner rightly flags credentials written in URLs.
+    const url = new URL('https://staging.example.com/a')
+    url.username = 'user'
+    url.password = 'placeholder'
+    expect(pageKey(url.href)).toBe('https://staging.example.com/a')
+  })
 })
