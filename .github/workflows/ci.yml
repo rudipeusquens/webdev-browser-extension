@@ -57,4 +57,16 @@ jobs:
           echo "${GITLEAKS_SHA256}  gitleaks.tar.gz" | sha256sum -c -
           tar -xzf gitleaks.tar.gz gitleaks
           cd "$GITHUB_WORKSPACE"
-          "$RUNNER_TEMP/gitleaks" git --redact --no-banner --verbose .
+          "$RUNNER_TEMP/gitleaks" git --config .gitleaks.toml --redact --no-banner --verbose .
+      - name: gitleaks self-test (OpenRouter rule)
+        # The sample has no keyword like `key =`, so only our own rule can match it.
+        run: |
+          mkdir -p "$RUNNER_TEMP/selftest"
+          printf 'sk-or-v1-%s\n' "$(printf 'ab12%.0s' $(seq 16))" > "$RUNNER_TEMP/selftest/sample.txt"
+          if "$RUNNER_TEMP/gitleaks" dir --config .gitleaks.toml --no-banner --redact \
+            --report-format json --report-path "$RUNNER_TEMP/selftest.json" \
+            "$RUNNER_TEMP/selftest"; then
+            echo "::error::gitleaks did not flag an OpenRouter key"
+            exit 1
+          fi
+          jq -e 'any(.[]; .RuleID == "openrouter-api-key")' "$RUNNER_TEMP/selftest.json"

@@ -35,6 +35,7 @@
   },
   "devDependencies": {
     "@eslint/js": "^10.0.1",
+    "@secretlint/secretlint-rule-pattern": "^13.0.6",
     "@secretlint/secretlint-rule-preset-recommend": "^13.0.6",
     "eslint": "^10.11.0",
     "eslint-config-prettier": "^10.1.8",

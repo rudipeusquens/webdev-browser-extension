@@ -13,3 +13,6 @@ pnpm-lock.yaml
 
 # machine-local Claude Code settings
 .claude/settings.local.json
+
+# Plan workspaces of the superpowers skills (ledgers, briefs)
+.superpowers
