@@ -1,0 +1,15 @@
+# build output
+dist
+build
+.output
+
+# deps & lockfile
+node_modules
+pnpm-lock.yaml
+
+# local-only material
+.private
+.worktrees
+
+# machine-local Claude Code settings
+.claude/settings.local.json

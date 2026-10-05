@@ -1,0 +1,43 @@
+# Dependencies
+node_modules/
+
+# Build output and packed extensions
+dist/
+build/
+.output/
+*.zip
+*.crx
+
+# Extension signing keys: they identify the published extension and must
+# never leave the machine that packs it.
+*.pem
+*.p12
+
+# Local-only material that must never become public: notes, captures of real
+# pages, the personal-data denylist (docs/public-repo-policy.md).
+.private/
+
+# Network captures and logs (contain real URLs, cookies, headers)
+*.har
+*.log
+logs/
+
+# Local env files
+.env
+.env.*
+!.env.example
+
+# Editors and OS
+.DS_Store
+._*
+.idea/
+.fleet/
+.vscode/*
+!.vscode/extensions.json
+!.vscode/settings.json
+
+# Machine-local Claude Code settings
+.claude/settings.local.json
+
+# Git worktrees for parallel feature work (git worktree add .worktrees/<branch>)
+.worktrees/

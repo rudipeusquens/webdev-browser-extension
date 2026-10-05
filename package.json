@@ -1,0 +1,49 @@
+{
+  "name": "webdev-browser-extension",
+  "version": "0.0.0",
+  "private": true,
+  "description": "Chrome extension that turns highlights and comments on a web page into a prompt for an AI coding agent.",
+  "license": "MIT",
+  "type": "module",
+  "packageManager": "pnpm@11.6.0",
+  "engines": {
+    "node": ">=22.13.0"
+  },
+  "scripts": {
+    "prepare": "husky",
+    "lint": "eslint .",
+    "lint:fix": "eslint . --fix",
+    "format": "prettier --write .",
+    "format:check": "prettier --check .",
+    "test": "node --test \"scripts/**/*.test.mjs\"",
+    "secrets:check": "git ls-files -z | xargs -0 secretlint --maskSecrets",
+    "privacy:check": "node scripts/privacy-check.mjs --all",
+    "check": "pnpm lint && pnpm format:check && pnpm test && pnpm secrets:check && pnpm privacy:check"
+  },
+  "lint-staged": {
+    "*": [
+      "secretlint --maskSecrets",
+      "node scripts/privacy-check.mjs"
+    ],
+    "*.{js,mjs,cjs,ts,mts,cts,tsx}": [
+      "eslint --fix --no-warn-ignored",
+      "prettier --write"
+    ],
+    "*.{json,jsonc,md,css,html,yaml,yml}": [
+      "prettier --write"
+    ]
+  },
+  "devDependencies": {
+    "@eslint/js": "^10.0.1",
+    "@secretlint/secretlint-rule-preset-recommend": "^13.0.6",
+    "eslint": "^10.11.0",
+    "eslint-config-prettier": "^10.1.8",
+    "globals": "^17.13.0",
+    "husky": "^9.1.7",
+    "lint-staged": "^17.6.0",
+    "prettier": "^3.9.9",
+    "secretlint": "^13.0.6",
+    "typescript": "~6.0.3",
+    "typescript-eslint": "^8.71.0"
+  }
+}

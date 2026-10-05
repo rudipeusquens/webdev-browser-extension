@@ -1,0 +1,2 @@
+node scripts/privacy-check.mjs --identity
+pnpm exec lint-staged
