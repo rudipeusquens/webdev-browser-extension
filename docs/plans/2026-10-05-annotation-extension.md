@@ -2016,8 +2016,9 @@ Expected: PASS.
 **Goal:** Browse mode with the Comment chip for text selections; Area mode with rectangle drag.
 
 **Files:** `lib/capture/text.ts` (`snapshotSelection(sel: Selection): TextTarget | null`),
-`lib/capture/area.ts` (`snapshotArea(rect): AreaTarget`), overlay modes, formatter sections
-for text and area (golden files).
+`lib/capture/area.ts` (`snapshotArea(rect): AreaTarget`), overlay modes. The formatter already
+renders text and area targets (milestone 2, `tests/unit/golden/`); the capture adds the `…` to
+cut context itself.
 
 **Required tests:**
 

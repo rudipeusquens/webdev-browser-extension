@@ -45,7 +45,10 @@ export default defineContentScript({
       anchor: 'body',
       append: 'last',
       mode: 'closed',
-      css: styles.replaceAll(':root', ':host'),
+      // WXT moves @property rules into the page's <head>, where they would also apply to the
+      // page's own --tw-* variables (`inherits: false` breaks inheritance). Ours get a name
+      // no page uses.
+      css: styles.replaceAll(':root', ':host').replaceAll('--tw-', '--webdev-tw-'),
       isolateEvents: ISOLATED_EVENTS,
       onMount(container, _shadow, host) {
         const app = createApp(Overlay, { host })
