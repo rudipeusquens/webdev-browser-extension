@@ -2401,6 +2401,9 @@ CI; manual smoke in a real Chrome.
 **Goal:** Collections survive reloads, HMR and navigation; pins re-anchor; remembered origins
 auto-load the overlay; Vue and Astro origins in the output.
 
+Milestone 3 already places text and area items through their container's selector after a
+reload (`pins.ts`, `placeItems`); finding the selected text itself again is new here.
+
 **Files:** `lib/capture/origin.ts` (parsing + validation of bridge output),
 `entrypoints/origin-bridge.ts` (main-world function), overlay re-anchoring
 (`MutationObserver`, scroll/resize tracking, Navigation API), background remembered sites

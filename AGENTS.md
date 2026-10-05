@@ -9,9 +9,9 @@ A Chrome extension (desktop) for web development work. On any page you can highl
 or add comments; the extension bundles everything into a format you can hand to an AI agent
 that has access to the code.
 
-**Status:** milestones 1–2 of `docs/plans/2026-10-05-annotation-extension.md` are done
-(scaffold, test harness, spikes; element marking end to end). Next: milestone 3 (text and area
-marking). The spec is `docs/specs/2026-10-05-annotation-extension.md` — read both before working
+**Status:** milestones 1–3 of `docs/plans/2026-10-05-annotation-extension.md` are done
+(scaffold, test harness, spikes; element marking end to end; text and area marking). Next:
+milestone 4 (across pages, re-anchoring, remembered sites, code origin). The spec is `docs/specs/2026-10-05-annotation-extension.md` — read both before working
 on a feature.
 
 ## This repository is public
