@@ -2021,22 +2021,373 @@ Expected: PASS.
 ## Milestone 3: Text and area marking
 
 **Goal:** Browse mode with the Comment chip for text selections; Area mode with rectangle drag.
+All three marking types end up in one copied prompt.
 
-**Files:** `lib/capture/text.ts` (`snapshotSelection(sel: Selection): TextTarget | null`),
-`lib/capture/area.ts` (`snapshotArea(rect): AreaTarget`), overlay modes. The formatter already
-renders text and area targets (milestone 2, `tests/unit/golden/`); the capture adds the `…` to
-cut context itself.
+**Expanded on 2026-10-05** from the milestone 2 code. Tasks 16–22 name files, interfaces and
+the tests to write first; the implementation follows in the same pull request. Steps are
+test-first: write the listed tests, watch them fail, implement, watch them pass, commit. The
+formatter already renders text and area targets (milestone 2, `tests/unit/golden/`); the
+capture adds the `…` to cut context itself.
 
-**Required tests:**
+**Facts this milestone relies on** (verified on 2026-10-05, Chrome for Testing 154):
 
-- Unit `text`: selected text capped at 500, context 40 on each side, container = common
-  ancestor; **selection inside `input`/`textarea` returns `null`** (Review Focus 1).
-- Unit `area`: container = smallest element containing the rectangle; topmost fully-contained
-  elements, max 10, `moreCount` correct; empty area → container only.
-- E2E: select text → chip → comment → output contains the context line; drag area over three
-  cards → output lists three elements.
+- `Selection.toString()` leaves out the values of `input`, `textarea` and `select`, text
+  hidden by `display: none` or `visibility: hidden`, and `user-select: none` text when a
+  selection spans them. `Range.toString()` includes the default text of a `textarea`, the
+  labels of `option`s and hidden text.
+- While text inside a focused text field is selected, `document.getSelection()` reports a
+  **collapsed** range at the field's position in its parent, but `toString()` returns the
+  selected part of the field's value. A mouse selection inside a shadow root looks the same
+  (collapsed at `body`, text in `toString()`). Capture therefore never calls
+  `Selection.toString()`, and a collapsed selection means "nothing to capture".
+- `preventDefault()` on the `mousedown` of a button inside a closed shadow root keeps the
+  page's selection when that button is clicked.
+- Named `form`, `img`, `embed`, `object` and `iframe` elements shadow properties and methods
+  of `document` (`Document` has `[LegacyOverrideBuiltIns]`): `<img name="title">` makes
+  `document.title` the image, the same for `body`, `documentElement`, `getSelection`,
+  `elementsFromPoint`, `addEventListener` and every other name. Task 16 checks the isolated
+  world.
+- happy-dom (unit tests) reports `display: ''` for inline elements and implements
+  `TreeWalker`, `Range.comparePoint()` and `Element.checkVisibility()`.
 
-**Acceptance:** all three marking types appear correctly in one copied prompt.
+**Known limits** (documented in the spec, not fixed in this milestone): text inside shadow
+roots and iframes gets no chip (spec section 3); an area is limited to the viewport (no
+auto-scroll while dragging), and elements clipped by an overflow container but inside the
+rectangle count as inside; after a reload, text and area items find their place through the
+container's selector (exact text re-anchoring is milestone 4); a page that shadows the
+`document` methods WXT itself uses to mount (`querySelector`, `createElement`, `head`) keeps
+the overlay off that page.
+
+**Review focus for this milestone** (each line has a test in the owning task):
+
+1. Selections that start or end inside a form field or include one: no value is ever
+   captured (Task 17 unit, Task 20 E2E).
+2. Huge selections (select all on a long page) and areas over huge DOMs: capture stays bounded
+   and the tab does not freeze (Tasks 17, 18).
+3. The page changes the selection or replaces the selected nodes between chip and save: no
+   exception, the popover stays usable, nothing is captured that the user did not see (Tasks
+   19, 20).
+4. Areas over fixed, transformed or zero-size (`display: contents`) elements and over the
+   overlay's own pins (Tasks 18, 21).
+5. Named elements that shadow `document` members: every read our code makes still returns
+   the real value (Task 16).
+
+**Pre-flight (shared interfaces):** Task 16's document accessors are used by Tasks 17–21;
+Task 17 `selectionRange`/`snapshotRange` and Task 18 `snapshotArea` feed the drafts of Tasks
+20 and 21; Task 19's `Placement` is what Tasks 20 and 21 put into drafts, pins and the live
+map; Task 21 extends `Mode`, which the panel (Task 13) and `keys.ts` (Task 12) consume.
+
+### Task 16: Document reads a page cannot redirect
+
+**Files:**
+
+- Modify: `src/lib/capture/dom.ts`, `src/lib/capture/snapshot.ts` (`pageInfo`),
+  `src/entrypoints/overlay.content/picker.ts`, `src/entrypoints/overlay.content/pins.ts`,
+  `src/entrypoints/overlay.content/top-layer.ts`, `src/entrypoints/overlay.content/index.ts`
+  (anchor as a function), `src/entrypoints/overlay.content/Overlay.vue`
+- Create: `tests/fixtures/sites/clobbered/index.html`, `tests/fixtures/sites/clobbered/clobber.js`,
+  `tests/e2e/clobbering.e2e.test.ts`
+- Test: `tests/unit/capture-dom.test.ts`
+
+**Interfaces:**
+
+- Produces (dom.ts): `bodyOf(doc): HTMLElement | null`, `rootOf(doc): Element | null`
+  (`documentElement`), `titleOf(doc): string`, `selectionOf(doc): Selection | null`,
+  `elementsAt(doc, x, y): Element[]`, `queryFirst(root: Document | Element, selector): Element |
+null` (null for selectors that throw), `queryAll(root, selector): Element[]`,
+  `activeElementOf(doc): Element | null`, `scrollingElementOf(doc): Element | null`,
+  `listen(target: EventTarget, type, listener, options?)` and `unlisten(...)` — all through
+  `Document.prototype` / `EventTarget.prototype`, never through the instance.
+
+- [ ] **Step 1: Write the failing unit tests** `capture-dom.test.ts`: an own property on the
+      `document` instance named `title`, `body`, `documentElement`, `getSelection`,
+      `elementsFromPoint`, `querySelector`, `activeElement`, `scrollingElement` or
+      `addEventListener` (what a named element does) does not change what the accessors
+      return; `queryFirst` returns null for `div[[`.
+- [ ] **Step 2: Run them to see them fail** — `pnpm vitest run tests/unit/capture-dom.test.ts`,
+      Expected: FAIL, accessors not exported.
+- [ ] **Step 3: Write the failing E2E** `clobbering.e2e.test.ts` on the `clobbered` fixture
+      (`clobber.js` appends `<img name>`/`<form name>` elements for `title`, `body`,
+      `documentElement`, `getSelection`, `elementsFromPoint`, `activeElement`,
+      `scrollingElement`, `addEventListener`, `removeEventListener`, `querySelectorAll`): activate,
+      press `e`, hover and click a button, comment, `Enter` → the stored page title is the
+      real title, the selector matches the button. Run it: Expected FAIL (if it passes, the
+      isolated world is not affected; record that in the ledger and keep the accessors as
+      defense in depth).
+- [ ] **Step 4: Implement** the accessors and route every `document.*` read of the overlay
+      and capture code through them; pass `anchor: () => bodyOf(document)` to WXT.
+- [ ] **Step 5: Run** `pnpm test:unit && pnpm build && pnpm test:e2e` — Expected: PASS.
+- [ ] **Step 6: Commit** — `Read the document in a way pages cannot redirect`
+
+### Task 17: Text capture
+
+**Files:**
+
+- Create: `src/lib/capture/text.ts`
+- Test: `tests/unit/capture-text.test.ts`
+
+**Interfaces:**
+
+- Consumes: Task 16 accessors; `snapshotElement` (Task 9); `clean`, `collapse`, `truncate`.
+- Produces: `selectionRange(doc: Document): Range | null` — a clone of the page's selection;
+  null when there is none, it is collapsed, the deep focus is a form field (`input`,
+  `textarea`, `select`), or either end lies inside one. `rangeContainer(range): Element` —
+  the common ancestor element, lifted out of shadow trees to their host.
+  `snapshotRange(range: Range): TextTarget | null` — null when the range holds no visible
+  text.
+
+Rules: text is read from text nodes with a `TreeWalker`, never with `toString()`; subtrees of
+`input`, `textarea`, `select`, `option`, `script`, `style`, `noscript` and `template` are
+skipped, so are elements that `checkVisibility()` reports as not rendered, text whose parent
+is `visibility: hidden` or `user-select: none`; text nodes in different block boxes (display
+other than `inline`, `contents` or empty) and `<br>` are separated by a space. `selected` is
+cleaned and capped at 500 code points (`…` when cut, also when the walk stopped early);
+whitespace at its edges moves into the context. `before`/`after` come from the nearest block
+ancestor of the common ancestor: the last/first 40 code points of the collapsed text, with
+`…` when more text was there. Walks stop after a fixed budget of text nodes and characters.
+
+- [ ] **Step 1: Write the failing tests** `capture-text.test.ts`:
+  - `<h3>Manage your Email notifcations and alerts</h3>`, range over `Email notifcations` →
+    `selected: 'Email notifcations'`, `before: 'Manage your '`, `after: ' and alerts'`,
+    container selector `h3`.
+  - A long paragraph → `before` starts with `…` and has 41 code points, `after` ends with `…`.
+  - 700 selected characters → 500 code points ending with `…`.
+  - Edge whitespace and line breaks: `'\n  Email\nnotifications  '` → `selected:
+'Email notifications'`, the spaces join the context.
+  - Two paragraphs → `'First Second'`, container their parent; `Alpha <b>bold</b> text` →
+    `'Alpha bold text'`; `a<br>b` → `'a b'`.
+  - A range over a form whose `input` has `.value = 'SECRET-VALUE'`, a `textarea` with text, a
+    `select` with options, plus `script` and `style` → none of their text appears in
+    `selected`, `before` or `after`.
+  - Context stays inside the block: a neighbouring paragraph's text is not in `before`.
+  - Collapsed range or a whitespace-only selection → `null`.
+  - `selectionRange`: no selection → null; focus in a `textarea` → null; a range that starts
+    inside a `textarea` → null; the returned range is a clone (changing the selection later
+    does not change it).
+  - `rangeContainer` for text in an open shadow root → the host.
+  - Budget: a range over 20 000 text nodes returns within the budget with `selected` ending
+    in `…`.
+- [ ] **Step 2: Run them to see them fail** — `pnpm vitest run tests/unit/capture-text.test.ts`,
+      Expected: FAIL, module not found.
+- [ ] **Step 3: Implement** `text.ts`.
+- [ ] **Step 4: Run them to see them pass** (same command). Expected: PASS.
+- [ ] **Step 5: Commit** — `Capture selected text with its context`
+
+### Task 18: Area capture
+
+**Files:**
+
+- Create: `src/lib/capture/area.ts`
+- Test: `tests/unit/capture-area.test.ts`
+
+**Interfaces:**
+
+- Consumes: Task 16 accessors, `rectOf`, `childrenOf`, `snapshotElement`.
+- Produces: `areaContainer(doc, rect: Rect, skip?: Element): Element` — the deepest visible
+  element whose box contains `rect` (viewport coordinates), searched from `body` down; `body`
+  when nothing smaller contains it. `elementsInside(container, rect, skip?, budget?):
+{ elements: Element[]; total: number }` — the topmost visible elements fully inside `rect`
+  (an element counts if it is inside and its parent is not) in document order, the first
+  `LIMITS.areaElements`, `total` counted up to `budget` (default 10 000 visited elements).
+  `snapshotArea(doc, rect: Rect, skip?: Element): { target: AreaTarget; container: Element }`
+  — `target.rect` in page coordinates, rounded.
+
+Rules: zero-size elements (`display: contents`, empty wrappers) are descended, not counted;
+elements that intersect the rectangle without being inside are descended; elements outside
+are skipped with their subtree; `checkVisibility()` false skips the subtree; `skip` (the
+overlay host) is never visited; a 1 px tolerance on every edge.
+
+- [ ] **Step 1: Write the failing tests** `capture-area.test.ts` (boxes stubbed on
+      `Element.prototype.getBoundingClientRect` from a map):
+  - container: the `section` that holds the rectangle, not `main`, not a card; a rectangle
+    bigger than everything → `body`.
+  - three cards inside → three elements in document order, `moreCount: 0`.
+  - a card partly inside is not counted, its child fully inside is.
+  - twelve items inside → ten elements, `moreCount: 2`.
+  - nothing inside → `elements: []`, `moreCount: 0`, container set.
+  - a zero-size wrapper → its children count; the `skip` element and its children never
+    appear; an element with `checkVisibility()` false is skipped.
+  - page coordinates: viewport rect + `scrollX`/`scrollY`, rounded.
+  - budget: 20 000 children with a budget of 1 000 → returns, `total` ≤ 1 000.
+- [ ] **Step 2: Run them to see them fail** — `pnpm vitest run tests/unit/capture-area.test.ts`,
+      Expected: FAIL, module not found.
+- [ ] **Step 3: Implement** `area.ts`.
+- [ ] **Step 4: Run them to see them pass** (same command). Expected: PASS.
+- [ ] **Step 5: Commit** — `Capture areas with the elements inside them`
+
+### Task 19: Placements for every target kind
+
+**Files:**
+
+- Modify: `src/entrypoints/overlay.content/pins.ts`, `src/entrypoints/overlay.content/Overlay.vue`
+- Test: `tests/unit/overlay-pins.test.ts`
+
+**Interfaces:**
+
+- Consumes: Task 16 `queryFirst`; Task 17 `rangeContainer`.
+- Produces: `type LiveAnchor = Element | Range`; `interface Placement { el: Element; rect():
+Rect; range?: Range }`; `placeItems(items: Annotation[], live: Map<string, LiveAnchor>,
+doc: Document): Map<string, Placement>`; `pinPositions(pins: { id: string; rect: Rect }[],
+viewport): { id: string; x: number; y: number }[]` (off-screen dropped, pins that would
+  overlap shifted left by one pin width); `pruneLive(live, items)`.
+
+Rules: element → the live element while connected, else the selector's first match. Text →
+the live range while it is not collapsed and its start is connected (rect: its bounding box,
+el: `rangeContainer`), else the container's selector (rect: the container's box). Area → the
+live container or the container's selector, offset by `target.rect - target.container.box`,
+sized like `target.rect`. No match → no placement (no pin, reveal says "Not found on this
+page."). `Overlay.vue` keeps one `Draft` shape for all kinds: `{ key, el, rect(), range?,
+label, busy, error?, target?, live?, edit? }`; deleted items leave the live map
+(resolves the deferred minor "the live element map is never pruned"); pins on the same spot
+no longer cover each other (deferred minor "two items on the same element").
+
+- [ ] **Step 1: Write the failing tests** in `overlay-pins.test.ts`: the element cases of
+      `resolveTargets` moved to `placeItems`; text with a live range → range box and container;
+      text whose live range collapsed (its nodes removed) → container by selector; area →
+      container box shifted by the stored offset; two pins at the same spot → the second one
+      shifted; `pruneLive` drops ids that are no longer items.
+- [ ] **Step 2: Run them to see them fail** — `pnpm vitest run tests/unit/overlay-pins.test.ts`,
+      Expected: FAIL, `placeItems` not exported.
+- [ ] **Step 3: Implement** `pins.ts` and switch `Overlay.vue` (pins, highlight, reveal, edit,
+      drafts) to placements.
+- [ ] **Step 4: Run** `pnpm test:unit && pnpm build && pnpm test:e2e` — Expected: PASS
+      (milestone 2 E2E unchanged).
+- [ ] **Step 5: Commit** — `Place pins, highlights and popovers for every target kind`
+
+### Task 20: Text marking end to end
+
+**Files:**
+
+- Create: `src/entrypoints/overlay.content/SelectionChip.vue`,
+  `src/entrypoints/overlay.content/TextHighlight.vue`, `tests/fixtures/sites/plain/text.html`,
+  `tests/e2e/text-mode.e2e.test.ts`
+- Modify: `src/entrypoints/overlay.content/Overlay.vue`, `tests/fixtures/sites/plain/page.js`
+
+**Interfaces:**
+
+- Consumes: Task 17 `selectionRange`, `snapshotRange`, `rangeContainer`; Task 19 drafts and
+  placements.
+
+Behavior: in browse mode a trusted `pointerup`, `mouseup` or `keyup` outside the overlay
+(window, capture phase) checks the selection on the next frame; when `selectionRange` and
+`snapshotRange` find visible text, a **Comment** chip (`data-testid="overlay-chip"`) appears
+below the end of the selection and follows scrolling. The chip hides when the selection
+collapses or changes (`selectionchange`), when the mode changes and while a popover is open;
+a page that only selects text programmatically gets no chip. The chip keeps the selection
+(`mousedown` prevented); a trusted click takes the snapshot (`snapshotRange` on the range
+selected at that moment), opens the popover next to the selection and draws the selected
+lines (`TextHighlight`, at most 50 boxes); saving sends `annotation:add` with the text target
+and remembers the range in the live map.
+
+- [ ] **Step 1: Write the failing E2E** `text-mode.e2e.test.ts` (`text.html`: prose with inline
+      markup, `<h3>Manage your Email notifcations and alerts</h3>`, a form with a text input,
+      a textarea and a select between two paragraphs, a paragraph with `display: none`,
+      `visibility: hidden` and `user-select: none` spans; `page.js` can select text and
+      dispatch synthetic `mouseup` on request):
+  - drag over `Email notifcations` → chip → click → popover → type + `Enter` → stored text
+    target with that `selected`, `before` ending in `Manage your `, container selector
+    matching the `h3`; the panel lists it; copy → the clipboard has `### 1. Text` and
+    `- Context: "Manage your **Email notifcations** and alerts"`.
+  - Review Focus 1: type `SECRET-VALUE` into the input and drag inside it → no chip (after
+    300 ms); double-click inside the textarea → no chip; drag from the paragraph before the
+    form to the one after → chip → save → the stored collection contains neither
+    `SECRET-VALUE`, the textarea text nor an option label.
+  - Hidden text: drag across the paragraph with hidden spans → `selected` lacks them.
+  - The page selects text by script and dispatches a synthetic `mouseup` → no chip.
+  - Double-click a word → chip; `Esc` in the popover → no item, the highlight is gone.
+  - After saving, a pin appears at the selection; clicking it opens the edit popover.
+- [ ] **Step 2: Run it to see it fail** —
+      `pnpm build && pnpm vitest run --config vitest.e2e.config.ts tests/e2e/text-mode.e2e.test.ts`,
+      Expected: FAIL, no chip.
+- [ ] **Step 3: Implement** the chip, the highlight and the text draft in `Overlay.vue`.
+- [ ] **Step 4: Run** `pnpm test:unit && pnpm build && pnpm test:e2e` — Expected: PASS.
+- [ ] **Step 5: Commit** — `Comment on selected text from a chip next to the selection`
+
+### Task 21: Area mode end to end
+
+**Files:**
+
+- Modify: `src/lib/messages.ts` (`Mode` gains `'area'`), `src/entrypoints/overlay.content/keys.ts`,
+  `src/entrypoints/overlay.content/picker.ts` (`forwardsWheel`),
+  `src/entrypoints/overlay.content/Overlay.vue`, `src/entrypoints/overlay.content/HoverBox.vue`
+  (dashed tone), `src/entrypoints/overlay.content/CommentPopover.vue` (re-measure),
+  `src/entrypoints/sidepanel/App.vue`, `tests/fixtures/sites/plain/plain.css`
+- Create: `tests/e2e/area-mode.e2e.test.ts`
+- Test: `tests/unit/overlay-keys.test.ts`, `tests/unit/messages.test.ts`,
+  `tests/unit/overlay-picker.test.ts`, `tests/unit/sidepanel-app.test.ts`,
+  `tests/unit/comment-popover.test.ts`
+
+**Interfaces:**
+
+- Consumes: Task 18 `snapshotArea`; Task 19 drafts and placements.
+- Produces: `Mode = 'browse' | 'element' | 'area'`; `ShortcutState.dragging`;
+  `pageShortcut` returns `{ mode: 'area' }` for `a`/`A` and `'cancel'` for `Escape` while
+  dragging; `forwardsWheel(e): boolean` (false with `ctrlKey` or `metaKey`, so the browser
+  zooms — resolves the deferred minor "wheel blocks Ctrl+zoom").
+
+Behavior: in area mode the glass takes the pointer with a crosshair; a trusted primary
+`pointerdown` starts a drag (pointer captured), `pointermove` draws a dashed rectangle with a
+`W×H` label, `pointerup` selects it when it is at least 4 × 4 px, otherwise nothing happens.
+`Esc` during a drag cancels it and stays in area mode. The selected area keeps its dashed
+outline while the popover is open; saving sends `annotation:add` with the area target and
+remembers the container in the live map. The wheel scrolls under the pointer as in element
+mode. The panel's mode switch gains **Area** with the hint `A`. The popover measures its size
+again when it grows (resolves the deferred minor "popover placement uses the size measured at
+mount").
+
+- [ ] **Step 1: Write the failing unit tests**: keys (`a` → area; `Escape` while dragging →
+      cancel; `a` ignored while drafting and in page fields); messages (`overlay:set-mode` with
+      `area` is valid); picker (`forwardsWheel` false with Ctrl or Meta); panel (the Area toggle
+      sends `overlay:set-mode` `area`); popover (a grown card re-measures its size).
+- [ ] **Step 2: Run them to see them fail** —
+      `pnpm vitest run tests/unit/overlay-keys.test.ts tests/unit/messages.test.ts tests/unit/overlay-picker.test.ts tests/unit/sidepanel-app.test.ts tests/unit/comment-popover.test.ts`,
+      Expected: FAIL.
+- [ ] **Step 3: Write the failing E2E** `area-mode.e2e.test.ts` on the plain fixture (the
+      features section gets padding so a rectangle around the cards fits inside it): press
+      `a` → glass; drag from above-left of the first card to below-right of the third → the
+      dashed box and its label appear during the drag; release → popover; comment + `Enter` →
+      stored area target with three `div.card` elements (`Fast setup`, `Secure`, `Support`),
+      container selector matching `section.features`, `rect.y` including the scroll offset;
+      `pageClicks` stays 0 and no page text is selected; a click without dragging opens
+      nothing; `Esc` during a drag cancels it, a second `Esc` returns to browse; the panel's
+      Area toggle switches the mode; a pin appears at the area's top-right corner.
+- [ ] **Step 4: Implement** the mode, the drag, the dashed box and the panel toggle.
+- [ ] **Step 5: Run** `pnpm test:unit && pnpm build && pnpm test:e2e` — Expected: PASS.
+- [ ] **Step 6: Commit** — `Mark areas by dragging a rectangle`
+
+### Task 22: One prompt with all three kinds, hostile pages and docs
+
+**Files:**
+
+- Create: `tests/e2e/all-kinds.e2e.test.ts`
+- Modify: `tests/e2e/clobbering.e2e.test.ts`, `tests/e2e/robustness.e2e.test.ts`,
+  `tests/fixtures/sites/modal/index.html`, `tests/fixtures/sites/trap/index.html`,
+  `docs/specs/2026-10-05-annotation-extension.md` (sections 8, 10, 11), `AGENTS.md` (status),
+  this plan (milestone 4 note)
+
+- [ ] **Step 1: Write the E2E tests**:
+  - `all-kinds.e2e.test.ts` (acceptance): on the plain fixture mark an element, a text
+    selection and an area, copy from the panel → the clipboard equals
+    `formatCollection(stored)` and holds `### 1. Element`, `### 2. Text` and `### 3. Area`
+    with their lines.
+  - clobbering fixture: text and area marking store the real title and correct targets.
+  - modal fixture: inside an open modal dialog, select text → chip → save; press `a` and drag
+    inside the dialog → the stored elements are the dialog's.
+  - trap fixture: select text inside the trap container → chip → typing goes into the
+    comment field and `Enter` saves.
+- [ ] **Step 2: Run them** — `pnpm build && pnpm test:e2e`. Expected: PASS if Tasks 16–21
+      hold; a failure is a bug in those tasks, fixed test-first.
+- [ ] **Step 3: Run all checks** — `pnpm check && pnpm build && pnpm manifest:check && pnpm test:e2e`,
+      Expected: PASS.
+- [ ] **Step 4: Docs.** Spec section 8: the chip appears after a trusted pointer or key release,
+      areas need 4 × 4 px, `Esc` cancels a drag; section 10: rows for text in web components
+      and iframes and for area limits; section 11: `document` reads through prototypes, page
+      text never read with `Selection.toString()`. AGENTS.md: status milestone 3. Milestone 4
+      below: text and area items already re-anchor through their container.
+- [ ] **Step 5: Commit** — `Cover all three marking types in one prompt and on hostile pages`
+
+**Acceptance:** all three marking types appear correctly in one copied prompt; E2E green in
+CI; manual smoke in a real Chrome.
 
 ---
 
