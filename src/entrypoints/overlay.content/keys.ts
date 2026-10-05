@@ -10,10 +10,11 @@ type Key = Pick<
 
 /** Inside the comment field: `Enter` saves (not while composing), `Escape` cancels. */
 export function popoverKey(e: Key): 'save' | 'cancel' | null {
-  if (!e.isTrusted) return null
+  // keyCode 229: some IMEs report composing keys this way only. Escape and Enter belong to
+  // the input method while it composes.
+  if (!e.isTrusted || e.isComposing || e.keyCode === 229) return null
   if (e.key === 'Escape') return 'cancel'
-  // keyCode 229: some IMEs report the composing Enter this way only.
-  if (e.key === 'Enter' && !e.shiftKey && !e.isComposing && e.keyCode !== 229) return 'save'
+  if (e.key === 'Enter' && !e.shiftKey) return 'save'
   return null
 }
 

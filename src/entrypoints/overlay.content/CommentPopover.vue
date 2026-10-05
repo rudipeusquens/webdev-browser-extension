@@ -2,8 +2,8 @@
 import { XIcon } from '@lucide/vue'
 import { computed, nextTick, onMounted, ref, useTemplateRef } from 'vue'
 import { Button } from '@/components/ui/button'
-import { Textarea } from '@/components/ui/textarea'
 import type { Rect } from '@/lib/collection/model'
+import { CommentGuard } from './comment-guard'
 import { popoverKey } from './keys'
 import { placeNear } from './place'
 
@@ -23,9 +23,11 @@ const props = defineProps<{
 
 const emit = defineEmits<{ save: [comment: string]; cancel: [] }>()
 
-const text = ref(props.initial ?? '')
+const guard = new CommentGuard(props.initial ?? '')
+const text = ref(guard.verified)
+const warning = ref('')
 const card = useTemplateRef<HTMLElement>('card')
-const field = useTemplateRef<InstanceType<typeof Textarea>>('field')
+const field = useTemplateRef<HTMLTextAreaElement>('field')
 const size = ref({ width: 288, height: 180 })
 
 const canSave = computed(() => text.value.trim() !== '' && !props.busy)
@@ -38,8 +40,23 @@ const position = computed(() => {
   return { left: `${x}px`, top: `${y}px` }
 })
 
+/** Puts the user's own text back after the page edited the field. */
+function restore(el: HTMLTextAreaElement) {
+  el.value = guard.verified
+  text.value = guard.verified
+  warning.value = 'This page tried to change your comment. Your text was restored.'
+}
+
+function onInput(e: Event) {
+  const el = e.target as HTMLTextAreaElement
+  if (guard.input(e as InputEvent, el.value)) text.value = el.value
+  else restore(el)
+}
+
 function save() {
-  if (canSave.value) emit('save', text.value.trim())
+  const el = field.value
+  if (el && !guard.matches(el.value)) restore(el)
+  if (canSave.value) emit('save', guard.verified.trim())
 }
 
 function onKeydown(e: KeyboardEvent) {
@@ -57,7 +74,7 @@ function onButton(e: MouseEvent, action: () => void) {
 onMounted(async () => {
   await nextTick()
   if (card.value) size.value = { width: card.value.offsetWidth, height: card.value.offsetHeight }
-  ;(field.value?.$el as HTMLTextAreaElement | undefined)?.focus({ preventScroll: true })
+  field.value?.focus({ preventScroll: true })
 })
 </script>
 
@@ -85,14 +102,25 @@ onMounted(async () => {
         <XIcon class="size-4" />
       </Button>
     </div>
-    <Textarea
+    <!-- Not v-model: every edit goes through the guard first. -->
+    <textarea
       ref="field"
-      v-model="text"
       data-testid="overlay-comment"
       rows="3"
       placeholder="What should change?"
-      class="max-h-48 resize-none text-sm"
+      :value="text"
+      class="field-sizing-content max-h-48 min-h-16 w-full resize-none rounded-md border border-input bg-transparent px-3 py-2 text-sm shadow-xs outline-none placeholder:text-muted-foreground focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50 dark:bg-input/30"
+      @beforeinput="guard.beforeInput($event as InputEvent)"
+      @input="onInput"
     />
+    <p
+      v-if="warning"
+      data-testid="overlay-warning"
+      class="text-xs text-amber-700 dark:text-amber-400"
+      role="alert"
+    >
+      {{ warning }}
+    </p>
     <p v-if="error" class="text-xs text-destructive" role="alert">{{ error }}</p>
     <div class="flex items-center justify-between gap-2">
       <p class="text-xs whitespace-nowrap text-muted-foreground" title="Shift+Enter adds a line">

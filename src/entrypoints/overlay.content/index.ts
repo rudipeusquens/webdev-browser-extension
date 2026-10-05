@@ -6,7 +6,7 @@ import Overlay from './Overlay.vue'
 import { keepOnTop } from './top-layer'
 
 // Stopped at the shadow root, so page listeners in the bubble phase never see what happens
-// inside the overlay (shortcuts, outside-click handlers, focus traps).
+// inside the overlay (shortcuts, outside-click handlers, focus traps, paste handlers).
 const ISOLATED_EVENTS = [
   'keydown',
   'keyup',
@@ -22,6 +22,16 @@ const ISOLATED_EVENTS = [
   'contextmenu',
   'focusin',
   'focusout',
+  'paste',
+  'copy',
+  'cut',
+  'dragenter',
+  'dragover',
+  'dragleave',
+  'drop',
+  'compositionstart',
+  'compositionupdate',
+  'compositionend',
 ]
 
 declare global {

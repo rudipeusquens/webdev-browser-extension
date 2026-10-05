@@ -22,6 +22,11 @@ describe('popoverKey', () => {
     expect(popoverKey(key('Escape'))).toBe('cancel')
   })
 
+  it('leaves Escape during IME composition to the input method', () => {
+    expect(popoverKey(key('Escape', { isComposing: true }))).toBeNull()
+    expect(popoverKey(key('Escape', { keyCode: 229 }))).toBeNull()
+  })
+
   it('leaves Shift+Enter, IME composition and other keys to the textarea', () => {
     expect(popoverKey(key('Enter', { shiftKey: true }))).toBeNull()
     expect(popoverKey(key('Enter', { isComposing: true }))).toBeNull()

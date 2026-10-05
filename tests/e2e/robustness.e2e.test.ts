@@ -5,6 +5,7 @@ import {
   centerOf,
   markElement,
   overlayMounted,
+  overlayText,
   sleep,
   storedCollection,
   waitForItems,
@@ -124,5 +125,44 @@ describe('hostile pages and untrusted events', () => {
     await clickAction(session)
     await overlayMounted(session)
     expect(await shadow()).toBe(before)
+  })
+
+  describe('a page meddling with the comment field', () => {
+    type Meddling = { attack?: string; pastes?: number }
+
+    it('saves the typed comment although the page rewrites the field on Enter', async () => {
+      const panel = await activate('/meddling/')
+      await markElement(session, 'h1')
+      await session.page.keyboard.type('Make the heading larger.')
+      await session.page.keyboard.press('Enter')
+      const c = await waitForItems(panel, 1)
+      expect(c?.items[0]?.comment).toBe('Make the heading larger.')
+    })
+
+    it('restores the comment when the page swaps keystrokes for its own text', async () => {
+      const panel = await activate('/meddling/')
+      await session.page.evaluate(() => ((window as Meddling).attack = 'typing'))
+      await markElement(session, 'h1')
+      await session.page.keyboard.type('Wider')
+      await sleep(100)
+      expect(await overlayText(session, '[data-testid="overlay-warning"]')).toContain(
+        'This page tried to change your comment',
+      )
+      await session.page.evaluate(() => ((window as Meddling).attack = 'none'))
+      await session.page.keyboard.type('OK')
+      await session.page.keyboard.press('Enter')
+      const c = await waitForItems(panel, 1)
+      expect(c?.items[0]?.comment).toBe('OK')
+    })
+
+    it('keeps paste events inside the comment field', async () => {
+      await activate('/meddling/')
+      await markElement(session, 'h1')
+      await session.page.keyboard.down('Control')
+      await session.page.keyboard.press('v')
+      await session.page.keyboard.up('Control')
+      await sleep(200)
+      expect(await session.page.evaluate(() => (window as Meddling).pastes)).toBe(0)
+    })
   })
 })
