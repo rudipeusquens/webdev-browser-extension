@@ -77,7 +77,8 @@ and **shadcn-vue**. Manifest V3, minimum Chrome version **116** (`chrome.sidePan
 
 ### Data flow: annotating
 
-1. Action click or command `Alt+Shift+A` → background opens the side panel for the window and
+1. Action click or `Alt+Shift+A` (the `_execute_action` command, which fires the same handler)
+   → background opens the side panel for the window and
    injects the overlay into the tab (the gesture grants `activeTab`).
 2. The developer marks something → the overlay builds a snapshot and asks the background to run
    the origin bridge on the element → the overlay shows the comment popover.
@@ -280,7 +281,7 @@ Title: Shop · Viewport: 1440×900 · Color scheme: light
 
 ## 8. Interaction and UI
 
-**Activation:** action click or `Alt+Shift+A` (suggested key of the `activate` command) opens
+**Activation:** action click or `Alt+Shift+A` (suggested key of the `_execute_action` command) opens
 the side panel and activates the overlay on the tab. On remembered origins the overlay loads by
 itself.
 
@@ -404,7 +405,7 @@ deliberate bug hunt.
      copy → clipboard equals the expected Markdown; remember and forget a site; voice with
      Chrome's fake microphone (`--use-file-for-fake-audio-capture`) against a local fake
      OpenRouter (test builds only; production builds always use `https://openrouter.ai`)
-3. **Live voice test** (`pnpm test:live`): runs only locally when `OPENROUTER_API_KEY` is set in
+3. **Live voice test** (`pnpm test:live`): runs only locally when `OPENROUTER_API_KEY_TEST` is set in
    `.env`; sends the fixture audio to the real API and checks the transcript. Never in CI.
 4. **Fixture audio** is synthetic speech (text-to-speech), committed with its expected text;
    never a recording of a real person.
@@ -421,30 +422,46 @@ Each spike answers one question before code depends on it; the answer goes into 
    `action.onClicked`) and grant `activeTab`? Fallback: the panel opens via
    `openPanelOnActionClick`, and the overlay is injected through the `activate` command, which
    grants `activeTab` as well.
+   **Result (2026-10-05):** yes. `sidePanel.open({ windowId })` must be called before the first
+   `await` in `onClicked`; the same click grants `activeTab`, and `scripting.executeScript`
+   injects the overlay. `openPanelOnActionClick` would suppress `onClicked` and the grant, so
+   it is not used. The `_execute_action` command reuses the handler. Fallback not needed.
 2. **E2E trigger:** can Puppeteer trigger the action click with `activeTab`? Fallback: test
    builds include a host permission for the fixture origin; the action click moves to the
    manual smoke checklist.
+   **Result (2026-10-05):** yes. Puppeteer 25's `page.triggerExtensionAction()` fires
+   `onClicked` with the `activeTab` grant (`tests/e2e/activate.e2e.test.ts`). Fallback not
+   needed; the keyboard shortcut stays on the manual smoke checklist.
 3. **Overlay styling:** Tailwind v4 and reka-ui popovers inside a closed shadow root on a page
    with strict CSP (`@property` registration, portal target inside the shadow root).
+   **Result (2026-10-05):** works under `style-src 'self'`, `* { all: unset !important }`, a
+   30 px root font size and a full-page layer at maximum z-index
+   (`tests/e2e/overlay.e2e.test.ts`). Requirements: CSS passed inline (`?inline`,
+   `cssInjectionMode: 'manual'`; WXT's `'ui'` mode would need web-accessible resources),
+   `rem` converted to `px` at build time, maximum z-index on every positioned overlay layer,
+   portals pointed at an element inside the shadow root. No constructed-stylesheet fallback
+   needed.
 4. **Voice:** microphone grant flow via the permission page + offscreen recording; OpenRouter
    accepts `webm` and `provider.data_collection`; model comparison for the default.
 
 ## 14. Project structure (target)
 
+Sources live under `src/` (WXT `srcDir`); tests and config at the root.
+
 ```
-entrypoints/
+src/entrypoints/
   background.ts
   overlay.content/        # content script UI (shadow root)
   sidepanel/              # Vue app
   offscreen/              # recorder
   mic-permission/         # one-time permission page
-lib/
+src/lib/
   capture/                # selector, styles, snapshot, area, origin parsing
   collection/             # model and pure operations
   format/                 # Markdown formatter
   voice/                  # OpenRouter client
   messages.ts             # typed messages between contexts
-components/ui/            # shadcn-vue (copied, not a dependency)
+src/components/ui/        # shadcn-vue (copied, not a dependency)
 tests/
   unit/ e2e/ fixtures/
 ```
