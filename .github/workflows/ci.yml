@@ -19,7 +19,7 @@ jobs:
     name: ci
     runs-on: ubuntu-latest
     # Hard ceiling: a hanging step would otherwise run until GitHub's 6-hour limit.
-    timeout-minutes: 10
+    timeout-minutes: 15
     steps:
       # Actions are pinned to commit SHAs: a moved tag cannot inject code.
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -39,6 +39,8 @@ jobs:
       - run: pnpm compile
       - run: pnpm build
       - run: pnpm manifest:check
+      # Chrome for Testing comes from puppeteer's install script (allowBuilds).
+      - run: pnpm test:e2e
       - run: pnpm test
       - run: pnpm secrets:check
       - name: privacy check (tree + history)

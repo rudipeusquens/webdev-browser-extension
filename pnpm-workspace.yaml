@@ -8,5 +8,7 @@ minimumReleaseAge: 4320
 
 # Dependency install scripts run only when listed here with `true`.
 allowBuilds:
+  # Downloads Chrome for Testing for the E2E tests.
+  puppeteer: true
   # Vue 2/3 switch script; Vue 3 needs nothing (same as the basicVue template).
   vue-demi: false

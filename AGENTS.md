@@ -51,8 +51,13 @@ pnpm dev                 # WXT dev build with reload, opens a browser if one is 
 pnpm build               # production build in .output/chrome-mv3/
 pnpm compile             # type-check (vue-tsc)
 pnpm test:unit           # Vitest only
+pnpm test:e2e            # real extension in Chrome for Testing — run `pnpm build` first
+pnpm manifest:check      # built manifest has exactly the allowed permissions
 pnpm check               # everything CI runs, except build, E2E and gitleaks
 ```
+
+If Chrome for Testing fails to start because system libraries are missing
+(`error while loading shared libraries`), set `LD_LIBRARY_PATH` to a folder that provides them.
 
 `package.json` is the source of truth for scripts. If `.wxt/` is missing (e.g. after a
 "pnpm install" that had nothing to do), run `pnpm exec wxt prepare`.

@@ -25,7 +25,8 @@
     "secrets:check": "git ls-files -z | xargs -0 secretlint --maskSecrets",
     "privacy:check": "node scripts/privacy-check.mjs --all",
     "check": "pnpm lint && pnpm format:check && pnpm compile && pnpm test && pnpm secrets:check && pnpm privacy:check",
-    "manifest:check": "node scripts/check-manifest.mjs"
+    "manifest:check": "node scripts/check-manifest.mjs",
+    "test:e2e": "vitest run --config vitest.e2e.config.ts"
   },
   "lint-staged": {
     "*": [
@@ -57,6 +58,7 @@
     "lint-staged": "^17.6.0",
     "postcss-rem-to-responsive-pixel": "^7.0.7",
     "prettier": "^3.9.9",
+    "puppeteer": "^25.12.0",
     "secretlint": "^13.0.6",
     "tailwindcss": "^4.3.3",
     "typescript": "~6.0.3",
@@ -65,7 +67,8 @@
     "vitest": "^5.0.3",
     "vue-eslint-parser": "^10.4.1",
     "vue-tsc": "^3.3.12",
-    "wxt": "^0.21.4"
+    "wxt": "^0.21.4",
+    "yauzl": "^3.4.0"
   },
   "dependencies": {
     "@lucide/vue": "^1.50.0",
