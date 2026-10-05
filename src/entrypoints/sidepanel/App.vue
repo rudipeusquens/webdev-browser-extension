@@ -91,7 +91,7 @@ function setMode(next: unknown) {
         />
         <span>{{ statusText }}</span>
       </p>
-      <div class="flex items-center gap-3">
+      <div class="flex flex-wrap items-center gap-x-3 gap-y-2">
         <ToggleGroup
           type="single"
           variant="outline"

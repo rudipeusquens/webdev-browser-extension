@@ -132,6 +132,17 @@ describe('marking an area', () => {
     await waitInOverlay(session, GLASS, false)
   })
 
+  it('fits the mode switch into a narrow side panel', async () => {
+    await panel.setViewport({ width: 320, height: 600 })
+    await panel.waitForSelector('[data-testid="mode-area"]')
+    const overflowing = await panel.$$eval('header *', (els) =>
+      els
+        .filter((el) => el.getBoundingClientRect().right > window.innerWidth)
+        .map((el) => el.outerHTML.slice(0, 60)),
+    )
+    expect(overflowing).toEqual([])
+  })
+
   it('opens the saved area again from its pin', async () => {
     await areaMode()
     const { from, to } = await aroundCards()
