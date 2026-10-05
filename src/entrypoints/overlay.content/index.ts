@@ -47,8 +47,8 @@ export default defineContentScript({
       mode: 'closed',
       css: styles.replaceAll(':root', ':host'),
       isolateEvents: ISOLATED_EVENTS,
-      onMount(container) {
-        const app = createApp(Overlay, { portalTarget: container })
+      onMount(container, _shadow, host) {
+        const app = createApp(Overlay, { host })
         app.mount(container)
         return app
       },

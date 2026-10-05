@@ -3,10 +3,11 @@
   <head>
     <meta charset="UTF-8" />
     <title>Plain fixture</title>
+    <link rel="stylesheet" href="plain.css" />
   </head>
   <body>
     <h1 id="title">Example shop</h1>
-    <form id="profile">
+    <form id="profile" action="submitted.html">
       <label>Name <input name="name" type="text" /></label>
       <div class="actions"><button type="submit">Save changes</button></div>
     </form>
@@ -15,5 +16,9 @@
       <div class="card">Secure</div>
       <div class="card">Support</div>
     </section>
+    <div class="scroll-box"><p>Scrollable content</p></div>
+    <p id="2col">An id that starts with a digit</p>
+    <p data-testid='say "hi"'>A test id with quotes</p>
+    <script src="page.js"></script>
   </body>
 </html>

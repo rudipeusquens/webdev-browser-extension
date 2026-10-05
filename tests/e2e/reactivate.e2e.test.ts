@@ -27,7 +27,7 @@ describe('activating twice on the same tab', () => {
     expect(hosts).toBe(1)
     const realm = await contentRealm(session)
     const mounted = await realm.evaluate(
-      () => !!globalThis.__webdevOverlay?.shadow?.querySelector('[data-testid="overlay-trigger"]'),
+      () => !!globalThis.__webdevOverlay?.shadow?.querySelector('[data-testid="overlay-root"]'),
     )
     expect(mounted).toBe(true)
   })
