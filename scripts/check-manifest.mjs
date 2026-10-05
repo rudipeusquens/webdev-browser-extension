@@ -14,6 +14,24 @@ const PERMISSIONS = [
   'storage',
 ]
 const OPTIONAL_HOSTS = ['http://*/*', 'https://*/*']
+// Every other top-level key could widen access (optional_permissions, externally_connectable,
+// content_security_policy, oauth2, …) and needs a deliberate change here.
+const ALLOWED_KEYS = new Set([
+  'action',
+  'background',
+  'commands',
+  'description',
+  'icons',
+  'manifest_version',
+  'minimum_chrome_version',
+  'name',
+  'optional_host_permissions',
+  'permissions',
+  'side_panel',
+  'version',
+])
+// Keys with a specific message below; listed here so they are not reported twice.
+const CHECKED_KEYS = new Set(['host_permissions', 'content_scripts', 'web_accessible_resources'])
 
 const same = (a = [], b) => JSON.stringify([...a].sort()) === JSON.stringify([...b].sort())
 
@@ -34,6 +52,11 @@ export function checkManifest(m) {
   if (m.web_accessible_resources?.length) errors.push('web_accessible_resources must be absent')
   if (m.commands?._execute_action?.suggested_key?.default !== 'Alt+Shift+A') {
     errors.push('_execute_action must suggest Alt+Shift+A')
+  }
+  for (const key of Object.keys(m)) {
+    if (!ALLOWED_KEYS.has(key) && !CHECKED_KEYS.has(key)) {
+      errors.push(`unexpected top-level key "${key}"`)
+    }
   }
   return errors
 }

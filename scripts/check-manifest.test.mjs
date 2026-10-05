@@ -40,6 +40,41 @@ describe('checkManifest', () => {
     assert.match(checkManifest(m).join('\n'), /web_accessible_resources/)
   })
 
+  it('rejects optional API permissions', () => {
+    const m = { ...valid(), optional_permissions: ['tabs', 'history'] }
+    assert.match(checkManifest(m).join('\n'), /optional_permissions/)
+  })
+
+  it('rejects externally_connectable (only own contexts may message the background)', () => {
+    const m = { ...valid(), externally_connectable: { matches: ['https://*/*'] } }
+    assert.match(checkManifest(m).join('\n'), /externally_connectable/)
+  })
+
+  it('rejects a custom content security policy', () => {
+    const m = {
+      ...valid(),
+      content_security_policy: { extension_pages: "script-src 'self' 'unsafe-eval'" },
+    }
+    assert.match(checkManifest(m).join('\n'), /content_security_policy/)
+  })
+
+  it('rejects any other unexpected top-level key', () => {
+    assert.match(checkManifest({ ...valid(), oauth2: {} }).join('\n'), /oauth2/)
+  })
+
+  it('accepts icons and the keys WXT always writes', () => {
+    const m = {
+      ...valid(),
+      name: 'x',
+      description: 'x',
+      version: '0.0.0',
+      action: {},
+      background: { service_worker: 'background.js' },
+      icons: { 16: 'icon/16.png' },
+    }
+    assert.deepEqual(checkManifest(m), [])
+  })
+
   it('rejects a lower minimum Chrome version', () => {
     assert.match(
       checkManifest({ ...valid(), minimum_chrome_version: '110' }).join('\n'),
