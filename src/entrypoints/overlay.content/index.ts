@@ -5,8 +5,8 @@ import { defineContentScript } from 'wxt/utils/define-content-script'
 import Overlay from './Overlay.vue'
 
 declare global {
-  // Lives in the content-script world only: pages and other extensions cannot read it.
-  // Guards against double injection; E2E tests reach the closed shadow root through it.
+  // Set in the content-script world only, for E2E tests to reach the closed shadow root.
+  // Never read by extension code: a page can shadow the name with an element id.
   var __webdevOverlay: { shadow?: ShadowRoot } | undefined
 }
 
@@ -16,8 +16,8 @@ export default defineContentScript({
   // CSS is passed inline: with 'ui' mode Chrome would block the stylesheet fetch.
   cssInjectionMode: 'manual',
   async main(ctx) {
-    if (globalThis.__webdevOverlay) return
-    globalThis.__webdevOverlay = {}
+    // Every injection mounts. A repeated injection (second action click) starts a new
+    // context; WXT then invalidates the previous one, which removes its UI.
     const ui = await createShadowRootUi<VueApp>(ctx, {
       name: 'webdev-overlay',
       position: 'overlay',
@@ -36,6 +36,6 @@ export default defineContentScript({
       },
     })
     ui.mount()
-    globalThis.__webdevOverlay.shadow = ui.shadow
+    globalThis.__webdevOverlay = { shadow: ui.shadow }
   },
 })
