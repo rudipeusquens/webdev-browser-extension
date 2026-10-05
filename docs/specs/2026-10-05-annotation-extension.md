@@ -352,7 +352,7 @@ select-parent), ClickUp and Air comment pins with a side list.
 | Restricted pages (`chrome://`, Chrome Web Store, PDF viewer, other extensions) | Injection fails cleanly; panel shows "Can't run on this page".                                                          |
 | Client-side navigation                                                         | Overlay detects URL changes (Navigation API) and switches page group and pins.                                          |
 | HMR or DOM replacement                                                         | Pins re-anchor by selector (debounced `MutationObserver`); missing → "not found", snapshot kept.                        |
-| Aggressive page CSS, huge z-index, strict CSP                                  | Closed shadow root, constructed stylesheet, top z-index; covered by an E2E fixture.                                     |
+| Aggressive page CSS, huge z-index, strict CSP                                  | Closed shadow root, inline stylesheet, rem→px, top z-index; covered by an E2E fixture.                                  |
 | iframes, web components                                                        | Only the top frame; the host element of a web component is marked.                                                      |
 | Extension updated or reloaded while a page is open                             | Orphaned overlay removes itself; panel says "Reload the page".                                                          |
 | Service worker terminated                                                      | No in-memory state; everything is in storage.                                                                           |
@@ -430,8 +430,9 @@ Each spike answers one question before code depends on it; the answer goes into 
    builds include a host permission for the fixture origin; the action click moves to the
    manual smoke checklist.
    **Result (2026-10-05):** yes. Puppeteer 25's `page.triggerExtensionAction()` fires
-   `onClicked` with the `activeTab` grant (`tests/e2e/activate.e2e.test.ts`). Fallback not
-   needed; the keyboard shortcut stays on the manual smoke checklist.
+   `onClicked` with the `activeTab` grant: `tests/e2e/overlay.e2e.test.ts` injects the overlay
+   without any host permission, `tests/e2e/activate.e2e.test.ts` sees the panel open. Fallback
+   not needed; the keyboard shortcut stays on the manual smoke checklist.
 3. **Overlay styling:** Tailwind v4 and reka-ui popovers inside a closed shadow root on a page
    with strict CSP (`@property` registration, portal target inside the shadow root).
    **Result (2026-10-05):** works under `style-src 'self'`, `* { all: unset !important }`, a
@@ -441,6 +442,11 @@ Each spike answers one question before code depends on it; the answer goes into 
    `rem` converted to `px` at build time, maximum z-index on every positioned overlay layer,
    portals pointed at an element inside the shadow root. No constructed-stylesheet fallback
    needed.
+   **Limit found in review:** a z-index cannot beat the browser's top layer. A modal opened with
+   `dialog.showModal()` (or a popover in the top layer) covers the overlay and makes the rest of
+   the page inert, so marking inside an app's modal does not work yet. Milestone 2 adds a modal
+   fixture and puts the overlay into the top layer (e.g. `popover="manual"` on the host,
+   re-shown after the page opens a modal).
 4. **Voice:** microphone grant flow via the permission page + offscreen recording; OpenRouter
    accepts `webm` and `provider.data_collection`; model comparison for the default.
 

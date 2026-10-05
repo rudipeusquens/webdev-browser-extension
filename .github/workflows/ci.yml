@@ -39,7 +39,9 @@ jobs:
       - run: pnpm compile
       - run: pnpm build
       - run: pnpm manifest:check
-      # Chrome for Testing comes from puppeteer's install script (allowBuilds).
+      # Explicit, idempotent: with a warm pnpm store cache, puppeteer's postinstall is skipped
+      # and the fresh runner would have no Chrome for Testing.
+      - run: pnpm exec puppeteer browsers install chrome
       - run: pnpm test:e2e
       - run: pnpm test
       - run: pnpm secrets:check

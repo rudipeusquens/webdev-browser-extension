@@ -39,7 +39,8 @@ describe('overlay on a hostile page', () => {
     expect(hostIsClosed).toBe(true)
   })
 
-  it('sits above the page’s top layer', async () => {
+  // Covers z-index stacking only; the browser's top layer (modal dialogs) is milestone 2.
+  it('sits above a full-page layer at maximum z-index', async () => {
     const tag = await session.page.evaluate(() => {
       const host = document.querySelector('webdev-overlay')
       if (!host) return null
