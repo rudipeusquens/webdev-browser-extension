@@ -1488,6 +1488,9 @@ Markdown. Single page; no reload persistence of pins yet (the collection itself 
 - E2E: activate → element mode → click a fixture button → type comment → Enter → panel shows
   item → Copy as prompt → clipboard equals expected Markdown. Same flow on the hostile page:
   overlay visible above `z-index: 2147483647` content, styles intact under `all: unset`.
+  **Top layer** (found in the milestone 1 review): a fixture that opens `dialog.showModal()`;
+  the overlay must stay visible and usable above the modal, and an element inside the modal
+  can be marked (spec section 13, spike 3 limit).
 
 Also in this milestone: side panel tab status ("Active on …", "Can't run on this page"),
 hovering a panel entry highlights its target, clicking scrolls to it; E2E: events dispatched by

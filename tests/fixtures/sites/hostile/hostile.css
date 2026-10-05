@@ -1,0 +1,12 @@
+html {
+  font-size: 30px;
+}
+* {
+  all: unset !important;
+}
+.layer {
+  position: fixed !important;
+  inset: 0 !important;
+  z-index: 2147483647 !important;
+  display: block !important;
+}
