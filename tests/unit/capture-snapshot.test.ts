@@ -96,4 +96,19 @@ describe('pageInfo', () => {
     expect(info.viewport).toEqual({ width: window.innerWidth, height: window.innerHeight })
     expect(isPageInfo(info)).toBe(true)
   })
+
+  it('stores the URL without hash and credentials (spec section 6)', () => {
+    // Assembled at runtime: the secret scanner rightly flags credentials written in URLs.
+    const href = new URL('https://example.com/app?tab=1#access_token=abc')
+    href.username = 'user'
+    href.password = 'placeholder'
+    const win = {
+      location: { href: href.href },
+      document: { title: 'App' },
+      innerWidth: 800,
+      innerHeight: 600,
+      matchMedia: () => ({ matches: false }),
+    } as unknown as Window
+    expect(pageInfo(win).url).toBe('https://example.com/app?tab=1')
+  })
 })

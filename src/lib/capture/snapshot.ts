@@ -2,6 +2,7 @@
 
 import type { ElementSnapshot, PageInfo } from '../collection/model'
 import { LIMITS } from '../collection/model'
+import { pageKey } from '../collection/page-key'
 import { clean, collapse, truncate } from '../text'
 import { buildSelector } from './selector'
 import { pickStyles } from './styles'
@@ -48,7 +49,7 @@ export function snapshotElement(el: Element): ElementSnapshot {
 
 export function pageInfo(win: Window): PageInfo {
   return {
-    url: win.location.href,
+    url: pageKey(win.location.href),
     title: clean(win.document.title, LIMITS.title),
     viewport: { width: win.innerWidth, height: win.innerHeight },
     colorScheme: win.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light',
