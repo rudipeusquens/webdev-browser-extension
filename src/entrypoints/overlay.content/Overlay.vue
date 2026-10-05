@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onBeforeUnmount, onMounted, ref, shallowReactive, shallowRef } from 'vue'
+import { computed, onBeforeUnmount, onMounted, ref, shallowReactive, shallowRef, watch } from 'vue'
 import { browser } from 'wxt/browser'
 import { useCollection } from '@/composables/use-collection'
 import { pageInfo, snapshotElement } from '@/lib/capture/snapshot'
@@ -44,6 +44,7 @@ const { collection } = useCollection()
 // Elements marked in this session, by item id: more precise than the stored selector.
 const live = shallowReactive(new Map<string, Element>())
 let pointed: Element | null = null
+let lastPointer: { x: number; y: number } | null = null
 let drafts = 0
 
 function rectOf(el: Element): Rect {
@@ -98,6 +99,7 @@ function setMode(next: Mode) {
   if (mode.value === next) return
   mode.value = next
   pointed = null
+  lastPointer = null
   hover(null)
   notifyPanel()
 }
@@ -168,19 +170,31 @@ async function save(comment: string) {
   draft.value = { ...current, busy: false, error }
 }
 
-function onPointerMove(e: PointerEvent) {
-  if (!e.isTrusted || draft.value) return
-  const el = pickAt(document, e.clientX, e.clientY, props.host)
-  // Only a new element under the pointer resets a path walked with ↑/↓.
+/** Hovers the element at a viewport point; only a new element resets a path walked with ↑/↓. */
+function pointAt(x: number, y: number) {
+  lastPointer = { x, y }
+  const el = pickAt(document, x, y, props.host)
   if (el === pointed) return
   pointed = el
   hover(el)
 }
 
+function onPointerMove(e: PointerEvent) {
+  if (e.isTrusted && !draft.value) pointAt(e.clientX, e.clientY)
+}
+
+// Scrolling and layout changes move elements under a pointer that stands still.
+watch(frame, () => {
+  if (mode.value === 'element' && !draft.value && lastPointer) {
+    pointAt(lastPointer.x, lastPointer.y)
+  }
+})
+
 function onGlassClick(e: MouseEvent) {
   e.preventDefault()
   if (!e.isTrusted || draft.value) return
-  select(path.value?.current ?? pickAt(document, e.clientX, e.clientY, props.host))
+  pointAt(e.clientX, e.clientY)
+  select(path.value?.current ?? null)
 }
 
 function onWheel(e: WheelEvent) {

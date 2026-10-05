@@ -119,4 +119,35 @@ describe('element mode', () => {
     const scrolled = await session.page.$eval('.scroll-box', (el) => el.scrollTop)
     expect(scrolled).toBeGreaterThan(0)
   })
+
+  // Puppeteer's click() moves the mouse first, which would hide the bug: press and release.
+  it('marks what is under the pointer after scrolling without moving the mouse', async () => {
+    await session.page.keyboard.press('e')
+    await waitInOverlay(session, '[data-testid="overlay-glass"]')
+    const { x, y } = await centerOf(session.page, 'h1')
+    await session.page.mouse.move(x, y)
+    await waitInOverlay(session, '[data-testid="overlay-hover-label"]')
+    expect(await label()).toMatch(/^h1 · /)
+    await session.page.mouse.wheel({ deltaY: 300 })
+    await sleep(300)
+    await session.page.mouse.down()
+    await session.page.mouse.up()
+    await waitInOverlay(session, '[data-testid="overlay-popover"]')
+    await session.page.keyboard.type('Here')
+    await session.page.keyboard.press('Enter')
+    const c = await waitForItems(panel, 1)
+    const selector = (c?.items[0]?.target as unknown as { element: { selector: string } }).element
+      .selector
+    const underPointer = await session.page.evaluate(
+      (sel, px, py) => {
+        const host = document.querySelector('webdev-overlay')
+        const under = document.elementsFromPoint(px, py).find((el) => el !== host)
+        return document.querySelector(sel) === under
+      },
+      selector,
+      x,
+      y,
+    )
+    expect(underPointer, selector).toBe(true)
+  })
 })
