@@ -6,19 +6,12 @@
 // focus traps pull focus out of anything outside their container, so while a comment is
 // written the host can also live inside such a container (`contain`).
 
+import { shadowRootOf } from '@/lib/capture/dom'
+
 export interface Layer {
   /** Prefer `container` as the host's parent (null: back to normal); it must be connected. */
   contain(container: Element | null): void
   stop(): void
-}
-
-type ShadowAccess = { chrome?: { dom?: { openOrClosedShadowRoot?(el: Element): ShadowRoot } } }
-
-/** Open and closed shadow roots: content scripts may read both through `chrome.dom`. */
-function shadowRootOf(el: Element): ShadowRoot | null {
-  return (
-    el.shadowRoot ?? (globalThis as ShadowAccess).chrome?.dom?.openOrClosedShadowRoot?.(el) ?? null
-  )
 }
 
 const isOpenModal = (d: HTMLDialogElement) => d.isConnected && d.open && d.matches(':modal')

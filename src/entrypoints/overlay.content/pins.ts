@@ -1,6 +1,6 @@
 // Numbered pins on marked elements of the current page.
 
-import { isConnected } from '@/lib/capture/dom'
+import { isConnected, queryFirst } from '@/lib/capture/dom'
 import type { Annotation, Rect } from '@/lib/collection/model'
 
 /**
@@ -20,12 +20,9 @@ export function resolveTargets(
       found.set(item.id, marked)
       continue
     }
-    try {
-      const el = doc.querySelector(item.target.element.selector)
-      if (el) found.set(item.id, el)
-    } catch {
-      // A selector the browser cannot parse: no pin.
-    }
+    // A selector the browser cannot parse matches nothing: no pin.
+    const el = queryFirst(doc, item.target.element.selector)
+    if (el) found.set(item.id, el)
   }
   return found
 }

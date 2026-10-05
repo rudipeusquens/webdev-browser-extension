@@ -2,7 +2,9 @@
 // properties ("DOM clobbering": `<input name="parentElement">` makes `form.parentElement`
 // return the input), which would send walks up the tree in circles. The getters and methods
 // on the prototypes always return the real values; the page cannot change this world's
-// prototypes, only shadow properties on its own elements.
+// prototypes, only shadow properties on its own elements. Named images and forms also shadow
+// members of `document`, but only in the page's own world: Chrome keeps the content script's
+// view of `document` intact (tests/e2e/clobbering.e2e.test.ts).
 
 function getter<T>(proto: object, name: string): (this: unknown) => T {
   for (let p: object | null = proto; p; p = Object.getPrototypeOf(p)) {
@@ -24,6 +26,7 @@ const FIRST_CHILD = getter<Element | null>(Element.prototype, 'firstElementChild
 const NEXT_SIBLING = getter<Element | null>(Element.prototype, 'nextElementSibling')
 const TEXT_CONTENT = getter<string | null>(Element.prototype, 'textContent')
 const INNER_TEXT = getter<string>(HTMLElement.prototype, 'innerText')
+const SHADOW_ROOT = getter<ShadowRoot | null>(Element.prototype, 'shadowRoot')
 
 export const parentOf = (el: Element): Element | null => PARENT.call(el)
 export const ownerDocumentOf = (el: Element): Document => OWNER.call(el)
@@ -49,6 +52,41 @@ export function matchesSelector(el: Element, selector: string): boolean {
     return Element.prototype.matches.call(el, selector)
   } catch {
     return false
+  }
+}
+
+type ShadowAccess = { chrome?: { dom?: { openOrClosedShadowRoot?(el: Element): ShadowRoot } } }
+
+/** Open and closed shadow roots: content scripts may read both through `chrome.dom`. */
+export function shadowRootOf(el: Element): ShadowRoot | null {
+  return (
+    SHADOW_ROOT.call(el) ??
+    (globalThis as ShadowAccess).chrome?.dom?.openOrClosedShadowRoot?.(el) ??
+    null
+  )
+}
+
+/** The first match of `selector`; null for a selector the browser cannot parse. */
+export function queryFirst(root: Document | Element, selector: string): Element | null {
+  const query =
+    root instanceof Document ? Document.prototype.querySelector : Element.prototype.querySelector
+  try {
+    return query.call(root, selector)
+  } catch {
+    return null
+  }
+}
+
+/** Every match of `selector`; empty for a selector the browser cannot parse. */
+export function queryAll(root: Document | Element, selector: string): Element[] {
+  const query =
+    root instanceof Document
+      ? Document.prototype.querySelectorAll
+      : Element.prototype.querySelectorAll
+  try {
+    return [...query.call(root, selector)]
+  } catch {
+    return []
   }
 }
 

@@ -2045,8 +2045,9 @@ capture adds the `…` to cut context itself.
 - Named `form`, `img`, `embed`, `object` and `iframe` elements shadow properties and methods
   of `document` (`Document` has `[LegacyOverrideBuiltIns]`): `<img name="title">` makes
   `document.title` the image, the same for `body`, `documentElement`, `getSelection`,
-  `elementsFromPoint`, `addEventListener` and every other name. Task 16 checks the isolated
-  world.
+  `elementsFromPoint`, `addEventListener` and every other name — **in the page's own world
+  only**: in the content script's world `document` keeps its real members (Task 16), while
+  named form controls do shadow their form's properties there (milestone 2).
 - happy-dom (unit tests) reports `display: ''` for inline elements and implements
   `TreeWalker`, `Range.comparePoint()` and `Element.checkVisibility()`.
 
@@ -2054,9 +2055,7 @@ capture adds the `…` to cut context itself.
 roots and iframes gets no chip (spec section 3); an area is limited to the viewport (no
 auto-scroll while dragging), and elements clipped by an overflow container but inside the
 rectangle count as inside; after a reload, text and area items find their place through the
-container's selector (exact text re-anchoring is milestone 4); a page that shadows the
-`document` methods WXT itself uses to mount (`querySelector`, `createElement`, `head`) keeps
-the overlay off that page.
+container's selector (exact text re-anchoring is milestone 4).
 
 **Review focus for this milestone** (each line has a test in the owning task):
 
@@ -2118,6 +2117,12 @@ null` (null for selectors that throw), `queryAll(root, selector): Element[]`,
       and capture code through them; pass `anchor: () => bodyOf(document)` to WXT.
 - [ ] **Step 5: Run** `pnpm test:unit && pnpm build && pnpm test:e2e` — Expected: PASS.
 - [ ] **Step 6: Commit** — `Read the document in a way pages cannot redirect`
+
+**Result (2026-10-05):** the E2E test passed before any change: Chrome does not let named
+elements shadow `document` members in a content script's world. The document accessors were
+therefore not added; the test stays as a guard, and `dom.ts` gained only `queryFirst`,
+`queryAll` (null or empty for selectors that throw) and `shadowRootOf` (through the prototype
+getter, since a form's named control can shadow `shadowRoot`).
 
 ### Task 17: Text capture
 
