@@ -36,6 +36,7 @@ jobs:
       - run: pnpm install --frozen-lockfile
       - run: pnpm lint
       - run: pnpm format:check
+      - run: pnpm compile
       - run: pnpm test
       - run: pnpm secrets:check
       - name: privacy check (tree + history)

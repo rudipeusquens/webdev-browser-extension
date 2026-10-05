@@ -2,6 +2,7 @@
 dist
 build
 .output
+.wxt
 
 # deps & lockfile
 node_modules

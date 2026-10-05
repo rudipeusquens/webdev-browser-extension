@@ -9,8 +9,9 @@ A Chrome extension (desktop) for web development work. On any page you can highl
 or add comments; the extension bundles everything into a format you can hand to an AI agent
 that has access to the code.
 
-**Status:** repository base only. The product spec comes next (`docs/specs/`) — until it
-exists, do not start building features.
+**Status:** milestone 1 of `docs/plans/2026-10-05-annotation-extension.md` (scaffold, test
+harness, spikes). The spec is `docs/specs/2026-10-05-annotation-extension.md` — read both
+before working on a feature.
 
 ## This repository is public
 
@@ -28,8 +29,12 @@ Hard rules. The full policy, including what goes where, is `docs/public-repo-pol
 
 ## Stack
 
-Not decided yet — it comes with the spec. Present so far:
-
+- **Extension:** WXT (Vite-based, Manifest V3), sources under `src/`, Chrome ≥ 116.
+  WXT auto-imports are off (`imports: false`): import `browser` from `wxt/browser` and helpers
+  from `wxt/utils/…` explicitly
+- **UI:** Vue 3 + TypeScript, Tailwind v4, shadcn-vue
+- **Tests:** Vitest (unit, `tests/unit/`, happy-dom + WXT fake browser), Puppeteer with Chrome
+  for Testing (E2E, `tests/e2e/`), `node --test` for `scripts/`
 - **Package manager:** pnpm (pinned via `packageManager`), Node from `.nvmrc`
 - **Linting:** ESLint flat config (`@eslint/js` + `typescript-eslint`) + Prettier, with
   `eslint-config-prettier` so they don't fight
@@ -41,12 +46,16 @@ Not decided yet — it comes with the spec. Present so far:
 
 ```bash
 corepack enable          # once: pnpm in the version from package.json
-pnpm install
-pnpm check               # everything CI runs, except gitleaks
+pnpm install             # also runs `wxt prepare` (generates .wxt/)
+pnpm dev                 # WXT dev build with reload, opens a browser if one is available
+pnpm build               # production build in .output/chrome-mv3/
+pnpm compile             # type-check (vue-tsc)
+pnpm test:unit           # Vitest only
+pnpm check               # everything CI runs, except build, E2E and gitleaks
 ```
 
-`package.json` is the source of truth for scripts (`lint`, `lint:fix`, `format`,
-`format:check`, `test`, `secrets:check`, `privacy:check`).
+`package.json` is the source of truth for scripts. If `.wxt/` is missing (e.g. after a
+"pnpm install" that had nothing to do), run `pnpm exec wxt prepare`.
 
 ## Quality gates
 

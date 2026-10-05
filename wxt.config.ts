@@ -1,0 +1,21 @@
+import { defineConfig } from 'wxt'
+
+export default defineConfig({
+  srcDir: 'src',
+  modules: ['@wxt-dev/module-vue'],
+  // Explicit imports keep every module readable on its own.
+  imports: false,
+  manifest: {
+    name: 'Webdev Browser Extension',
+    description:
+      'Mark elements, text and areas on a page and copy them as a prompt for an AI coding agent.',
+    minimum_chrome_version: '116',
+    permissions: ['activeTab', 'scripting', 'storage', 'offscreen', 'clipboardWrite'],
+    optional_host_permissions: ['http://*/*', 'https://*/*'],
+    action: { default_title: 'Annotate this page' },
+    commands: {
+      // Fires action.onClicked, so the shortcut and the icon share one handler.
+      _execute_action: { suggested_key: { default: 'Alt+Shift+A' } },
+    },
+  },
+})

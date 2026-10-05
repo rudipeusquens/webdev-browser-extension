@@ -10,22 +10,28 @@
     "node": ">=22.13.0"
   },
   "scripts": {
+    "dev": "wxt",
+    "build": "wxt build",
+    "zip": "wxt zip",
+    "compile": "vue-tsc --noEmit",
+    "postinstall": "wxt prepare",
     "prepare": "husky",
     "lint": "eslint .",
     "lint:fix": "eslint . --fix",
     "format": "prettier --write .",
     "format:check": "prettier --check .",
-    "test": "node --test \"scripts/**/*.test.mjs\"",
+    "test": "node --test \"scripts/**/*.test.mjs\" && vitest run",
+    "test:unit": "vitest run",
     "secrets:check": "git ls-files -z | xargs -0 secretlint --maskSecrets",
     "privacy:check": "node scripts/privacy-check.mjs --all",
-    "check": "pnpm lint && pnpm format:check && pnpm test && pnpm secrets:check && pnpm privacy:check"
+    "check": "pnpm lint && pnpm format:check && pnpm compile && pnpm test && pnpm secrets:check && pnpm privacy:check"
   },
   "lint-staged": {
     "*": [
       "secretlint --maskSecrets",
       "node scripts/privacy-check.mjs"
     ],
-    "*.{js,mjs,cjs,ts,mts,cts,tsx}": [
+    "*.{js,mjs,cjs,ts,mts,cts,tsx,vue}": [
       "eslint --fix --no-warn-ignored",
       "prettier --write"
     ],
@@ -37,14 +43,27 @@
     "@eslint/js": "^10.0.1",
     "@secretlint/secretlint-rule-pattern": "^13.0.6",
     "@secretlint/secretlint-rule-preset-recommend": "^13.0.6",
+    "@vitejs/plugin-vue": "^6.0.9",
+    "@vue/test-utils": "^2.5.1",
+    "@wxt-dev/module-vue": "^1.0.3",
     "eslint": "^10.11.0",
     "eslint-config-prettier": "^10.1.8",
+    "eslint-plugin-vue": "^10.11.1",
     "globals": "^17.13.0",
+    "happy-dom": "^20.14.5",
     "husky": "^9.1.7",
     "lint-staged": "^17.6.0",
     "prettier": "^3.9.9",
     "secretlint": "^13.0.6",
     "typescript": "~6.0.3",
-    "typescript-eslint": "^8.71.0"
+    "typescript-eslint": "^8.71.0",
+    "vite": "^8.3.2",
+    "vitest": "^5.0.3",
+    "vue-eslint-parser": "^10.4.1",
+    "vue-tsc": "^3.3.12",
+    "wxt": "^0.21.4"
+  },
+  "dependencies": {
+    "vue": "^3.5.43"
   }
 }
