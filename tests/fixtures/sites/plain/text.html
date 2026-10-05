@@ -1,0 +1,32 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <title>Text fixture</title>
+    <link rel="stylesheet" href="plain.css" />
+  </head>
+  <body>
+    <h1>Settings</h1>
+    <section class="prefs">
+      <h3>Manage your Email notifcations and alerts</h3>
+      <p id="intro">Choose how often we contact you. Changes apply right away.</p>
+    </section>
+    <p id="before-form">Before the form starts here.</p>
+    <form id="details">
+      <input id="token" name="token" type="text" />
+      <textarea id="draft" name="draft">Draft text</textarea>
+      <select id="plan" name="plan">
+        <option>Option one</option>
+        <option>Option two</option>
+      </select>
+    </form>
+    <p id="after-form">After the form ends here.</p>
+    <p id="hidden">
+      Visible start <span style="display: none">HIDDEN-DISPLAY</span
+      ><span style="visibility: hidden">HIDDEN-VISIBILITY</span
+      ><span style="user-select: none">NO-SELECT</span> visible end
+    </p>
+    <p id="words">Double click onewordhere please.</p>
+    <script src="page.js"></script>
+  </body>
+</html>

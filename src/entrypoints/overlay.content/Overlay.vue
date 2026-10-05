@@ -4,8 +4,10 @@ import { browser } from 'wxt/browser'
 import { useCollection } from '@/composables/use-collection'
 import { closestOf, tagOf } from '@/lib/capture/dom'
 import { pageInfo, snapshotElement } from '@/lib/capture/snapshot'
+import { rangeContainer, rangeHasText, selectionRange, snapshotRange } from '@/lib/capture/text'
 import type { Rect, Target } from '@/lib/collection/model'
 import { pageKey } from '@/lib/collection/page-key'
+import { truncate } from '@/lib/text'
 import {
   type BackgroundMessage,
   isOverlayMessage,
@@ -20,6 +22,8 @@ import { pageShortcut } from './keys'
 import { deepActiveElement, isEditable, pickAt, scrollableAncestor, TargetPath } from './picker'
 import { boxOf, type LiveAnchor, pinPositions, placeItems, pruneLive } from './pins'
 import type { Layer } from './top-layer'
+import SelectionChip from './SelectionChip.vue'
+import TextHighlight from './TextHighlight.vue'
 import { useTracking } from './use-tracking'
 
 const props = defineProps<{ host: HTMLElement; layer: Layer }>()
@@ -52,6 +56,8 @@ const path = shallowRef<TargetPath | null>(null)
 const hovered = shallowRef<Element | null>(null)
 const draft = shallowRef<Draft | null>(null)
 const highlighted = ref<string | null>(null)
+// The page's selection the Comment chip offers to comment on (browse mode).
+const chip = shallowRef<Range | null>(null)
 const frame = useTracking()
 const { collection } = useCollection()
 // What was marked in this session, by item id: more precise than the stored selector.
@@ -59,6 +65,7 @@ const live = shallowReactive(new Map<string, LiveAnchor>())
 let pointed: Element | null = null
 let lastPointer: { x: number; y: number } | null = null
 let drafts = 0
+let chipCheck = 0
 
 function rectOf(el: Element): Rect {
   void frame.value
@@ -77,6 +84,14 @@ const hoverLabel = computed(() =>
 const draftRect = computed(() => {
   void frame.value
   return draft.value?.rect() ?? null
+})
+const chipLine = computed(() => {
+  void frame.value
+  const range = chip.value
+  if (!range || mode.value !== 'browse' || draft.value) return null
+  const lines = range.getClientRects()
+  const last = lines[lines.length - 1] ?? range.getBoundingClientRect()
+  return { x: last.x, y: last.y, width: last.width, height: last.height }
 })
 
 const pageItems = computed(() =>
@@ -121,6 +136,7 @@ function hover(el: Element | null) {
 function setMode(next: Mode) {
   if (mode.value === next) return
   mode.value = next
+  chip.value = null
   pointed = null
   lastPointer = null
   hover(null)
@@ -143,6 +159,7 @@ watch(draft, (current, previous) => {
 
 /** Opens the popover for a new item or an edit. */
 function openDraft(next: Omit<Draft, 'key' | 'busy'>) {
+  chip.value = null
   containForComment(next.el)
   draft.value = { ...next, key: ++drafts, busy: false }
 }
@@ -164,7 +181,7 @@ function labelOf(target: Target, el: Element, rect: Rect): string {
     case 'element':
       return describe(el, rect)
     case 'text':
-      return 'text'
+      return `"${truncate(target.selected, 24)}"`
     case 'area':
       return `area · ${Math.round(rect.width)}×${Math.round(rect.height)}`
   }
@@ -191,6 +208,65 @@ function reveal(id: string): boolean {
   if (!placement) return false
   placement.el.scrollIntoView({ block: 'center', inline: 'nearest' })
   return openEdit(id)
+}
+
+/**
+ * Offers the chip for the page's selection after the user let go of the mouse or a key: a
+ * selection the page makes by script gets none. The check waits a frame, until the
+ * selection has settled.
+ */
+function onRelease(e: Event) {
+  if (!e.isTrusted || e.target === props.host || mode.value !== 'browse' || draft.value) return
+  cancelAnimationFrame(chipCheck)
+  chipCheck = requestAnimationFrame(() => {
+    const range = selectionRange(document)
+    chip.value = range && rangeHasText(range) ? range : null
+  })
+}
+
+/** Hides the chip as soon as the selection it was offered for changes. */
+function onSelectionChange() {
+  const offered = chip.value
+  if (!offered) return
+  const current = selectionRange(document)
+  try {
+    if (
+      current &&
+      current.compareBoundaryPoints(Range.START_TO_START, offered) === 0 &&
+      current.compareBoundaryPoints(Range.END_TO_END, offered) === 0
+    ) {
+      return
+    }
+  } catch {
+    // Ranges in different trees: not the same selection.
+  }
+  chip.value = null
+}
+
+/** The chip was clicked: comment on what is selected now. */
+function commentOnSelection() {
+  chip.value = null
+  const range = selectionRange(document)
+  if (!range) return
+  let target: Target | null
+  try {
+    target = snapshotRange(range)
+  } catch {
+    target = null
+  }
+  if (!target) return
+  const rect = () => {
+    const r = range.getBoundingClientRect()
+    return { x: r.x, y: r.y, width: r.width, height: r.height }
+  }
+  openDraft({
+    el: rangeContainer(range),
+    rect,
+    range,
+    target,
+    live: range,
+    label: labelOf(target, rangeContainer(range), rect()),
+  })
 }
 
 function onPinClick(e: MouseEvent, id: string) {
@@ -333,15 +409,22 @@ const onMessage: Parameters<typeof browser.runtime.onMessage.addListener>[0] = (
   }
 }
 
+const RELEASES = ['pointerup', 'mouseup', 'keyup'] as const
+
 onMounted(() => {
   // Capture phase on window: before the page's own bubble-phase shortcut handlers.
   window.addEventListener('keydown', onKeydown, true)
+  for (const type of RELEASES) window.addEventListener(type, onRelease, true)
+  document.addEventListener('selectionchange', onSelectionChange)
   browser.runtime.onMessage.addListener(onMessage)
   notifyPanel()
 })
 
 onBeforeUnmount(() => {
   window.removeEventListener('keydown', onKeydown, true)
+  for (const type of RELEASES) window.removeEventListener(type, onRelease, true)
+  document.removeEventListener('selectionchange', onSelectionChange)
+  cancelAnimationFrame(chipCheck)
   browser.runtime.onMessage.removeListener(onMessage)
 })
 </script>
@@ -378,7 +461,9 @@ onBeforeUnmount(() => {
     >
       {{ pin.number }}
     </button>
-    <HoverBox v-if="draftRect" :rect="draftRect" tone="selected" />
+    <TextHighlight v-if="draft?.range" :range="draft.range" :frame="frame" />
+    <HoverBox v-else-if="draftRect" :rect="draftRect" tone="selected" />
+    <SelectionChip v-if="chipLine" :line="chipLine" @comment="commentOnSelection" />
     <CommentPopover
       v-if="draft && draftRect"
       :key="draft.key"

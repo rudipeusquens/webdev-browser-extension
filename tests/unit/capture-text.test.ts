@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { codePoints } from '@/lib/collection/validate'
-import { rangeContainer, selectionRange, snapshotRange } from '@/lib/capture/text'
+import { rangeContainer, rangeHasText, selectionRange, snapshotRange } from '@/lib/capture/text'
 
 const $ = (selector: string) => {
   const el = document.querySelector(selector)
@@ -217,5 +217,20 @@ describe('rangeContainer', () => {
     const root = host.attachShadow({ mode: 'open' })
     root.innerHTML = '<p>Shadow words</p>'
     expect(rangeContainer(over('Shadow', root))).toBe(host)
+  })
+})
+
+describe('rangeHasText', () => {
+  it('is true when the range holds text the page shows', () => {
+    document.body.innerHTML = '<p>Some words</p>'
+    expect(rangeHasText(over('words'))).toBe(true)
+  })
+
+  it('is false for whitespace, form fields and scripts only', () => {
+    document.body.innerHTML =
+      '<div><p>   </p><textarea>Draft</textarea><script>var x</script></div>'
+    const range = document.createRange()
+    range.selectNodeContents($('div'))
+    expect(rangeHasText(range)).toBe(false)
   })
 })

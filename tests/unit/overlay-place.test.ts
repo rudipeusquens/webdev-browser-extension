@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { placeNear } from '@/entrypoints/overlay.content/place'
+import { chipPosition, placeNear } from '@/entrypoints/overlay.content/place'
 
 const viewport = { width: 1000, height: 800 }
 const size = { width: 288, height: 160 }
@@ -34,5 +34,35 @@ describe('placeNear', () => {
     expect(
       placeNear({ x: 50, y: 0, width: 10, height: 10 }, size, { width: 200, height: 800 }).x,
     ).toBe(8)
+  })
+})
+
+describe('chipPosition', () => {
+  const viewport = { width: 1000, height: 800 }
+  const size = { width: 90, height: 28 }
+
+  it('sits below the end of the selection, ending where it ends', () => {
+    expect(chipPosition({ x: 100, y: 200, width: 300, height: 20 }, size, viewport)).toEqual({
+      x: 310,
+      y: 226,
+    })
+  })
+
+  it('goes above the line when there is no room below', () => {
+    expect(chipPosition({ x: 100, y: 770, width: 300, height: 20 }, size, viewport)).toEqual({
+      x: 310,
+      y: 736,
+    })
+  })
+
+  it('stays inside the viewport', () => {
+    expect(chipPosition({ x: -50, y: -40, width: 60, height: 20 }, size, viewport)).toEqual({
+      x: 8,
+      y: 8,
+    })
+    expect(chipPosition({ x: 980, y: 300, width: 100, height: 20 }, size, viewport)).toEqual({
+      x: 902,
+      y: 326,
+    })
   })
 })

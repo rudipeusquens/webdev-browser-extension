@@ -14,6 +14,7 @@ import {
   readBackward,
   readForward,
   TextReader,
+  type Until,
 } from './reader'
 import { snapshotElement } from './snapshot'
 
@@ -60,6 +61,14 @@ export function rangeContainer(range: Range): Element {
   return el ?? (range.startContainer.ownerDocument as Document).documentElement
 }
 
+/** Stops a forward walk at the end of `range`. */
+const untilEndOf =
+  (range: Range) =>
+  (node: Node): Until =>
+    node === range.endContainer
+      ? { stop: false, endOffset: range.endOffset }
+      : { stop: range.comparePoint(node, 0) > 0 }
+
 const differ = (a: Piece | undefined, b: Piece | undefined) =>
   a !== undefined && b !== undefined && a.block !== b.block
 
@@ -75,6 +84,21 @@ function contextAfter(text: string, cut: boolean): string {
   return `${points.slice(0, LIMITS.context).join('')}…`
 }
 
+/** Whether the range holds any text the page shows: a cheap check before offering the chip. */
+export function rangeHasText(range: Range): boolean {
+  const view = range.startContainer.ownerDocument?.defaultView
+  if (range.collapsed || !view) return false
+  const read = readForward(
+    new TextReader(view, true),
+    range.commonAncestorContainer,
+    range.startContainer,
+    range.startOffset,
+    untilEndOf(range),
+    LIMITS.context,
+  )
+  return join(read.pieces).trim() !== ''
+}
+
 /** The selected text with its context, or null when it holds no text the page shows. */
 export function snapshotRange(range: Range): TextTarget | null {
   const view = range.startContainer.ownerDocument?.defaultView
@@ -87,10 +111,7 @@ export function snapshotRange(range: Range): TextTarget | null {
     common,
     range.startContainer,
     range.startOffset,
-    (node) =>
-      node === range.endContainer
-        ? { stop: false, endOffset: range.endOffset }
-        : { stop: range.comparePoint(node, 0) > 0 },
+    untilEndOf(range),
     SELECTED_BUDGET,
   )
   const text = collapse(join(selected.pieces))
