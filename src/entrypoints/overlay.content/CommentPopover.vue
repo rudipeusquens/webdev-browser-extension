@@ -78,8 +78,7 @@ onMounted(async () => {
       </p>
       <Button
         variant="ghost"
-        size="icon"
-        class="size-6"
+        size="icon-xs"
         aria-label="Cancel"
         @click="onButton($event, () => emit('cancel'))"
       >
@@ -96,7 +95,9 @@ onMounted(async () => {
     />
     <p v-if="error" class="text-xs text-destructive" role="alert">{{ error }}</p>
     <div class="flex items-center justify-between gap-2">
-      <p class="text-xs text-muted-foreground">Enter saves · Shift+Enter new line</p>
+      <p class="text-xs whitespace-nowrap text-muted-foreground" title="Shift+Enter adds a line">
+        Enter to save
+      </p>
       <Button
         data-testid="overlay-save"
         size="sm"
