@@ -53,7 +53,8 @@ that starts it) once the spike results of milestone 1 are recorded in the spec.
 1. **Text selected inside a form field** (`input`, `textarea`): the value must never be
    captured; no Comment chip appears. → milestone 3 test.
 2. **Page text containing backticks, Markdown, HTML or line breaks**: the output stays valid
-   Markdown, fences never break, nothing is interpreted. → milestone 2 formatter tests.
+   Markdown, fences and quotes never break, no page text starts a line or injects HTML (inline
+   emphasis inside quotes may render; spec section 7). → milestone 2 formatter tests.
 3. **Identical sibling structures** (list items, cards without ids): the selector must still
    match exactly one element. → milestone 2 selector tests.
 4. **Same page, different URL spelling** (hash, query, trailing slash): hash dropped, query
@@ -1478,11 +1479,17 @@ test-first: write the listed tests, watch them fail, implement, watch them pass,
   other than `localhost` must build ids from `crypto.getRandomValues()`.
 - Chrome 116 does not accept a promise returned from `runtime.onMessage` listeners; use
   `sendResponse` and `return true`.
+- Found in the final review: `document.execCommand()` from the page edits a focused textarea
+  inside a closed shadow root, with trusted `input` events but no `beforeinput`; modal dialogs
+  inside web components need `chrome.dom.openOrClosedShadowRoot()` to be found; script focus
+  traps accept the overlay only when its host is inside their container; named form controls
+  shadow DOM properties of their form.
 
 **Known limits** (documented in the spec, not fixed in this milestone): clicking to mark closes
 page popovers that light-dismiss (`popover="auto"`, `dialog closedby="any"`, script menus that
 close on an outside `pointerdown`) — hovering and pressing `Enter` selects without a click;
-script-based focus traps can pull focus out of the comment field.
+hover-only menus cannot be reached by pointing; a page can observe what is typed into the
+comment field.
 
 **Pre-flight (shared interfaces):** Task 7 types are consumed by Tasks 8–14; Task 9
 `snapshotElement` feeds the `annotation:add` message of Tasks 10 and 12; Task 10's message
@@ -1629,7 +1636,7 @@ Expected: FAIL, modules not found.
   `openingTag(el)`; `visibleText(el)`; `snapshotElement(el: Element): ElementSnapshot`;
   `pageInfo(win: Window): PageInfo`.
 
-Selector algorithm: from the element upwards, at most 8 levels: an element with a stable
+Selector algorithm: from the element upwards, usually at most 8 levels: an element with a stable
 unique `#id`, `[data-testid]` or `[data-test]` becomes the root of the selector; otherwise the
 segment is the tag plus up to two stable classes (classes without digits first), with
 `:nth-of-type(n)` when another sibling matches the same segment; stop at the first unique

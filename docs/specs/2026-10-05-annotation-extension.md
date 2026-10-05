@@ -183,7 +183,8 @@ Anchor status (found or missing) is runtime state of the overlay, not stored.
 
 ## 6. Capture
 
-**Per page:** URL without hash (query kept), title, viewport size, color scheme
+**Per page:** URL without hash and without user name or password (query kept), title,
+viewport size, color scheme
 (`prefers-color-scheme`).
 
 **Element:** comment; code origin; unique selector; opening tag; visible text (120 chars);
@@ -202,7 +203,8 @@ parent is not), max 10, plus how many more there were.
 **Selector:** prefer a unique `#id` (skipping ids that look generated, e.g. `:r1:`, `v-12`,
 long digit runs), then `[data-testid]`/`[data-test]`, then tag plus stable classes (skipping
 hashed, CSS-module-like or arbitrary-value classes) with `:nth-of-type` where needed, walking up
-at most 8 levels; the result must match exactly one element.
+until the selector is unique, usually within 8 levels; in deep, self-similar trees it goes
+further, because the result must match exactly one element.
 
 **Code origin**
 
@@ -274,9 +276,13 @@ Title: Shop · Viewport: 1440×900 · Color scheme: light
 
 - Pages appear in order of their first annotation; items within a page by number.
 - The developer's comment is a blockquote, line breaks preserved.
-- Page-derived strings: control characters removed, line breaks collapsed to spaces, lengths
-  capped (section 6); in inline code the fence is longer than any backtick run inside; in
-  quotes, `"` is escaped.
+- Page-derived strings: control and bidirectional formatting characters removed, line breaks
+  collapsed to spaces, lengths capped (section 6); in inline code the fence is longer than any
+  backtick run inside; in quotes, `\` and `"` are escaped; a `<` that would start an HTML tag
+  is escaped everywhere. Page text can therefore never end its delimiter, start a line, a
+  heading or a list item, or inject HTML. Inline Markdown inside quoted text (emphasis, code
+  spans) may still render in a Markdown viewer; the agent reads the raw text, where it stays
+  page data.
 - An item whose element was not found on the last visit gets the line
   `(not found on the page anymore, data from when it was marked)` under its heading.
 - Styles: only properties from the curated list, in that order.
@@ -349,25 +355,27 @@ select-parent), ClickUp and Air comment pins with a side list.
 
 ## 10. Error handling and edge cases
 
-| Situation                                                                      | Behavior                                                                                                                                                                                  |
-| ------------------------------------------------------------------------------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Restricted pages (`chrome://`, Chrome Web Store, PDF viewer, other extensions) | Injection fails cleanly; panel shows "Can't run on this page".                                                                                                                            |
-| Client-side navigation                                                         | Overlay detects URL changes (Navigation API) and switches page group and pins.                                                                                                            |
-| HMR or DOM replacement                                                         | Pins re-anchor by selector (debounced `MutationObserver`); missing → "not found", snapshot kept.                                                                                          |
-| Aggressive page CSS, huge z-index, strict CSP                                  | Closed shadow root, inline stylesheet, rem→px, top z-index; covered by an E2E fixture.                                                                                                    |
-| Modal dialogs, page popovers, fullscreen                                       | The overlay host is a manual popover in the top layer; while a modal dialog is open it lives inside that dialog (outside, everything is inert) and re-raises itself above later popovers. |
-| Page popovers that close on an outside click, script focus traps               | Known limit: clicking to mark closes such popovers (hover and press `Enter` instead); a focus trap can pull focus out of the comment field.                                               |
-| iframes, web components                                                        | Only the top frame; the host element of a web component is marked.                                                                                                                        |
-| Extension updated or reloaded while a page is open                             | Orphaned overlay removes itself; panel says "Reload the page".                                                                                                                            |
-| Service worker terminated                                                      | No in-memory state; everything is in storage.                                                                                                                                             |
-| Several tabs or windows                                                        | One collection; the background is the single writer, so writes never race.                                                                                                                |
-| Clipboard write fails                                                          | Dialog with the text selected for manual copying.                                                                                                                                         |
-| Site access revoked in `chrome://extensions`                                   | `chrome.permissions.onRemoved` updates settings and panel.                                                                                                                                |
-| Storage                                                                        | Text only; far below the 10 MB `storage.local` quota.                                                                                                                                     |
-| Voice: no key                                                                  | Mic button explains "Add an OpenRouter API key in settings" and opens settings.                                                                                                           |
-| Voice: microphone not granted or no device                                     | Hint with **Grant** (opens the permission page) or "No microphone found".                                                                                                                 |
-| Voice: 401 / 402 / 429 / 5xx / timeout / offline                               | Inline message ("Invalid API key", "Out of credits", "Rate limited, try again", "Transcription failed") with **Retry**.                                                                   |
-| Voice: empty transcript                                                        | "No speech detected."                                                                                                                                                                     |
+| Situation                                                                      | Behavior                                                                                                                                                                                                                                                                                         |
+| ------------------------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| Restricted pages (`chrome://`, Chrome Web Store, PDF viewer, other extensions) | Injection fails cleanly; panel shows "Can't run on this page".                                                                                                                                                                                                                                   |
+| Client-side navigation                                                         | Overlay detects URL changes (Navigation API) and switches page group and pins.                                                                                                                                                                                                                   |
+| HMR or DOM replacement                                                         | Pins re-anchor by selector (debounced `MutationObserver`); missing → "not found", snapshot kept.                                                                                                                                                                                                 |
+| Aggressive page CSS, huge z-index, strict CSP                                  | Closed shadow root, inline stylesheet, rem→px, top z-index; covered by an E2E fixture.                                                                                                                                                                                                           |
+| Modal dialogs, page popovers, fullscreen                                       | The overlay host is a manual popover in the top layer; while a modal dialog is open it lives inside that dialog (outside, everything is inert) and re-raises itself above later popovers.                                                                                                        |
+| Modal dialogs inside web components (open or closed shadow roots)              | Found when they take the focus; the overlay moves into them like into document-level dialogs.                                                                                                                                                                                                    |
+| Script focus traps (Radix, reka-ui, focus-trap)                                | While a comment is written, the overlay host lives in the dialog-like container (`aria-modal`, `role="dialog"`) that holds the focus, so the trap accepts the comment field. If a trap takes the focus anyway, Enter and Space are kept from the page's focused control and the popover says so. |
+| Page popovers that close on an outside click; hover-only menus                 | Known limits: clicking to mark closes such popovers (hover and press `Enter` instead); menus that open on hover cannot be reached by pointing while the glass covers the page (use `↑`/`↓`).                                                                                                     |
+| iframes, web components                                                        | Only the top frame; the host element of a web component is marked.                                                                                                                                                                                                                               |
+| Extension updated or reloaded while a page is open                             | Orphaned overlay removes itself; panel says "Reload the page".                                                                                                                                                                                                                                   |
+| Service worker terminated                                                      | No in-memory state; everything is in storage.                                                                                                                                                                                                                                                    |
+| Several tabs or windows                                                        | One collection; the background is the single writer, so writes never race.                                                                                                                                                                                                                       |
+| Clipboard write fails                                                          | Dialog with the text selected for manual copying.                                                                                                                                                                                                                                                |
+| Site access revoked in `chrome://extensions`                                   | `chrome.permissions.onRemoved` updates settings and panel.                                                                                                                                                                                                                                       |
+| Storage                                                                        | Text only; far below the 10 MB `storage.local` quota.                                                                                                                                                                                                                                            |
+| Voice: no key                                                                  | Mic button explains "Add an OpenRouter API key in settings" and opens settings.                                                                                                                                                                                                                  |
+| Voice: microphone not granted or no device                                     | Hint with **Grant** (opens the permission page) or "No microphone found".                                                                                                                                                                                                                        |
+| Voice: 401 / 402 / 429 / 5xx / timeout / offline                               | Inline message ("Invalid API key", "Out of credits", "Rate limited, try again", "Transcription failed") with **Retry**.                                                                                                                                                                          |
+| Voice: empty transcript                                                        | "No speech detected."                                                                                                                                                                                                                                                                            |
 
 ## 11. Security
 
@@ -384,6 +392,15 @@ select-parent), ClickUp and Air comment pins with a side list.
   page shortcuts and outside-click handlers in the bubble phase never see them. The overlay's
   CSS custom properties are renamed (`--webdev-tw-*`), because the `@property` rules a shadow
   root cannot hold go into the page's `<head>` and must not change the page's own variables.
+  DOM reads go through prototype getters, so named form controls ("DOM clobbering") cannot
+  redirect them.
+- **Comment field:** while it has focus, `document.execCommand()` called by the page edits it
+  despite the closed shadow root, with trusted `input` events. The overlay accepts only edits
+  announced by a trusted `beforeinput` of the same type and text, restores the developer's own
+  text otherwise and never saves anything else, so a page cannot put words into a comment.
+  A page can still observe what is typed (capture-phase key listeners, the selection) and can
+  disturb or block commenting on itself; an extension-origin iframe for the editor would close
+  that gap but needs `web_accessible_resources` (candidate for milestone 6).
 - **Messages:** the background accepts messages only from the extension's own contexts and
   validates every message shape.
 - **API key:** see section 9. The OpenRouter key pattern (`sk-or-v1-…`) is added to the secret
