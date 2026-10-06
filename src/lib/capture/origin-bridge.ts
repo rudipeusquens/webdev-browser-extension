@@ -30,7 +30,7 @@ export function vueOrigins(selectors: string[]): RawVueOrigin[] {
       }
       const chain: { name?: string; file?: string }[] = []
       let current = instance as { type?: unknown; parent?: unknown } | null | undefined
-      for (; current && chain.length < maxComponents;) {
+      while (current && chain.length < maxComponents) {
         const type = current.type as { __name?: unknown; name?: unknown; __file?: unknown }
         chain.push({
           name: text(type?.__name) ?? text(type?.name),

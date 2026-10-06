@@ -5,9 +5,9 @@ import { browser } from 'wxt/browser'
 import type { Collection } from '../collection/model'
 import { addAnnotation, clearAll, removeAnnotation, updateComment } from '../collection/ops'
 import { COLLECTION_KEY, loadCollection } from '../collection/store'
-import type { BackgroundMessage, Reply } from '../messages'
+import type { CollectionMessage, Reply } from '../messages'
 
-function apply(c: Collection, msg: BackgroundMessage, now: string): Collection | string {
+function apply(c: Collection, msg: CollectionMessage, now: string): Collection | string {
   switch (msg.type) {
     case 'annotation:add': {
       const { id, page, target } = msg
@@ -29,7 +29,7 @@ function apply(c: Collection, msg: BackgroundMessage, now: string): Collection |
 
 export function createWriter(now = () => new Date().toISOString()) {
   let queue: Promise<unknown> = Promise.resolve()
-  return (msg: BackgroundMessage): Promise<Reply> => {
+  return (msg: CollectionMessage): Promise<Reply> => {
     const run = queue.then(async (): Promise<Reply> => {
       const next = apply(await loadCollection(), msg, now())
       if (typeof next === 'string') return { ok: false, error: next }

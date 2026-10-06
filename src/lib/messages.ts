@@ -1,7 +1,8 @@
 // Messages between the extension's contexts. Every receiver checks shapes with these guards:
 // a content script runs next to hostile page code, so nothing is trusted by type alone.
 
-import type { PageInfo, Target } from './collection/model'
+import type { CodeOrigin, PageInfo, Target } from './collection/model'
+import { LIMITS } from './collection/model'
 import {
   hasKeys,
   isAnnotationId,
@@ -16,11 +17,19 @@ export type Mode = 'browse' | 'element' | 'area'
 export const MODES: readonly Mode[] = ['browse', 'element', 'area']
 
 /** Overlay or side panel → background, which is the only writer of the collection. */
-export type BackgroundMessage =
+export type CollectionMessage =
   | { type: 'annotation:add'; id: string; page: PageInfo; target: Target; comment: string }
   | { type: 'annotation:update'; id: string; comment: string }
   | { type: 'annotation:remove'; id: string }
   | { type: 'collection:clear' }
+
+/** Overlay → background: the code origins of the elements these selectors match. */
+export type OriginMessage = { type: 'origin:read'; selectors: string[] }
+
+export type BackgroundMessage = CollectionMessage | OriginMessage
+
+/** Most selectors one `origin:read` asks for: an area's container and its elements. */
+export const MAX_ORIGIN_SELECTORS = LIMITS.areaElements + 1
 
 /** Side panel → overlay of the active tab. */
 export type OverlayMessage =
@@ -43,6 +52,10 @@ export interface OverlayStatus {
 
 export type Reply = { ok: true } | { ok: false; error: string }
 
+/** The background's reply to `origin:read`, one entry per selector. */
+export type OriginReply =
+  { ok: true; origins: (CodeOrigin | null)[] } | { ok: false; error: string }
+
 const isMode = (x: unknown): x is Mode => MODES.includes(x as Mode)
 
 export function isBackgroundMessage(x: unknown): x is BackgroundMessage {
@@ -62,6 +75,14 @@ export function isBackgroundMessage(x: unknown): x is BackgroundMessage {
       return hasKeys(x, ['type', 'id']) && isAnnotationId(x.id)
     case 'collection:clear':
       return hasKeys(x, ['type'])
+    case 'origin:read':
+      return (
+        hasKeys(x, ['type', 'selectors']) &&
+        Array.isArray(x.selectors) &&
+        x.selectors.length >= 1 &&
+        x.selectors.length <= MAX_ORIGIN_SELECTORS &&
+        x.selectors.every((selector) => isText(selector, LIMITS.selector, 1))
+      )
     default:
       return false
   }

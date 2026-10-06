@@ -2,7 +2,8 @@ import { browser } from 'wxt/browser'
 import { defineBackground } from 'wxt/utils/define-background'
 import { clearBlocked, markBlocked } from '@/lib/background/tab-status'
 import { createWriter } from '@/lib/background/writer'
-import { isBackgroundMessage, type Reply } from '@/lib/messages'
+import { readOrigins } from '@/lib/background/origins'
+import { isBackgroundMessage, type OriginReply, type Reply } from '@/lib/messages'
 
 export default defineBackground(() => {
   const write = createWriter()
@@ -34,6 +35,18 @@ export default defineBackground(() => {
     // Without externally_connectable only our own contexts can reach this listener; the
     // id check keeps it that way if the manifest ever changes.
     if (sender.id !== browser.runtime.id || !isBackgroundMessage(message)) return
+    if (message.type === 'origin:read') {
+      const tabId = sender.tab?.id
+      const { documentId } = sender
+      if (tabId === undefined || sender.frameId !== 0 || !documentId) {
+        sendResponse({ ok: false, error: 'Origins are read for a page.' } satisfies OriginReply)
+        return
+      }
+      void readOrigins(tabId, documentId, message.selectors).then((origins) =>
+        sendResponse({ ok: true, origins } satisfies OriginReply),
+      )
+      return true
+    }
     if (message.type === 'annotation:add' && !sender.tab) {
       sendResponse({ ok: false, error: 'Items are added from a page.' } satisfies Reply)
       return

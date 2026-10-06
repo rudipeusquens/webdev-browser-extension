@@ -83,17 +83,18 @@ export function elementsInside(
   return { elements, total }
 }
 
-/** The area target for a rectangle in viewport coordinates, and the element that holds it. */
+/** The area target for a rectangle in viewport coordinates, the element that holds it and those listed. */
 export function snapshotArea(
   doc: Document,
   rect: Rect,
   skip?: Element,
-): { target: AreaTarget; container: Element } {
+): { target: AreaTarget; container: Element; elements: Element[] } {
   const container = areaContainer(doc, rect, skip)
   const { elements, total } = elementsInside(container, rect, skip)
   const view = doc.defaultView
   return {
     container,
+    elements,
     target: {
       kind: 'area',
       rect: {

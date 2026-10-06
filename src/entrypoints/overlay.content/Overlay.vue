@@ -4,6 +4,7 @@ import { browser } from 'wxt/browser'
 import { useCollection } from '@/composables/use-collection'
 import { closestOf, deepActiveElement, tagOf } from '@/lib/capture/dom'
 import { snapshotArea } from '@/lib/capture/area'
+import { buildSelector } from '@/lib/capture/selector'
 import { pageInfo, snapshotElement } from '@/lib/capture/snapshot'
 import {
   type CapturedText,
@@ -26,6 +27,7 @@ import {
 import CommentPopover from './CommentPopover.vue'
 import HoverBox from './HoverBox.vue'
 import { newId } from './ids'
+import { type Origins, readOrigins, sourcesOf, within, withOrigins } from './origins'
 import { pageShortcut } from './keys'
 import { forwardsWheel, isEditable, pickAt, scrollableAncestor, TargetPath } from './picker'
 import { boxOf, type LiveAnchor, pinPositions, placeItems, pruneLive } from './pins'
@@ -42,6 +44,13 @@ const TRAP = '[aria-modal="true"], [role="dialog"], [role="alertdialog"]'
 const FOCUS_TAKEN = 'This page took the focus. Click into the comment field to continue.'
 /** Smaller drags are clicks, not areas. */
 const MIN_AREA = 4
+/**
+ * How long after marking a save waits for the code origins: the background gives the page
+ * 1.5 s to answer, this leaves room for the messages around it.
+ */
+const ORIGIN_WAIT = 2000
+/** How long the pointer rests on an element before its component is looked up. */
+const HOVER_DWELL = 150
 
 interface Draft {
   key: number
@@ -59,6 +68,9 @@ interface Draft {
   target?: Target
   /** What to remember for a new item once it is saved: more precise than its selector. */
   live?: LiveAnchor
+  /** A new item's code origins, asked for when it was marked (`performance.now()`). */
+  origins?: Promise<Origins>
+  marked?: number
   /** An existing item being edited. */
   edit?: { id: string; number: number; comment: string }
 }
@@ -89,14 +101,48 @@ function rectOf(el: Element): Rect {
   return boxOf(el)
 }
 
-const describe = (el: Element, r: Rect) =>
-  `${tagOf(el)} · ${Math.round(r.width)}×${Math.round(r.height)}`
+const describe = (el: Element, r: Rect, component?: string | null) =>
+  [tagOf(el), component, `${Math.round(r.width)}×${Math.round(r.height)}`]
+    .filter(Boolean)
+    .join(' · ')
+
+// The innermost component of elements looked up while hovering, for the label. A WeakMap is
+// not reactive: `componentsSeen` changes whenever an entry is added.
+const components = new WeakMap<Element, string | null>()
+const componentsSeen = ref(0)
+let hoverTimer: ReturnType<typeof setTimeout> | undefined
+let askingComponent = false
+
+function componentOf(el: Element): string | null | undefined {
+  void componentsSeen.value
+  return components.get(el)
+}
+
+/** Looks up the component of the element the pointer rests on; one lookup at a time. */
+async function askComponent(el: Element) {
+  if (askingComponent || components.has(el)) return
+  askingComponent = true
+  try {
+    const [origin] = await readOrigins({ elements: [el], selectors: [buildSelector(el)] })
+    components.set(el, origin?.chain.at(-1)?.name ?? null)
+    componentsSeen.value++
+  } catch {
+    components.set(el, null)
+  } finally {
+    askingComponent = false
+  }
+  // The pointer moved on meanwhile.
+  const now = hovered.value
+  if (now && now !== el && mode.value === 'element') void askComponent(now)
+}
 
 const hoverRect = computed(() =>
   hovered.value && mode.value === 'element' && !draft.value ? rectOf(hovered.value) : null,
 )
 const hoverLabel = computed(() =>
-  hovered.value && hoverRect.value ? describe(hovered.value, hoverRect.value) : '',
+  hovered.value && hoverRect.value
+    ? describe(hovered.value, hoverRect.value, componentOf(hovered.value))
+    : '',
 )
 const dragRect = computed(() => drag.value && rectBetween(drag.value.from, drag.value.to))
 const draftRect = computed(() => {
@@ -150,6 +196,13 @@ function hover(el: Element | null) {
   hovered.value = el
 }
 
+watch(hovered, (el) => {
+  clearTimeout(hoverTimer)
+  if (el && mode.value === 'element' && !components.has(el)) {
+    hoverTimer = setTimeout(() => void askComponent(el), HOVER_DWELL)
+  }
+})
+
 function setMode(next: Mode) {
   if (mode.value === next) return
   mode.value = next
@@ -176,10 +229,17 @@ watch(draft, (current, previous) => {
 })
 
 /** Opens the popover for a new item or an edit. */
-function openDraft(next: Omit<Draft, 'key' | 'busy'>) {
+function openDraft(next: Omit<Draft, 'key' | 'busy'>): number {
   chip.value = null
   containForComment(next.el)
-  draft.value = { ...next, key: ++drafts, busy: false }
+  const key = ++drafts
+  draft.value = { ...next, key, busy: false }
+  return key
+}
+
+/** Asks for the code origins of a new item's snapshots while the comment is written. */
+function originsFor(target: Target, elements: Element[]): Pick<Draft, 'origins' | 'marked'> {
+  return { origins: readOrigins(sourcesOf(target, elements)), marked: performance.now() }
 }
 
 function select(el: Element | null) {
@@ -190,13 +250,23 @@ function select(el: Element | null) {
   } catch {
     return
   }
-  openDraft({
+  const asked = originsFor(target, [el])
+  const key = openDraft({
     kind: 'element',
     el,
     rect: () => boxOf(el),
     target,
     live: el,
-    label: describe(el, boxOf(el)),
+    label: describe(el, boxOf(el), componentOf(el)),
+    ...asked,
+  })
+  // The popover names the component once it is known.
+  void asked.origins?.then(([origin]) => {
+    const component = origin?.chain.at(-1)?.name
+    const current = draft.value
+    if (component && current?.key === key) {
+      draft.value = { ...current, label: describe(el, current.rect(), component) }
+    }
   })
 }
 
@@ -208,7 +278,7 @@ function selectArea(rect: Rect) {
   } catch {
     return
   }
-  const { container, target } = snapshot
+  const { container, elements, target } = snapshot
   // The area keeps its place inside the container, as its pin will later.
   const at = boxOf(container)
   const dx = rect.x - at.x
@@ -223,6 +293,7 @@ function selectArea(rect: Rect) {
     target,
     live: container,
     label: labelOf(target, container, rect),
+    ...originsFor(target, [container, ...elements]),
   })
 }
 
@@ -315,6 +386,7 @@ function commentOnSelection() {
     target,
     live: read,
     label: labelOf(target, el, rect()),
+    ...originsFor(target, [el]),
   })
 }
 
@@ -332,13 +404,20 @@ async function save(comment: string) {
   if (!current || current.busy) return
   draft.value = { ...current, busy: true, error: undefined }
   const id = current.edit?.id ?? newId()
+  let target = current.target
+  if (target && current.origins) {
+    const waited = performance.now() - (current.marked ?? 0)
+    const origins = await within(current.origins, ORIGIN_WAIT - waited)
+    if (draft.value?.key !== current.key) return
+    if (origins) target = withOrigins(target, origins)
+  }
   const message: BackgroundMessage = current.edit
     ? { type: 'annotation:update', id, comment }
     : {
         type: 'annotation:add',
         id,
         page: pageInfo(window),
-        target: current.target as Target,
+        target: target as Target,
         comment,
       }
   let reply: Reply | undefined
@@ -491,6 +570,7 @@ onMounted(() => {
 })
 
 onBeforeUnmount(() => {
+  clearTimeout(hoverTimer)
   window.removeEventListener('keydown', onKeydown, true)
   for (const type of RELEASES) window.removeEventListener(type, onRelease, true)
   document.removeEventListener('selectionchange', onSelectionChange)

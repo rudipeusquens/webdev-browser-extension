@@ -18,7 +18,7 @@ export default defineConfig(
     languageOptions: { parserOptions: { parser: tseslint.parser } },
   },
   {
-    files: ['src/**/*.{ts,vue}', 'tests/fixtures/**/*.js'],
+    files: ['src/**/*.{ts,vue}', 'tests/fixtures/**/*.{js,ts,vue}'],
     languageOptions: { globals: { ...globals.browser } },
   },
   {

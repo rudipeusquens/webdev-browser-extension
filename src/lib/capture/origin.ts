@@ -1,13 +1,13 @@
 // Code origin of an element (spec section 6): the Vue components that rendered it, read in
 // the page's world by the bridge (origin-bridge.ts) and checked here, or the source
-// attributes an Astro dev server writes into the page. Both come from the page: they are
-// validated, cleaned and capped like any other page text.
+// attributes an Astro dev server writes into the page (source-attributes.ts reads them).
+// Both come from the page: they are validated, cleaned and capped like any other page text.
+// No DOM here: the background, a service worker, parses the bridge's answers.
 
 import type { CodeOrigin } from '../collection/model'
 import { LIMITS } from '../collection/model'
 import { hasKeys, isText } from '../collection/validate'
 import { clean } from '../text'
-import { attributeOf, closestOf } from './dom'
 
 type Entry = CodeOrigin['chain'][number]
 
@@ -45,22 +45,24 @@ export function parseVueOrigin(raw: unknown): CodeOrigin | undefined {
 
 const LINE = /^(\d{1,7})(?::\d{1,7})?$/
 
-/** The Astro source of the element: the nearest `data-astro-source-file`, with its line. */
-export function astroOrigin(el: Element): CodeOrigin | undefined {
-  const source = closestOf(el, '[data-astro-source-file]')
-  if (!source) return undefined
-  const file = cleaned(attributeOf(source, 'data-astro-source-file'), LIMITS.path)
-  if (!file) return undefined
-  const line = Number(LINE.exec(attributeOf(source, 'data-astro-source-loc') ?? '')?.[1])
-  return { framework: 'astro', chain: [line >= 1 ? { file, line } : { file }] }
+/** An Astro source from `data-astro-source-file` and `data-astro-source-loc` (`line:col`). */
+export function astroSource(file: string | null, loc: string | null): CodeOrigin | undefined {
+  const path = cleaned(file, LIMITS.path)
+  if (!path) return undefined
+  const line = Number(LINE.exec(loc ?? '')?.[1])
+  return { framework: 'astro', chain: [line >= 1 ? { file: path, line } : { file: path }] }
 }
 
 const INSPECTOR = /^(.+):(\d{1,7}):\d{1,7}$/
 
-/** The template location `vite-plugin-vue-inspector` writes on the nearest element. */
-export function inspectorOf(el: Element): { file: string; line: number } | undefined {
-  const marked = closestOf(el, '[data-v-inspector]')
-  const match = marked && INSPECTOR.exec(attributeOf(marked, 'data-v-inspector') ?? '')
+export interface InspectorLine {
+  file: string
+  line: number
+}
+
+/** A `data-v-inspector` value (`file:line:col`, written by `vite-plugin-vue-inspector`). */
+export function inspectorLine(value: string | null): InspectorLine | undefined {
+  const match = INSPECTOR.exec(value ?? '')
   const file = match && cleaned(match[1], LIMITS.path)
   const line = Number(match?.[2])
   return file && line >= 1 ? { file, line } : undefined
@@ -75,7 +77,7 @@ const sameFile = (absolute: string, relative: string) => {
 /** Adds the inspector's line to the innermost component when it names that component's file. */
 export function withInspectorLine(
   origin: CodeOrigin,
-  inspector: { file: string; line: number } | undefined,
+  inspector: InspectorLine | undefined,
 ): CodeOrigin {
   const innermost = origin.chain.at(-1)
   if (!inspector || !innermost || !sameFile(innermost.file, inspector.file)) return origin

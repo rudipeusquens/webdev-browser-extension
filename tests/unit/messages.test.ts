@@ -23,6 +23,8 @@ describe('isMessage', () => {
     { type: 'overlay:highlight', id: null },
     { type: 'overlay:reveal', id: 'a1' },
     { type: 'overlay:changed' },
+    { type: 'origin:read', selectors: ['#save'] },
+    { type: 'origin:read', selectors: Array.from({ length: 11 }, (_, i) => `#c${i}`) },
   ])('accepts $type', (message) => {
     expect(isMessage(message)).toBe(true)
   })
@@ -37,6 +39,13 @@ describe('isMessage', () => {
     ['an invalid target', { ...add, target: { kind: 'element', element: { selector: 'x' } } }],
     ['an invalid page', { ...add, page: page('chrome://settings/') }],
     ['an extra key', { type: 'collection:clear', all: true }],
+    ['no selectors', { type: 'origin:read', selectors: [] }],
+    ['12 selectors', { type: 'origin:read', selectors: Array.from({ length: 12 }, () => 'b') }],
+    ['a selector that is not a string', { type: 'origin:read', selectors: [42] }],
+    ['an empty selector', { type: 'origin:read', selectors: [''] }],
+    ['a selector over 1000', { type: 'origin:read', selectors: ['b'.repeat(1001)] }],
+    ['selectors that are not a list', { type: 'origin:read', selectors: '#save' }],
+    ['an extra key on origin:read', { type: 'origin:read', selectors: ['b'], frame: 1 }],
     ['null', null],
     ['a string', 'collection:clear'],
     ['an array', [{ type: 'collection:clear' }]],

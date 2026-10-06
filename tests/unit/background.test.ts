@@ -3,6 +3,7 @@ import { fakeBrowser } from 'wxt/testing/fake-browser'
 import { isBlocked, markBlocked } from '@/lib/background/tab-status'
 import { loadCollection } from '@/lib/collection/store'
 import background from '@/entrypoints/background'
+import { vueOrigins } from '@/lib/capture/origin-bridge'
 import { elementInput } from './helpers/collection'
 
 const tab = { id: 5, windowId: 1 } as Parameters<
@@ -82,6 +83,72 @@ describe('background', () => {
     ).toBeUndefined()
     expect(await send(message, { id: fakeBrowser.runtime.id })).toMatchObject({ ok: false })
     expect((await loadCollection()).items).toHaveLength(0)
+  })
+})
+
+describe('background: code origins', () => {
+  const contentScript = { id: fakeBrowser.runtime.id, tab, frameId: 0, documentId: 'doc-1' }
+  const read = { type: 'origin:read', selectors: ['#save', 'main'] }
+  const card = { name: 'Card', file: '/srv/app/src/components/Card.vue' }
+
+  beforeEach(() => {
+    fakeBrowser.reset()
+    background.main()
+  })
+
+  afterEach(() => {
+    vi.useRealTimers()
+    vi.restoreAllMocks()
+  })
+
+  it("reads them in the page's own world, in the document that asked", async () => {
+    const run = vi
+      .spyOn(fakeBrowser.scripting, 'executeScript')
+      .mockResolvedValue([
+        { result: [{ chain: [card] }, null], documentId: 'doc-1', frameId: 0 },
+      ] as never)
+    expect(await send(read, contentScript)).toEqual({
+      ok: true,
+      origins: [{ framework: 'vue', chain: [card] }, null],
+    })
+    expect(run).toHaveBeenCalledWith({
+      target: { tabId: 5, documentIds: ['doc-1'] },
+      world: 'MAIN',
+      func: vueOrigins,
+      args: [['#save', 'main']],
+    })
+  })
+
+  it('answers only the top frame of a tab', async () => {
+    const run = vi.spyOn(fakeBrowser.scripting, 'executeScript')
+    const panel = { id: fakeBrowser.runtime.id }
+    for (const sender of [
+      panel,
+      { ...contentScript, frameId: 3 },
+      { ...contentScript, documentId: undefined },
+    ]) {
+      expect(await send(read, sender)).toMatchObject({ ok: false })
+    }
+    expect(run).not.toHaveBeenCalled()
+  })
+
+  it('gives no origins when the page refuses, answers garbage or takes too long', async () => {
+    const run = vi.spyOn(fakeBrowser.scripting, 'executeScript')
+    run.mockRejectedValueOnce(new Error('Frame with ID 0 was removed.'))
+    expect(await send(read, contentScript)).toEqual({ ok: true, origins: [null, null] })
+    for (const result of [
+      'nope',
+      [{ chain: [card] }],
+      [{ chain: 'x' }, { chain: [{ file: 7 }] }],
+    ]) {
+      run.mockResolvedValueOnce([{ result, documentId: 'doc-1', frameId: 0 }] as never)
+      expect(await send(read, contentScript)).toEqual({ ok: true, origins: [null, null] })
+    }
+    vi.useFakeTimers()
+    run.mockReturnValueOnce(new Promise(() => undefined) as never)
+    const slow = send(read, contentScript)
+    await vi.advanceTimersByTimeAsync(1500)
+    expect(await slow).toEqual({ ok: true, origins: [null, null] })
   })
 })
 

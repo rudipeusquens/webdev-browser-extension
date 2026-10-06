@@ -1,11 +1,6 @@
 import { beforeEach, describe, expect, it } from 'vitest'
-import {
-  astroOrigin,
-  combineOrigin,
-  inspectorOf,
-  parseVueOrigin,
-  withInspectorLine,
-} from '@/lib/capture/origin'
+import { combineOrigin, parseVueOrigin, withInspectorLine } from '@/lib/capture/origin'
+import { astroOrigin, inspectorOf } from '@/lib/capture/source-attributes'
 import type { CodeOrigin } from '@/lib/collection/model'
 import { isElementSnapshot } from '@/lib/collection/validate'
 import { snapshot } from './helpers/collection'
