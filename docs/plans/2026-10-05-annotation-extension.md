@@ -38,8 +38,10 @@ that starts it) once the spike results of milestone 1 are recorded in the spec.
 - Page-derived strings are untrusted: no `v-html`, no `eval`, no remote code; caps: visible
   text 120 chars, selected text 500, context 40 each side, origin chain 5, area elements 10,
   selector depth 8.
-- Shortcuts: `Alt+Shift+A` activate (the `_execute_action` command, which fires the same
-  `action.onClicked` handler as the icon); `E` element, `A` area, `Esc` browse;
+- Shortcuts: `Ctrl+Shift+K` activate (the `_execute_action` command, which fires the same
+  `action.onClicked` handler as the icon; the page's context menu entry **Annotate this page**
+  does the same). Milestone 1 used `Alt+Shift+A`, which Chrome never assigns (spec section 13,
+  spike 2); the task code below still shows it. `E` element, `A` area, `Esc` browse;
   `Enter` save (not during IME composition), `Shift+Enter` new line, `Alt+V` voice.
 - Default speech-to-text model `openai/gpt-4o-mini-transcribe`; language `auto`; recordings
   stop at 120 s; request timeout 65 s.

@@ -77,9 +77,9 @@ and **shadcn-vue**. Manifest V3, minimum Chrome version **116** (`chrome.sidePan
 
 ### Data flow: annotating
 
-1. Action click or `Alt+Shift+A` (the `_execute_action` command, which fires the same handler)
-   → background opens the side panel for the window and
-   injects the overlay into the tab (the gesture grants `activeTab`).
+1. Action click, `Ctrl+Shift+K` (the `_execute_action` command, which fires the same handler)
+   or **Annotate this page** in the page's context menu → background opens the side panel for
+   the window and injects the overlay into the tab (each of the three grants `activeTab`).
 2. The developer marks something → the overlay builds a snapshot, shows the comment popover
    and asks the background to run the origin bridge for the snapshot's elements while the
    comment is written.
@@ -315,9 +315,13 @@ Title: Shop · Viewport: 1440×900 · Color scheme: light
 
 ## 8. Interaction and UI
 
-**Activation:** action click or `Alt+Shift+A` (suggested key of the `_execute_action` command) opens
-the side panel and activates the overlay on the tab. On remembered origins the overlay loads by
-itself.
+**Activation:** action click, `Ctrl+Shift+K` (suggested key of the `_execute_action` command,
+`⇧⌘K` on macOS) or **Annotate this page** in the page's context menu opens the side panel and
+activates the overlay on the tab. On remembered origins the overlay loads by itself. Chrome
+grants `activeTab` for these three only; a button in the panel cannot activate a tab without
+a permission prompt. When the overlay is not active, the panel names all three, with the
+shortcut Chrome actually assigned (the developer can change it in
+`chrome://extensions/shortcuts`).
 
 **Modes** (switch in the panel, or keys while focus is not in a page field):
 
@@ -503,6 +507,13 @@ Each spike answers one question before code depends on it; the answer goes into 
    `onClicked` with the `activeTab` grant: `tests/e2e/overlay.e2e.test.ts` injects the overlay
    without any host permission, `tests/e2e/activate.e2e.test.ts` sees the panel open. Fallback
    not needed; the keyboard shortcut stays on the manual smoke checklist.
+   **Found later (2026-10-06):** Chrome assigns no suggested key that is one of its own
+   shortcuts, without any error: `Alt+Shift+A` (the first choice; it focuses inactive dialogs
+   on Windows and Linux) and `Ctrl+K` stay unassigned, `Ctrl+Shift+K` is assigned. Reloading
+   an unpacked extension assigns a changed suggested key unless the developer set one.
+   `tests/e2e/activate.e2e.test.ts` now checks the key Chrome assigned
+   (`chrome.commands.getAll`). Pressing the key and picking the context menu entry cannot be
+   automated and stay on the manual checklist.
 3. **Overlay styling:** Tailwind v4 and reka-ui popovers inside a closed shadow root on a page
    with strict CSP (`@property` registration, portal target inside the shadow root).
    **Result (2026-10-05):** works under `style-src 'self'`, `* { all: unset !important }`, a

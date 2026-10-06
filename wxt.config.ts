@@ -23,8 +23,9 @@ export default defineConfig({
     optional_host_permissions: ['http://*/*', 'https://*/*'],
     action: { default_title: 'Annotate this page' },
     commands: {
-      // Fires action.onClicked, so the shortcut and the icon share one handler.
-      _execute_action: { suggested_key: { default: 'Alt+Shift+A' } },
+      // Fires action.onClicked, so the shortcut and the icon share one handler. Chrome assigns
+      // no suggested key that is one of its own shortcuts (Alt+Shift+A, Ctrl+K), silently.
+      _execute_action: { suggested_key: { default: 'Ctrl+Shift+K' } },
     },
   },
 })

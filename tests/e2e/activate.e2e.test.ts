@@ -2,9 +2,22 @@ import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest'
 import type { WebWorker } from 'puppeteer'
 import { clickAction, launch, serviceWorker, type Session, startFixtureServer } from './harness'
 
+type Command = { name?: string; shortcut?: string }
 type Chrome = {
+  commands: { getAll(): Promise<Command[]> }
   contextMenus?: { update(id: string, properties: object, callback: () => void): void }
   runtime: { lastError?: { message?: string } }
+}
+
+// As Chrome shows the suggested key: Ctrl+Shift+K, on macOS Command+Shift+K.
+const SHORTCUT = /^(Ctrl\+Shift\+K|⇧⌘K)$/
+
+/** The key Chrome assigned to the toolbar action. */
+const assignedShortcut = async (worker: WebWorker) => {
+  const commands = await worker.evaluate(() =>
+    (globalThis as unknown as { chrome: Chrome }).chrome.commands.getAll(),
+  )
+  return commands.find((c) => c.name === '_execute_action')?.shortcut ?? ''
 }
 
 /** Whether the context menu has the entry `id`; Chrome can list none, only update one. */
@@ -44,9 +57,32 @@ describe('activation', () => {
     expect(disabled).toBe(true)
   })
 
+  // Chrome silently leaves a suggested key unassigned when it is one of its own shortcuts
+  // (Alt+Shift+A focuses inactive dialogs, Ctrl+K searches): only the result tells.
+  it('gets its suggested shortcut from Chrome', async () => {
+    expect(await assignedShortcut(await serviceWorker(session))).toMatch(SHORTCUT)
+  })
+
   it('adds "Annotate this page" to the context menu of pages', async () => {
     const worker = await serviceWorker(session)
     await vi.waitFor(async () => expect(await menuEntry(worker, 'annotate')).toBe('found'))
     expect(await menuEntry(worker, 'nothing')).not.toBe('found')
+  })
+
+  it('names the assigned shortcut in the panel of a page it is not active on', async () => {
+    await session.page.goto(`${server.origin}/plain/`)
+    const panel = await clickAction(session)
+    const other = await session.browser.newPage()
+    await other.goto(`${server.origin}/plain/`)
+    await other.bringToFront()
+    await panel.waitForFunction(() =>
+      document.querySelector('[data-testid="tab-status"]')?.textContent?.includes('Not active'),
+    )
+    const text = await panel.$eval('[data-testid="tab-status"]', (p) => p.textContent ?? '')
+    const shortcut = await assignedShortcut(await serviceWorker(session))
+    expect(shortcut).toMatch(SHORTCUT)
+    expect(text).toContain(`press ${shortcut}`)
+    expect(text).toContain('Annotate this page')
+    await other.close()
   })
 })
