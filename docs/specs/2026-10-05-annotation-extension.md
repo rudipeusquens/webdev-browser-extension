@@ -84,8 +84,10 @@ and **shadcn-vue**. Manifest V3, minimum Chrome version **116** (`chrome.sidePan
 ### Data flow: annotating
 
 1. Action click, `Ctrl+Shift+K` (the `_execute_action` command, which fires the same handler)
-   or **Annotate this page** in the page's context menu → background opens the side panel for
-   the window and injects the overlay into the tab (each of the three grants `activeTab`).
+   or **Annotate this page** in the page's context menu (an option, off by default) →
+   background opens the side panel for the window and injects the overlay into the tab (each
+   of the three grants `activeTab`). **Annotate this page** in the panel injects it too, where
+   Chrome already lets the extension on the tab (`tab:start`).
 2. The developer marks something → the overlay builds a snapshot, shows the comment popover
    and asks the background to run the origin bridge for the snapshot's elements while the
    comment is written.
@@ -126,7 +128,7 @@ and **shadcn-vue**. Manifest V3, minimum Chrome version **116** (`chrome.sidePan
 | `sidePanel`                                           | the panel                                                                  |
 | `offscreen`                                           | microphone recording                                                       |
 | `clipboardWrite`                                      | copying from the panel                                                     |
-| `contextMenus`                                        | **Annotate this page** in the page's context menu                          |
+| `contextMenus`                                        | **Annotate this page** in the page's context menu (an option in Settings)  |
 | optional host permissions `http://*/*`, `https://*/*` | requested per origin by **Always enable here**, never at install           |
 
 No host permission for `openrouter.ai`: its API answers CORS preflights with
@@ -151,7 +153,7 @@ keeps its number, becomes **open**, and each site continues at the old `nextNumb
 interface Collection {
   version: 2
   site: string // "http://localhost:3000", "file://"; every page of the collection belongs to it
-  nextNumber: number // numbers are stable per site; reset by "Clear all"
+  nextNumber: number // numbers are stable per site; back to 1 once "Empty bin" leaves none
   pages: Record<string, PageInfo> // key: URL without hash
   items: Annotation[]
   lastCopy: string[] // ids the last "Copy as prompt" copied, for "Copy again"
@@ -171,7 +173,7 @@ interface Annotation {
   comment: string
   createdAt: string
   updatedAt: string
-  status: 'open' | 'done' | 'deleted' // done: copied as prompt; deleted: kept until "Clear all"
+  status: 'open' | 'done' | 'deleted' // done: copied as prompt; deleted: kept until "Empty bin"
   target: ElementTarget | TextTarget | AreaTarget
 }
 
@@ -207,6 +209,8 @@ type AreaTarget = {
 
 interface Settings {
   rememberedOrigins: string[] // mirrors granted optional host permissions
+  pageTitles: boolean // page headings in the panel show the title too; default off
+  contextMenu: boolean // "Annotate this page" in the page's context menu; default off
 }
 
 // Own storage keys, so a malformed value never resets another setting.
@@ -230,7 +234,7 @@ interface History {
   redo: Step[]
 }
 interface Step {
-  label: string // "Delete item 3", "Mark 4 items done", "Clear all"
+  label: string // "Delete pin 3", "Copy pin 2", "Mark 4 pins done", "Clear all", "Empty bin"
   // What the step changed, before and after: items and pages by key (absent = none), and
   // the collection's nextNumber and lastCopy.
   items: { id: string; before?: Annotation; after?: Annotation }[]
@@ -245,14 +249,16 @@ interface HistoryLabels {
 }
 ```
 
-**Statuses.** An item is **open** when it is created. **Copy as prompt** makes the copied items
-**done**. **Delete** makes an item **deleted**; it stays in the collection until **Clear all**
-(of its site) removes everything. **Reopen** (done → open) and **Restore** (deleted → open)
-bring an item back; saving a changed comment on a done item reopens it as well.
+**Statuses.** An item (a **pin** in the UI) is **open** when it is created. **Copy as prompt**
+makes the copied items **done**, and so does copying one pin from its entry. **Delete** makes an
+item **deleted**, and **Clear all** does so for every open and done item of the site; deleted
+items stay in the collection until **Empty bin** (of their site) removes them, once nothing
+open or done is left. **Reopen** (done → open) and **Restore** (deleted → open) bring an item
+back; saving a changed comment on a done item reopens it as well.
 
 **Undo and redo.** Every change of a site's collection is one step in that site's history: a new
-item, a changed comment, Delete, Reopen, Restore, Copy as prompt (all items it marked done) and
-Clear all. Undo puts back what the step changed; Redo applies it again; a new change clears the
+item, a changed comment, Delete, Reopen, Restore, Copy as prompt (all items it marked done),
+Clear all and Empty bin. Undo puts back what the step changed; Redo applies it again; a new change clears the
 redo steps. Undo refuses (and drops the history) when an item it would put back has changed
 since, which only happens if the history and the collection got out of step. The history lasts
 for the browser session.
@@ -393,12 +399,15 @@ Title: Shop · Viewport: 1440×900 · Color scheme: light
 ## 8. Interaction and UI
 
 **Activation:** action click, `Ctrl+Shift+K` (suggested key of the `_execute_action` command,
-`⇧⌘K` on macOS) or **Annotate this page** in the page's context menu opens the side panel and
-activates the overlay on the tab. On remembered origins the overlay loads by itself. Chrome
-grants `activeTab` for these three only; a button in the panel cannot activate a tab without
-a permission prompt. When the overlay is not active, the panel names all three, with the
-shortcut Chrome actually assigned (the developer can change it in
-`chrome://extensions/shortcuts`).
+`⇧⌘K` on macOS) or **Annotate this page** in the page's context menu (an option in Settings, off
+by default) opens the side panel and activates the overlay on the tab. On remembered origins the
+overlay loads by itself. Chrome grants `activeTab` for these three only: a click in the panel
+grants nothing, and Chrome does not even tell the panel the address of a tab the extension
+may not run on. Where it may run already (a grant that outlived its overlay, after a reload or
+a navigation on the same site, or a remembered origin), the panel shows the site and offers
+**Annotate this page**, which starts the overlay without the toolbar. Elsewhere the panel says
+how to start it, with the shortcut Chrome actually assigned (the developer can change it in
+`chrome://extensions/shortcuts`) and the context menu while that is on.
 
 The action click and its shortcut toggle: while the panel is open and the overlay answers on that
 tab, they close the panel instead (the background asks the open panel, which checks the tab again,
@@ -412,18 +421,24 @@ mode; when the panel closes, every one of them switches to Browse.
 
 **Modes** (switch in the panel, or keys while focus is not in a page field):
 
-| Mode    | Key   | Behavior                                                                                                                                                                                                                    |
-| ------- | ----- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Browse  | `Esc` | Page works normally. When the mouse or a key is released with text selected, a small **Comment** chip appears below the end of the selection; it goes when the selection changes. Selections made by page scripts get none. |
-| Element | `E`   | Hover outline with a chip `tag · Component · W×H`; `↑`/`↓` move to parent/child; click or `Enter` selects. Page clicks are swallowed; the mouse wheel scrolls what lies under the pointer.                                  |
-| Area    | `A`   | Drag a rectangle (dashed outline with its size); release selects when it is at least 4 × 4 px; `Esc` cancels the drag. The mouse wheel scrolls under the pointer as in element mode; `Ctrl`/`Cmd` + wheel zooms.            |
+| Mode    | Key   | Behavior                                                                                                                                                                                                                |
+| ------- | ----- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Browse  | `Esc` | Page works normally. When the mouse or a key is released with text selected, a small **Pin** chip appears below the end of the selection; it goes when the selection changes. Selections made by page scripts get none. |
+| Element | `E`   | Hover outline with a chip `tag · Component · W×H`; `↑`/`↓` move to parent/child; click or `Enter` selects. Page clicks are swallowed; the mouse wheel scrolls what lies under the pointer (below).                      |
+| Area    | `A`   | Drag a rectangle (dashed outline with its size); release selects when it is at least 4 × 4 px; `Esc` cancels the drag. The mouse wheel scrolls under the pointer as in element mode; `Ctrl`/`Cmd` + wheel zooms.        |
 
 After an annotation is saved the mode stays, so several elements can be marked in a row.
 `P` (same condition: focus not in a page field, no comment open) shows or hides the pins, like
 the panel's **Pins** toggle, which follows it.
 
-**Comment popover:** anchored next to the target. Its header names the item ("Comment" or
-"Item 3") and the target (`button · 160×48`, a quoted text); a long target is cut with an
+**Mouse wheel in element and area mode:** the glass sits in the top layer, from where Chrome
+passes the wheel to nothing, so the overlay scrolls: the nearest scroll container under the
+pointer that can still move that way, at once and by the whole turn (a page's smooth scrolling
+would start each turn where the last one is and lose distance); a container at its end passes
+the turn on, up to the document, which scrolls the page's own way.
+
+**Comment popover:** anchored next to the target. Its header names the pin ("New pin" or
+"Pin 3") and the target (`button · 160×48`, a quoted text); a long target is cut with an
 ellipsis in the target's own color. Textarea; below it on the left **Delete** for an existing
 item (**Restore** for a deleted one), or the dictation status while dictating (`● 0:12`,
 "Transcribing…"); the mic button next to **Save** on the right; a dictation message with its
@@ -446,7 +461,8 @@ scrolls; a text not found again, or inside one of the page's shadow roots, is ma
 only). The line is left off on a
 side where a scroll container or the viewport cuts the target, so a cut target does not look
 smaller than it is. Hovering a pin draws its marking stronger; the item being edited shows the
-popover's marking instead. Markings never take the pointer, and the **Pins** toggle and `P`
+popover's marking instead, in its status color too, as does the highlight of an entry hovered in
+the panel. Markings never take the pointer, and the **Pins** toggle and `P`
 hide them with the numbers. Pins and markings follow the panel's filter (open items only, open
 and done, or all including deleted) and take the item's status color: open blue, done green,
 deleted red. Hovering a pin marks its entry in the panel's list and scrolls it into view;
@@ -455,43 +471,55 @@ while a pin's popover is open, its entry stays marked.
 **Side panel** (shadcn-vue, follows the system color scheme) has two views.
 
 - **Edit** (the default), top to bottom:
-  - Title row: **Edit**, the active site (`localhost:3000`, the full origin as tooltip) and its
-    number of open items; **Undo** and **Redo**, whose tooltips name the step (`Ctrl+Z` and
-    `Ctrl+Shift+Z` or `Ctrl+Y` in the panel, `⌘Z` and `⇧⌘Z` on macOS; the page's own keys are
-    never taken); the gear opens Settings.
-  - Buttons: mode switch (Browse, Element, Area), **Pins** toggle that hides all pins (`P` on
-    the page), and the filter **Open · All · + Deleted** with counts. The filter is one choice
-    for the list and the pins of every tab, kept across restarts.
-  - Texts (in this order below the buttons): tab status ("Active on localhost:3000", "Can't run on this page", "Couldn't start on
-    this page…", "Not active on this page…"); **Always enable here** (asks Chrome for access to
-    the page's origin, then the overlay loads there by itself) / **Forget this site** (also
-    gives the access back); the page keys.
-  - List of the active site only, grouped by page (current page first and marked; the heading
-    shows the page's title and path). Entries show the number in the status color, type icon,
-    comment (two lines; struck through when deleted), component or tag, and "Not found" when
-    the target was missing on the page's last visit. Hover highlights the target on the page
-    (the highlight goes when the panel closes). Click goes to the item: on the current page it
-    scrolls to the target and opens its popover; on another page of the site (on the web) it
-    opens that page in the tab, waits for the overlay and does the same there. Actions: Delete
-    (open and done items), **Reopen** (done), **Restore** (deleted); **Go to** in the heading
-    of another page.
-  - Footer: **Copy as prompt** on its own row (the site's open items, which then become done;
-    toast "Copied 3 items"), below it **Copy again** (the items of the site's last copy that
-    were not deleted since; changes nothing) and **Clear all** (every item of the site, after a
-    confirmation; undoable).
-  - Without a site (the overlay does not answer on the tab), the view shows the status and how
-    to activate, no list. Empty states: "No feedback yet: pick an element, drag an area, or
-    select text."; when the filter hides every item, it says how many it hides.
+  - Title row: **Edit** on the left; in the middle the **site pill**, a dot and the site
+    (`localhost:3000`; green active, grey not active, red refused or failed; "Not active" when
+    Chrome does not tell the panel the page), the full origin as tooltip; on the right **Undo**
+    and **Redo**, whose tooltips name the step (`Ctrl+Z` and `Ctrl+Shift+Z` or `Ctrl+Y` in the
+    panel, `⌘Z` and `⇧⌘Z` on macOS; the page's own keys are never taken), and the gear that
+    opens Settings. Hovering or focusing the pill shows its one action: **Forget this site** on
+    a remembered site (after a confirmation; the overlay no longer loads there by itself and
+    Chrome takes the access back; the feedback stays), **Always enable here** on another active
+    web site (asks Chrome for access to the origin, then the overlay loads there by itself),
+    **Annotate this page** on a page the panel can start the overlay on.
+  - Buttons: mode switch (Browse, Element, Area) and **Pins** toggle that hides all pins (`P` on
+    the page), filling the row with 8 px between them; the filter **Open · All · + Deleted**
+    with counts. The filter is one choice for the list and the pins of every tab, kept across
+    restarts.
+  - List of the active site only, grouped by page and set apart by a line (current page first,
+    with **This page** before its path). Headings show the path; with **Show page titles** in
+    Settings the page's title too. Another page's path on the web is its Go to link: it opens
+    that page in the tab. Entries show the number in the status color, type icon, comment (two
+    lines; struck through when deleted), component or tag, and "Not found" when the target was
+    missing on the page's last visit. Hover highlights the target on the page (the highlight
+    goes when the panel closes). Click goes to the pin: on the current page it scrolls to the
+    target and opens its popover; on another page of the site (on the web) it opens that page
+    in the tab, waits for the overlay and does the same there. Actions: **Copy** (open: that pin
+    as the prompt; it becomes done and is what Copy again copies), **Reopen** (done),
+    **Restore** (deleted), **Delete** (open and done).
+  - Footer: notes and refusals above the buttons ("Copied 3 pins"), so its padding is the same
+    on every side; **Copy as prompt** on its own row (the site's open pins, which then become
+    done), below it **Copy again** (the pins of the site's last copy that were not deleted
+    since; changes nothing) and **Clear all** (every open and done pin of the site moves to
+    Deleted at once; undoable). Once only deleted pins are left, **Empty bin** takes the place
+    of Clear all: after a confirmation it removes them for good (undoable until the browser
+    closes). Both carry the bin icon.
+  - Without a site (the overlay does not answer on the tab), the middle of the view says how to
+    start it, or offers **Annotate this page** where the panel can; no list. Empty states sit in
+    the middle of the list area: "No feedback yet: pick an element, drag an area, or select
+    text."; when the filter hides every pin, it says how many it hides. Scrollbars are thin, in
+    a muted tone.
 - **Settings** (gear): the title becomes **Settings** and the gear a **Close** button (X); the
-  buttons and texts of Edit are hidden. Sections: voice (API key: a password field and
-  **Save**; once saved only masked, `sk-or-v1-…` and the last four characters, with **Test** and
-  **Remove**; model: the list below or a custom id; language; microphone access: Allowed / Not
-  allowed yet with **Grant** / Blocked, with how to allow it); **Sites**: every remembered site
-  and every site with feedback, the address opening the site in a new tab (web sites only), its
-  number of open items, **Auto** for remembered sites with **Forget**; **Keyboard shortcuts**:
-  the toolbar shortcut as Chrome assigned it (**Change** opens `chrome://extensions/shortcuts`),
-  and the keys on the page, in element and area mode, in the comment popover and in the panel.
-  **Open settings** in the popover opens the panel there.
+  buttons, the list and the footer of Edit are hidden, the site pill stays. Sections, set apart
+  by space and a line: **General** (switches: **Show page titles**; **Annotate this page in the
+  context menu**); voice (API key: a password field and **Save**; once saved only masked,
+  `sk-or-v1-…` and the last four characters, with **Test** and **Remove**; model: the list
+  below or a custom id; language; microphone access: Allowed / Not allowed yet with **Grant** /
+  Blocked, with how to allow it); **Sites**: every remembered site and every site with
+  feedback, the address opening the site in a new tab (web sites only), its number of open
+  pins, **Auto** for remembered sites with **Forget** (after the same confirmation);
+  **Keyboard shortcuts**: the toolbar shortcut as Chrome assigned it (**Change** opens
+  `chrome://extensions/shortcuts`), and the keys on the page, in element and area mode, in the
+  comment popover and in the panel. **Open settings** in the popover opens the panel there.
 - Everything clickable shows the pointer cursor, in the panel and in the overlay.
 
 Visual references: v0 and Lovable element selection (outline, tag chip, inline comment field,
@@ -555,14 +583,18 @@ select-parent), ClickUp and Air comment pins with a side list.
 | Several tabs or windows                                                                                                                                 | One collection per site; the background is the single writer, so writes never race. Every tab of a site shares its undo history.                                                                                                                                                                 |
 | Clipboard write fails                                                                                                                                   | Dialog with the text selected for manual copying.                                                                                                                                                                                                                                                |
 | Site access revoked in `chrome://extensions`                                                                                                            | `chrome.permissions.onRemoved` drops the site from the settings and the registered overlay script; the panel follows. Access granted there for other sites does not load the overlay by itself.                                                                                                  |
-| Storage                                                                                                                                                 | Text only, a few kilobytes per item. Done and deleted items stay until **Clear all** of their site; the 10 MB `storage.local` quota holds thousands of items.                                                                                                                                    |
+| Storage                                                                                                                                                 | Text only, a few kilobytes per item. Done and deleted items stay until **Empty bin** of their site; the 10 MB `storage.local` quota holds thousands of items.                                                                                                                                    |
 | Update from a version with one collection (milestones 2–5)                                                                                              | When the background starts, the old collection is split by site: numbers kept, every item open, each site continues at the old `nextNumber`; then the old key is removed. A malformed old collection, which the panel already showed as empty, is removed.                                       |
 | Several projects at once                                                                                                                                | Each site has its own list, numbers, copy, clear and history; the panel shows the site of the active tab, Settings lists every site with feedback.                                                                                                                                               |
 | A page asks to change items of another site                                                                                                             | Refused: messages from a page count only for the site of the frame that sent them.                                                                                                                                                                                                               |
 | Undo after a browser restart                                                                                                                            | The history is gone; Undo and Redo are disabled until the next change.                                                                                                                                                                                                                           |
 | Undo when an item changed outside the history (should not happen)                                                                                       | "This changed in the meantime; it can no longer be undone." The site's history is cleared, nothing is overwritten.                                                                                                                                                                               |
-| History larger than `storage.session` allows                                                                                                            | A site keeps at most 1 MB of steps (the session storage also holds the missing items, the tab status and the panel's view); the oldest steps go first, and also when the storage is full. If a single step does not fit, such as Clear all on a very large site, that site keeps no history.     |
-| A change from the panel is refused (an undo out of step, a full storage, an item cleared in another window)                                             | The panel says why in a red line above its buttons; the next change that works clears it. After Copy as prompt, the clipboard holds the text even when marking the items done failed, and the line says so.                                                                                      |
+| History larger than `storage.session` allows                                                                                                            | A site keeps at most 1 MB of steps (the session storage also holds the missing items, the tab status and the panel's view); the oldest steps go first, and also when the storage is full. If a single step does not fit, such as Empty bin on a very large site, that site keeps no history.     |
+| A change from the panel is refused (an undo out of step, a full storage, an item removed in another window, a tab Chrome gives no access to)            | The panel says why in a red line above its buttons; the next change that works clears it. After Copy as prompt, the clipboard holds the text even when marking the items done failed, and the line says so.                                                                                      |
+| Annotate this page in the panel on a tab Chrome gives the extension no access to                                                                        | Cannot happen from the pill or the empty view: Chrome does not tell the panel such a tab's address, so the panel offers the toolbar icon and the shortcut instead. If the tab changed meanwhile, Chrome refuses and the panel says so in its red line; nothing is marked.                        |
+| Settings stored by milestone 6 (no options)                                                                                                             | Read with both options off; an option it cannot read is off; the remembered sites stay.                                                                                                                                                                                                          |
+| Clear all, then a paste went wrong                                                                                                                      | Copy again leaves out deleted pins: after Clear all it is disabled; Undo brings the pins back as they were.                                                                                                                                                                                      |
+| Wheel over a scroll container at its end in element or area mode                                                                                        | The turn goes on to the container around it, up to the page, as without the overlay.                                                                                                                                                                                                             |
 | Jump to an item on another page whose target is missing there                                                                                           | The page opens; the popover does not; the entry keeps or gets "Not found".                                                                                                                                                                                                                       |
 | Voice: no key                                                                                                                                           | The popover says "Add an OpenRouter API key in settings." with **Open settings**, which opens the panel on its settings.                                                                                                                                                                         |
 | Voice: microphone not granted or no device                                                                                                              | "Allow the microphone first." with **Grant** (opens the permission page), "The microphone is blocked for this extension." with **Grant** (the page says how to allow it), or "No microphone found."                                                                                              |
@@ -610,7 +642,9 @@ select-parent), ClickUp and Air comment pins with a side list.
 - **Messages:** the background accepts messages only from the extension's own contexts and
   validates every message shape. A page's overlay may add, edit, delete and restore items only
   from the top frame and only for the site of that frame (`sender.url`); copying, clearing,
-  reopening, undo and redo are accepted only from the panel's URL. The overlay tells the panel
+  emptying the bin, reopening, undo and redo, the filter, the Settings options and starting the
+  overlay from the panel (`tab:start`, which Chrome refuses on tabs the extension may not run
+  on) are accepted only from the panel's URL. The overlay tells the panel
   which pin is pointed at or open by item id only. The sites list opens only `http:` and
   `https:` origins.
 - **API key:** see section 9. The OpenRouter key pattern (`sk-or-v1-…`) is added to the secret
