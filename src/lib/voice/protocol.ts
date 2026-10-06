@@ -22,6 +22,7 @@ export type VoiceError =
   | 'no-speech'
   | 'interrupted'
   | 'taken'
+  | 'mic-lost'
 
 const TEXTS: Record<VoiceError, string> = {
   'no-key': 'Add an OpenRouter API key in settings.',
@@ -39,6 +40,7 @@ const TEXTS: Record<VoiceError, string> = {
   'no-speech': 'No speech detected.',
   interrupted: 'Recording stopped unexpectedly.',
   taken: 'Recording stopped: another one started.',
+  'mic-lost': 'The microphone stopped. Retry sends what was recorded.',
 }
 
 export const VOICE_ERRORS = Object.keys(TEXTS) as VoiceError[]

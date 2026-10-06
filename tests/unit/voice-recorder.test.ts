@@ -132,6 +132,47 @@ describe('the recorder', () => {
     expect(r.last()).toEqual({ state: 'failed', error, retry: false })
   })
 
+  it.each([
+    ['creating the recorder', 'record'],
+    ['starting it', 'start'],
+  ])('fails cleanly and lets the microphone go when %s throws', async (_, where) => {
+    const failing = new FakeMediaRecorder()
+    failing.start = () => {
+      throw new DOMException('no', 'NotSupportedError')
+    }
+    const r = setup({
+      record: () => {
+        if (where === 'record') throw new DOMException('no', 'NotSupportedError')
+        return failing
+      },
+    })
+    r.recorder.command({ type: 'start', request: REQUEST })
+    await flush()
+    expect(r.track.stopped).toBe(true)
+    expect(r.last()).toEqual({ state: 'failed', error: 'mic-failed', retry: false })
+    // Nothing is stuck: a new start records.
+    r.recorder.command({ type: 'start', request: REQUEST })
+    await flush()
+    expect(r.deps.getUserMedia).toHaveBeenCalledTimes(2)
+  })
+
+  // Spec principle 2: audio goes out only after the developer stops the recording.
+  it('sends nothing when the recording ends by itself, and keeps it for Retry', async () => {
+    const r = setup()
+    r.recorder.command({ type: 'start', request: REQUEST })
+    await flush()
+    r.media[0]?.chunk('voice ')
+    // The device went away or the permission was revoked: the browser stops the recorder.
+    r.media[0]?.stop()
+    await vi.advanceTimersByTimeAsync(1)
+    expect(r.transcribe).not.toHaveBeenCalled()
+    expect(r.track.stopped).toBe(true)
+    expect(r.last()).toEqual({ state: 'failed', error: 'mic-lost', retry: true })
+    r.recorder.command({ type: 'retry', request: REQUEST })
+    await flush()
+    expect(await text(r.transcribe.mock.calls[0]?.[0])).toBe('voice end')
+  })
+
   it('cancels a recording: nothing is sent, the microphone is released', async () => {
     const r = setup()
     r.recorder.command({ type: 'start', request: REQUEST })

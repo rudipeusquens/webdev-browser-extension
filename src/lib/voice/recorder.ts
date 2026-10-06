@@ -104,17 +104,29 @@ export function createRecorder(deps: RecorderDeps) {
       return
     }
     stream = granted
-    media = deps.record(granted)
-    media.ondataavailable = (e) => chunks.push(e.data)
-    media.onstop = () => {
-      release()
-      audio = { blob: new Blob(chunks, { type: 'audio/webm' }), atLimit: stopsAtLimit }
-      chunks = []
-      media = undefined
-      void send(next)
-    }
     let stopsAtLimit = false
-    media.start(TIMESLICE)
+    try {
+      media = deps.record(granted)
+      media.ondataavailable = (e) => chunks.push(e.data)
+      media.onstop = () => {
+        release()
+        clearTimeout(limit)
+        audio = { blob: new Blob(chunks, { type: 'audio/webm' }), atLimit: stopsAtLimit }
+        chunks = []
+        media = undefined
+        // Audio goes out only after the developer's stop or the limit (spec principle 2). A
+        // recording that ended by itself (device gone, permission revoked) waits for Retry.
+        if (phase === 'stopping') return void send(next)
+        phase = 'held'
+        deps.emit({ state: 'failed', error: 'mic-lost', retry: true })
+      }
+      media.start(TIMESLICE)
+    } catch {
+      if (media) media.onstop = media.ondataavailable = null
+      media = undefined
+      release()
+      return fail('mic-failed')
+    }
     phase = 'recording'
     limit = setTimeout(() => {
       stopsAtLimit = true

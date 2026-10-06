@@ -62,15 +62,23 @@ function codeOf(status: number): VoiceError {
 
 const isAbort = (e: unknown) => e instanceof Error && e.name === 'AbortError'
 
+/** An answer read whole: its status and its body parsed as JSON (null when it is not). */
+interface Answer {
+  ok: boolean
+  status: number
+  body: unknown
+}
+
 /**
- * Runs `request` with the client timeout and the caller's signal. A timeout becomes a
- * `timeout` failure, a network error `offline`; the caller's own abort passes through.
+ * Sends the request and reads the whole answer within the client timeout and the caller's
+ * signal: a server that sends its headers and then stalls times out as well. A timeout becomes
+ * a `timeout` failure, a network error `offline`; the caller's own abort passes through.
  */
 async function call(
   path: string,
   init: RequestInit,
   { signal, fetch: fetchFn = globalThis.fetch }: Options,
-): Promise<Response> {
+): Promise<Answer> {
   signal?.throwIfAborted()
   const controller = new AbortController()
   let timedOut = false
@@ -80,8 +88,24 @@ async function call(
   }, TIMEOUT)
   const forward = () => controller.abort(signal?.reason)
   signal?.addEventListener('abort', forward)
+  // Settles when the request is aborted, whether or not fetch and the body notice.
+  const aborted = new Promise<never>((_, reject) =>
+    controller.signal.addEventListener('abort', () => reject(controller.signal.reason)),
+  )
+  aborted.catch(() => undefined)
   try {
-    return await fetchFn(`${OPENROUTER}/api/v1${path}`, { ...init, signal: controller.signal })
+    const res = await Promise.race([
+      fetchFn(`${OPENROUTER}/api/v1${path}`, { ...init, signal: controller.signal }),
+      aborted,
+    ])
+    const text = await Promise.race([res.text(), aborted])
+    let body: unknown = null
+    try {
+      body = JSON.parse(text)
+    } catch {
+      // Not JSON: no body to read.
+    }
+    return { ok: res.ok, status: res.status, body }
   } catch (error) {
     if (timedOut) throw new VoiceFailure('timeout')
     if (signal?.aborted) throw signal.reason
@@ -106,7 +130,7 @@ export async function transcribe(
     ...(language === 'auto' ? {} : { language }),
     provider: { data_collection: 'deny' },
   }
-  const res = await call(
+  const answer = await call(
     '/audio/transcriptions',
     {
       method: 'POST',
@@ -115,12 +139,11 @@ export async function transcribe(
     },
     options,
   )
-  const answer: unknown = await res.json().catch(() => null)
-  if (!res.ok) {
-    const code = codeOf(res.status)
-    throw new VoiceFailure(code, code === 'rejected' ? reasonOf(answer, key) : undefined)
+  if (!answer.ok) {
+    const code = codeOf(answer.status)
+    throw new VoiceFailure(code, code === 'rejected' ? reasonOf(answer.body, key) : undefined)
   }
-  const text = (answer as { text?: unknown } | null)?.text
+  const text = (answer.body as { text?: unknown } | null)?.text
   if (typeof text !== 'string') throw new VoiceFailure('failed')
   const trimmed = text.trim()
   if (!trimmed) throw new VoiceFailure('no-speech')
@@ -129,8 +152,8 @@ export async function transcribe(
 
 /** Whether OpenRouter knows the key (`GET /key`, free). */
 export async function checkKey(key: string, options: Options = {}): Promise<boolean> {
-  const res = await call('/key', { headers: { Authorization: `Bearer ${key}` } }, options)
-  if (res.ok) return true
-  if (res.status === 401 || res.status === 403) return false
+  const answer = await call('/key', { headers: { Authorization: `Bearer ${key}` } }, options)
+  if (answer.ok) return true
+  if (answer.status === 401 || answer.status === 403) return false
   throw new VoiceFailure('failed')
 }

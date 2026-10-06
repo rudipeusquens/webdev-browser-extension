@@ -442,7 +442,9 @@ select-parent), ClickUp and Air comment pins with a side list.
 - **Messages:** 401 "Invalid API key", 402 "Out of credits", 429 "Rate limited, try again",
   400/404/422 "Transcription failed: " and OpenRouter's own message (one line, at most 200
   characters, text only), 5xx "Transcription failed", no answer within 65 s "Transcription
-  timed out", no network "Could not reach OpenRouter", empty text "No speech detected".
+  timed out", no network "Could not reach OpenRouter", empty text "No speech detected". A
+  recording that ends without the developer's stop (device unplugged, permission revoked) is
+  not sent: "The microphone stopped. Retry sends what was recorded."
 
 ## 10. Error handling and edge cases
 

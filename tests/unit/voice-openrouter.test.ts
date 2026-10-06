@@ -147,6 +147,16 @@ describe('transcribe', () => {
     expect((await result).code).toBe('timeout')
   })
 
+  it('gives up after 65 seconds when the answer starts but never ends', async () => {
+    vi.useFakeTimers()
+    const stalled = vi.fn<typeof fetch>(
+      async () => new Response(new ReadableStream({ start: () => undefined }), { status: 200 }),
+    )
+    const result = failure(transcribe(AUDIO, REQUEST, { fetch: stalled }))
+    await vi.advanceTimersByTimeAsync(65_000)
+    expect((await result).code).toBe('timeout')
+  })
+
   it('stops when the caller cancels, without calling it a failure', async () => {
     const cancel = new AbortController()
     const result = transcribe(AUDIO, REQUEST, { fetch: hangingFetch(), signal: cancel.signal })
@@ -244,6 +254,7 @@ describe('voiceErrorText', () => {
     ['no-speech', 'No speech detected.'],
     ['interrupted', 'Recording stopped unexpectedly.'],
     ['taken', 'Recording stopped: another one started.'],
+    ['mic-lost', 'The microphone stopped. Retry sends what was recorded.'],
   ] as const)('says %s as the spec does', (error, text) => {
     expect(voiceErrorText(error)).toBe(text)
   })
