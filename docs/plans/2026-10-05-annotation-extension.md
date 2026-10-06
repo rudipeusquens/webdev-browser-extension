@@ -2401,33 +2401,490 @@ CI; manual smoke in a real Chrome.
 **Goal:** Collections survive reloads, HMR and navigation; pins re-anchor; remembered origins
 auto-load the overlay; Vue and Astro origins in the output.
 
-Milestone 3 already places text and area items through their container's selector after a
-reload (`pins.ts`, `placeItems`); finding the selected text itself again is new here.
+**Expanded on 2026-10-06** from the milestone 3 code. Tasks 23–30 name files, interfaces and
+the tests to write first; the implementation follows in the same pull request, which builds
+on the milestone 3 branch. Steps are test-first: write the listed tests, watch them fail,
+implement, watch them pass, commit.
 
-**Files:** `lib/capture/origin.ts` (parsing + validation of bridge output),
-`entrypoints/origin-bridge.ts` (main-world function), overlay re-anchoring
-(`MutationObserver`, scroll/resize tracking, Navigation API), background remembered sites
-(`chrome.permissions.request`, `registerContentScripts`, `permissions.onRemoved`), side panel
-groups, Go to, settings → sites, `tests/fixtures/sites/vue-app/` (Vite dev server),
-`tests/fixtures/sites/astro-attrs/`.
+**Facts this milestone relies on** (verified on 2026-10-06, Chrome for Testing 154):
 
-**Required tests:**
+- `activeTab` survives a reload and a same-origin navigation of the tab and ends with a
+  cross-origin one; the background can then still inject scripts into the tab. It does not
+  survive a reload of the extension.
+- `chrome.scripting.executeScript({ world: 'MAIN', func, args })` runs on a page with a
+  strict CSP and returns the function's result. `target.documentIds` (Chrome 106) pins it to
+  the document that asked.
+- A Vite dev server with `@vitejs/plugin-vue` gives every element a non-enumerable
+  `__vueParentComponent` in the page's world (invisible to the content script's world);
+  `type.__file` is the absolute path of the `.vue` file, `type.__name` the name of a
+  `<script setup>` component. HMR re-renders a component in place after its file changes.
+  Vite 8, `@vitejs/plugin-vue` and `vue` resolve from the repository root; a fixture copied
+  into a temporary directory runs with `vue` aliased to the repository's copy.
+- A test copy of the build whose manifest adds `host_permissions: ["http://localhost/*"]`
+  answers `permissions.contains({ origins: ["http://localhost:<port>/*"] })` with true;
+  `permissions.remove` of it fails ("You cannot remove required permissions");
+  `scripting.registerContentScripts` accepts match patterns with a port and injects the
+  registered overlay on the next load. The permission prompt itself cannot be automated.
+- After `chrome.runtime.reload()` the old overlay stays on the page: nothing removes it.
+  WXT's `ctx.isInvalid` notices a missing `browser.runtime.id` and runs the context's
+  `onInvalidated` callbacks, which remove its UI; `ctx.setInterval` checks it on every tick.
+- The Navigation API exists in the content script's world: `navigation.currententrychange`
+  fires for `pushState`, `replaceState`, hash changes and back/forward.
+- WXT's fake browser does not implement `permissions.*` or `scripting.*registered*`; unit
+  tests install in-memory fakes for them.
+- happy-dom's `TreeWalker.previousNode()` loses its place after a skipped element that has
+  children (Chrome follows the spec); backward text walks are proven in Chrome.
 
-- Unit `origin`: Vue chain innermost 5 in outer→inner order, `__name` vs `name`,
-  `data-v-inspector` line; Astro attributes on ancestor; malformed bridge output rejected.
-- E2E: mark → reload → pin back at the element; mark on page A, navigate (pushState) to B,
-  mark → output grouped A then B; element removed → "not found" line; remember site → reload
-  without action click → overlay present; forget → absent; **pin on an element inside a scroll
-  container and on a `position: sticky` header stays attached while scrolling** (Review
-  Focus 5); Vue fixture → real `__file` paths in output.
+**Decisions:**
 
-**Acceptance:** a three-page session on the Vue fixture copies one correct prompt.
+- **Bridge by selector.** The overlay sends the selectors of the snapshots it just took; the
+  main-world function looks them up with the prototype's `querySelector`. No attribute is
+  written into the page. A DOM change between snapshot and lookup (tens of milliseconds) can
+  give the origin of a replaced element; the page can lie about its components anyway, so
+  origin data is page data: validated, capped, escaped.
+- **Astro without the bridge.** `data-astro-source-*` are DOM attributes the content script
+  reads itself. Vue wins when both exist (a Vue island inside an Astro page).
+- **Origins arrive while the comment is typed.** The popover opens at once; the request runs
+  in the background and the save waits for it at most 1.5 s after the target was marked.
+- **No overlay after a plain reload** of a site that is not remembered: that is what
+  **Always enable here** is for. **Go to** in the panel is the extension's own navigation and
+  starts the overlay on the new page when the tab's grant still holds.
+- **Orphaned overlays** remove themselves within a second (`ctx.setInterval`); the panel then
+  shows the tab as not active, and a click on the toolbar icon starts a fresh overlay without
+  a reload. After an update, tabs on remembered sites get a fresh overlay from the
+  background. This replaces the "Reload the page" status of the spec.
+- **Anchor status** ("not found") lives in `storage.session` (key `missing`, item ids),
+  written by the background from overlay reports. An item counts as missing only after it
+  was not found for 1.5 s, so HMR and slow first renders do not flap.
+- **Remembered sites** are origins the developer remembered in the panel and Chrome still
+  grants; access granted elsewhere (`chrome://extensions`) does not auto-load the overlay.
+  The background keeps settings and the registered content script in step on remember,
+  forget, `permissions.onRemoved`, install, update and browser start.
+
+**Known limits** (documented in the spec): only the top frame gets the bridge; Vue 2 and
+production builds have no component data; a page can fake or hide its components; a
+remembered site gets the overlay on its next load, not in tabs that are already open (except
+after an update of the extension); text re-anchoring searches only the container the
+selection had and gives up after the reader's budget.
+
+**Review focus for this milestone** (each line has a test in the owning task):
+
+1. A hostile page feeding the bridge: throwing getters, cyclic or endless `parent` chains,
+   huge strings, wrong types, patched `querySelector` → the origin is dropped or capped,
+   nothing throws, the popover still saves (Tasks 23, 24).
+2. Pages that mutate all the time (timers, animations): re-anchoring, status reports and pin
+   placement stay bounded and debounced; the "not found" status does not flap (Task 26).
+3. Text that occurs several times in its container, or changed after a reload: the pin goes
+   to the occurrence whose context matches best, else to the container, never to text of
+   another container (Task 26).
+4. Client-side navigation while a comment is open, and rapid `pushState` sequences: the item
+   is saved under the page where it was marked; pins of the previous page go away (Task 25).
+5. Site access revoked in `chrome://extensions` or forgotten while pages are open: settings
+   and the registered script follow; a forgotten origin gets no overlay on its next load; the
+   panel's buttons match (Task 28).
+
+**Pre-flight (shared interfaces):** Task 23 `parseVueOrigins`, `astroOrigin`,
+`withInspectorLine` and `vueOrigins` (bridge) feed Task 24; Task 24's `origin:read` message
+and the draft's `origins` promise are what Task 30 checks end to end; Task 25's `page` ref is
+read by Task 26 (re-anchoring per page) and Task 29 (Go to); Task 26's `findText` and
+`useTracking` split are consumed by Task 27's pin positions; Task 28's `Settings` and
+`isRemembered` are read by Task 29 (Go to skips injecting on remembered sites).
+
+### Task 23: Code origin from the page
+
+**Files:**
+
+- Create: `src/lib/capture/origin.ts`, `src/lib/capture/origin-bridge.ts`
+- Test: `tests/unit/capture-origin.test.ts`, `tests/unit/origin-bridge.test.ts`
+
+**Interfaces:**
+
+- Produces (`origin-bridge.ts`): `vueOrigins(selectors: string[]): RawVueOrigin[]` — a
+  self-contained function (no imports, no closures; it is serialized into the page) that
+  returns, per selector, `null` or `{ chain: { name?: unknown; file?: unknown }[] }`
+  (outermost → innermost, at most 32 components, strings cut to 1000 code units, every read
+  in `try`). It finds the element with `Document.prototype.querySelector`, walks up at most
+  64 elements to the first with `__vueParentComponent`, then follows `.parent`.
+- Produces (`origin.ts`): `parseVueOrigin(raw: unknown): CodeOrigin | undefined` (entries
+  with a string `file`; `name` from the raw entry when it is a string; innermost five;
+  `clean`ed; anything malformed → `undefined`), `astroOrigin(el: Element): CodeOrigin |
+undefined` (nearest `data-astro-source-file`, line from `data-astro-source-loc`
+  `line:col`), `inspectorOf(el: Element): { file: string; line: number } | undefined`
+  (nearest `data-v-inspector="file:line:col"`), `withInspectorLine(origin, inspector):
+CodeOrigin` (adds the line to the innermost entry when its file ends with the
+  inspector's path), `combineOrigin(vue, astro): CodeOrigin | undefined` (Vue first).
+
+- [ ] **Step 1: Write the failing unit tests**:
+  - `capture-origin.test.ts`: a raw chain of seven components gives the innermost five in
+    outer → inner order; `__name` beats `name` (the bridge passes the one it found);
+    components without a file are left out; a chain with no file is `undefined`; wrong types
+    (number file, object name, missing chain, extra keys, a string instead of an array) give
+    `undefined`; a 2000-character path is left out, a 200-character name is dropped and the
+    entry kept; control and bidi characters are removed; Astro: `data-astro-source-file` on
+    an ancestor with `data-astro-source-loc="12:5"` → `{ framework: 'astro', chain: [{ file,
+line: 12 }] }`, a malformed loc keeps the file without a line; inspector:
+    `src/components/Card.vue:7:5` on an ancestor adds line 7 to an innermost
+    `/srv/app/src/components/Card.vue`, not to an innermost `Other.vue`; `combineOrigin`
+    prefers Vue; every result passes `isElementSnapshot`'s origin check.
+  - `origin-bridge.test.ts` (happy-dom, fake component objects on elements): the chain of
+    an element rendered by `Card` inside `App`; an element without its own instance takes its
+    parent's; a selector that throws or matches nothing gives `null`; a cyclic `parent`
+    chain stops at 32; a getter that throws gives `null` for that selector only; a
+    1 MB `__file` is cut to 1000; `vueOrigins.toString()` contains no reference to an import
+    (no `__vite`, `import`, or bundler helper names), so it can be serialized.
+- [ ] **Step 2: Run them to see them fail** —
+      `pnpm vitest run tests/unit/capture-origin.test.ts tests/unit/origin-bridge.test.ts`,
+      Expected: FAIL, modules missing.
+- [ ] **Step 3: Implement** both modules.
+- [ ] **Step 4: Run** the two files, then `pnpm test:unit` — Expected: PASS.
+- [ ] **Step 5: Commit** — `Read Vue and Astro code origins from the page`
+
+### Task 24: Origins in every snapshot, from a real dev server
+
+**Files:**
+
+- Modify: `src/lib/messages.ts` (`origin:read`), `src/entrypoints/background.ts`,
+  `src/entrypoints/overlay.content/Overlay.vue`, `tests/e2e/harness.ts`
+  (`startVueDevServer`), `tests/unit/messages.test.ts`, `tests/unit/background.test.ts`
+- Create: `src/lib/background/origins.ts`, `src/entrypoints/overlay.content/origins.ts`,
+  `tests/fixtures/sites/vue-app/` (`index.html`, `src/main.ts`, `src/App.vue`,
+  `src/router.ts`, `src/pages/HomePage.vue`, `src/pages/SettingsPage.vue`,
+  `src/pages/AboutPage.vue`, `src/components/FeatureGrid.vue`,
+  `src/components/FeatureCard.vue`, `src/components/ProfileForm.vue`,
+  `src/components/NotificationPrefs.vue`), `tests/fixtures/sites/astro-attrs/index.html`,
+  `tests/fixtures/sites/fake-vue/` (`index.html`, `fake-vue.js`), `tests/e2e/origin.e2e.test.ts`
+
+**Interfaces:**
+
+- Consumes: Task 23.
+- Produces: `BackgroundMessage` `{ type: 'origin:read'; selectors: string[] }` (1–11
+  selectors, each a valid selector string ≤ `LIMITS.selector`); reply
+  `{ ok: true; origins: (CodeOrigin | null)[] } | { ok: false; error: string }`;
+  `readOrigins(tabId, documentId, selectors)` in `src/lib/background/origins.ts`
+  (`executeScript` with `world: 'MAIN'`, `target: { tabId, frameIds: [0], documentIds }`, a
+  1500 ms timeout, every result through `parseVueOrigin`); overlay helpers
+  `requestOrigins(snapshots: Element[] …)` and `attachOrigins(target, origins)`;
+  `startVueDevServer(): Promise<{ origin; root; write(path, text); close() }>` in the harness.
+
+Behavior: the background answers `origin:read` only for a content script in the top frame
+(`sender.frameId === 0`, `sender.tab.id`, `sender.documentId`), never for extension pages.
+When a draft opens, the overlay asks for the origins of the snapshot's elements (element;
+text container; area container and elements), reads Astro attributes and inspector lines
+itself, and keeps the result as a promise on the draft; `save` waits for it (at most until
+1.5 s after marking) and adds `origin` to each snapshot. In element mode, an element the
+pointer rests on for 150 ms gets its innermost component name in the hover label
+(`button · ProfileForm · 160×48`), cached per element for the session; at most one request
+runs at a time.
+
+- [ ] **Step 1: Write the failing unit tests**: messages (`origin:read` valid with 1 and 11
+      selectors, invalid with 0, 12, a non-string, an over-long selector, extra keys);
+      background (`origin:read` from a content script runs `executeScript` with
+      `world: 'MAIN'`, `frameIds: [0]` and the sender's `documentId`, and replies with parsed
+      origins; from an extension page or a sub-frame → `{ ok: false }`; a rejecting or slow
+      `executeScript` → `{ ok: true, origins: [null…] }` after the timeout, fake timers;
+      malformed results → `null`).
+- [ ] **Step 2: Run them to see them fail** —
+      `pnpm vitest run tests/unit/messages.test.ts tests/unit/background.test.ts`, Expected:
+      FAIL.
+- [ ] **Step 3: Write the failing E2E** `origin.e2e.test.ts`:
+  - Vue dev server (fixture copied to a temporary directory, `vue` aliased): element mode on
+    the settings page's submit button → hover label shows `ProfileForm`; save → the stored
+    element origin is `vue` with `App`, `SettingsPage`, `ProfileForm` and their real `__file`
+    paths under the temporary root, outer → inner; the `data-v-inspector` line of the
+    fixture's button is on the innermost entry; select the `NotificationPrefs` heading text →
+    the container has its component; drag around the feature cards → container
+    `FeatureGrid`, elements `FeatureCard`; the copied prompt has `- Component: App (…) ›
+SettingsPage (…) › ProfileForm (…:7)`.
+  - Astro attributes page: an element and an area get `astro` origins with file and line.
+  - Fake Vue page (Review Focus 1): elements with hostile `__vueParentComponent` (throwing
+    getter, self-referencing `parent`, a 1 MB file name, a number as name, a patched
+    `Document.prototype.querySelector`) → every item saves within 2 s, origins are absent
+    or capped, the prompt stays well-formed.
+  - A page with a strict CSP (hostile fixture) still gets the bridge (no origin, no error).
+- [ ] **Step 4: Implement** the message, the background handler, the overlay requests, the
+      hover label and the fixtures.
+- [ ] **Step 5: Run** `pnpm test:unit && pnpm build && pnpm test:e2e` — Expected: PASS.
+- [ ] **Step 6: Commit** — `Add code origins to snapshots through a main-world bridge`
+
+### Task 25: Pages change without a reload
+
+**Files:**
+
+- Create: `src/entrypoints/overlay.content/use-page.ts`, `tests/fixtures/sites/spa/`
+  (`index.html`, `spa.js`), `tests/e2e/navigation.e2e.test.ts`
+- Modify: `src/entrypoints/overlay.content/Overlay.vue`,
+  `src/entrypoints/sidepanel/App.vue` (current group follows the status)
+- Test: `tests/unit/overlay-page.test.ts`
+
+**Interfaces:**
+
+- Produces: `usePage(): { key: Ref<string> }` — `pageKey(location.href)`, updated on the
+  Navigation API's `currententrychange` (fallback `popstate` and `hashchange` when
+  `navigation` is missing), listeners removed on unmount; the draft gains `page: PageInfo`,
+  taken when the target is marked.
+
+Behavior: pins, the highlight, editing and the status reply use the current page key; a page
+change hides the chip, tells the panel (`overlay:changed`) and re-anchors (Task 26). An open
+draft stays open; its item is saved under the page where it was marked.
+
+- [ ] **Step 1: Write the failing unit test** `overlay-page.test.ts`: the key follows
+      `history.pushState`, drops the hash, stays for a hash-only change, follows `popstate`;
+      without `navigation` the fallback events work; unmount removes the listeners.
+- [ ] **Step 2: Run it to see it fail** — `pnpm vitest run tests/unit/overlay-page.test.ts`,
+      Expected: FAIL.
+- [ ] **Step 3: Write the failing E2E** `navigation.e2e.test.ts` on the `spa` fixture (links
+      that `pushState` between `/spa/a`, `/spa/b` and `/spa/c` and render different content;
+      the fixture server serves `index.html` for every `/spa/*` path): mark on A, click to B
+      → A's pin is gone and the panel's current group is B; mark on B → copy → A's group
+      before B's; back → A's pin is back; open the popover on B, click a link to C (Review
+      Focus 4), type, `Enter` → the item belongs to B; five quick `pushState` calls → the
+      pins match the last page.
+- [ ] **Step 4: Implement** `usePage` and wire it in.
+- [ ] **Step 5: Run** `pnpm test:unit && pnpm build && pnpm test:e2e` — Expected: PASS.
+- [ ] **Step 6: Commit** — `Follow client-side navigation in the overlay and the panel`
+
+### Task 26: Re-anchoring after reloads and HMR, "not found"
+
+**Files:**
+
+- Create: `src/lib/capture/find-text.ts`, `src/entrypoints/overlay.content/anchor-status.ts`,
+  `src/lib/background/anchor-status.ts`, `tests/e2e/reanchor.e2e.test.ts`
+- Modify: `src/entrypoints/overlay.content/use-tracking.ts` (`layout` and `frame`),
+  `src/entrypoints/overlay.content/pins.ts`, `src/entrypoints/overlay.content/Overlay.vue`,
+  `src/entrypoints/overlay.content/index.ts` (orphan check), `src/lib/messages.ts`
+  (`anchors:report`), `src/entrypoints/background.ts`, `src/lib/format/markdown.ts`,
+  `src/entrypoints/sidepanel/App.vue`, `src/entrypoints/sidepanel/ItemList.vue`
+- Test: `tests/unit/find-text.test.ts`, `tests/unit/anchor-status.test.ts`,
+  `tests/unit/format-markdown.test.ts` (+ golden), `tests/unit/messages.test.ts`,
+  `tests/unit/background.test.ts`, `tests/unit/sidepanel-app.test.ts`
+
+**Interfaces:**
+
+- Produces: `findText(container: Element, target: TextTarget): Range | null` — reads the
+  container's shown text (selectable, the reader's budget), finds every occurrence of the
+  selected text (a cut selection by its part before `…`), scores each by how much of
+  `before`/`after` matches next to it, returns the best as a range, `null` when none;
+  `useTracking(): { frame: Ref<number>; layout: Ref<number> }` (`layout` changes on DOM
+  mutations and resizes only, `frame` also on scrolling); `createAnchorStatus(report, now)`
+  — `update(pageKey, found: string[], missing: string[])`, reports an item as missing only
+  after 1.5 s without a placement, as found at once, at most every 250 ms;
+  `BackgroundMessage` `{ type: 'anchors:report'; pageKey: string; found: string[];
+missing: string[] }`; `loadMissing(): Promise<Set<string>>` and `watchMissing(cb)`
+  (`storage.session`, key `missing`); `formatCollection(c, options?: { missing?:
+ReadonlySet<string> })`.
+
+Behavior: placements are recomputed when `layout` changes, rects on every `frame`. Text items
+without a live range are searched with `findText` in their container after mount, after a
+page change and 300 ms after DOM changes settle; a range found goes into the live map. The
+overlay reports found and missing ids of the current page; the background keeps the set of
+missing ids of items that exist (removed on found, cleared by **Clear all**). The panel marks
+missing entries "Not found" (title "Not found when this page was last open") and the copied
+prompt adds `(not found when the page was last open; data from when it was marked)` under their
+heading. The overlay checks every second whether the extension is still there and removes
+itself when it is not.
+
+- [ ] **Step 1: Write the failing unit tests**:
+  - `find-text.test.ts`: exact match; the second of two occurrences when the context fits it;
+    a cut selection found by its first part; whitespace and line breaks differ from the
+    capture; text split over inline elements; not found → `null`; text in a form field
+    never matches; a huge container stays within the budget.
+  - `anchor-status.test.ts` (fake timers): missing reported after 1.5 s only; found at once;
+    a flap inside 1.5 s reports nothing; reports batched; a page change resets the timers.
+  - formatter: an item in `missing` gets the line under its heading (golden file); others do
+    not.
+  - messages: `anchors:report` shapes (ids valid, at most 1000, a page URL).
+  - background: a report writes `missing` in `storage.session` for ids of items on that page
+    only; found ids are removed; **Clear all** clears it.
+  - panel: a missing item shows "Not found"; copy uses the set.
+- [ ] **Step 2: Run them to see them fail**, Expected: FAIL.
+- [ ] **Step 3: Write the failing E2E** `reanchor.e2e.test.ts`:
+  - plain fixture: mark an element, a text and an area → reload → toolbar click → three pins
+    at their targets; the text pin sits at the selection, not at the start of its container.
+  - the page replaces the marked paragraph with one that has the same text twice and the
+    original context around the second → the pin moves to the second (Review Focus 3).
+  - the page removes the marked element → after 1.5 s the panel shows "Not found", the copy
+    has the line; the page adds it back → the mark goes away.
+  - a page that changes the DOM every 16 ms (Review Focus 2): no "Not found" flapping, the
+    long-animation-frame count stays low.
+  - Vue dev server: mark the profile button, change its component file (HMR) → the pin is
+    back at the re-rendered button within a second.
+  - the extension is reloaded (`chrome.runtime.reload()`) → the old overlay host is gone
+    within 2 s.
+- [ ] **Step 4: Implement** `findText`, the tracking split, scheduling, status reports, the
+      background store, the panel mark, the formatter line and the orphan check.
+- [ ] **Step 5: Run** `pnpm test:unit && pnpm build && pnpm test:e2e` — Expected: PASS.
+- [ ] **Step 6: Commit** — `Re-anchor items after reloads and HMR and mark the missing ones`
+
+### Task 27: Pins in scroll containers, sticky headers, and hiding pins
+
+**Files:**
+
+- Modify: `src/entrypoints/overlay.content/pins.ts`, `src/entrypoints/overlay.content/Overlay.vue`,
+  `src/lib/messages.ts` (`overlay:set-pins`, status `pins`), `src/entrypoints/sidepanel/App.vue`,
+  `tests/fixtures/sites/plain/index.html`, `tests/fixtures/sites/plain/plain.css`
+- Create: `tests/e2e/pins-layout.e2e.test.ts`
+- Test: `tests/unit/overlay-pins.test.ts`, `tests/unit/messages.test.ts`,
+  `tests/unit/sidepanel-app.test.ts`
+
+**Interfaces:**
+
+- Produces: `clipOf(el: Element): Rect | null` (the visible part of the viewport after every
+  ancestor that clips its overflow, up to a fixed-position ancestor; `null` when nothing is
+  visible), `pinPosition(rect, bounds)` taking the clip instead of the viewport;
+  `OverlayMessage` `{ type: 'overlay:set-pins'; visible: boolean }`; `OverlayStatus.pins:
+boolean`.
+
+Behavior: a pin is shown only while part of its target is visible inside its clipping
+ancestors, and stays inside that visible part; a target with an empty box (not rendered)
+gets no pin and no highlight (resolves the deferred minor "hidden target gets a pin in the
+top-left corner"). The panel gets a **Pins** toggle (eye icon) next to the mode switch;
+hidden pins stay hidden until shown again or the overlay restarts.
+
+- [ ] **Step 1: Write the failing unit tests**: pins (a target scrolled out of its container
+      gets no pin; a target half inside gets its pin inside the container's box; a fixed
+      target ignores its scrolled ancestors; an empty rect gets no pin); messages
+      (`overlay:set-pins`); panel (the toggle sends `overlay:set-pins` and shows the state).
+- [ ] **Step 2: Run them to see them fail**, Expected: FAIL.
+- [ ] **Step 3: Write the failing E2E** `pins-layout.e2e.test.ts` (Review Focus 5 of the
+      plan): an element inside `.scroll-box` → its pin moves with the box's scrolling and
+      disappears when the element leaves the box; a `position: sticky` header marked → its
+      pin stays at the header while the page scrolls 800 px; the panel's Pins toggle hides
+      and shows all pins.
+- [ ] **Step 4: Implement** clipping, the toggle and the status field.
+- [ ] **Step 5: Run** `pnpm test:unit && pnpm build && pnpm test:e2e` — Expected: PASS.
+- [ ] **Step 6: Commit** — `Keep pins inside scroll containers and let the panel hide them`
+
+### Task 28: Remembered sites
+
+**Files:**
+
+- Create: `src/lib/settings.ts` (model, validation, store), `src/lib/background/sites.ts`,
+  `src/entrypoints/sidepanel/SettingsView.vue`, `src/entrypoints/sidepanel/use-settings.ts`,
+  `tests/unit/helpers/fake-sites.ts`, `tests/e2e/remembered.e2e.test.ts`
+- Modify: `src/lib/messages.ts` (`site:remember`, `site:forget`),
+  `src/entrypoints/background.ts`, `src/entrypoints/sidepanel/App.vue`, `tests/e2e/harness.ts`
+  (`launch({ hostPermissions })`)
+- Test: `tests/unit/settings.test.ts`, `tests/unit/background-sites.test.ts`,
+  `tests/unit/messages.test.ts`, `tests/unit/sidepanel-app.test.ts`
+
+**Interfaces:**
+
+- Produces: `Settings { rememberedOrigins: string[] }`, `SETTINGS_KEY = 'settings'`,
+  `isSettings`, `loadSettings`, `watchSettings`; `originPattern(origin): string`
+  (`http://localhost:3000` → `http://localhost:3000/*`); `isSiteOrigin(x): x is string`
+  (`http:`/`https:` origins only, normalized, no path); `createSites()` →
+  `{ remember(origin), forget(origin), reconcile(), isRemembered(origin) }` run one at a time;
+  messages `{ type: 'site:remember'; origin }` and `{ type: 'site:forget'; origin }`, only
+  from extension pages.
+
+Behavior: **Always enable here** (panel header, shown for an active `http`/`https` tab whose
+origin is not remembered) calls `permissions.request` for the origin's pattern inside the
+click, then sends `site:remember`; the background checks `permissions.contains`, adds the
+origin (sorted, unique) and registers the overlay script (`id: 'overlay'`, the remembered
+patterns, `document_idle`, persisted) or updates its matches. **Forget this site** (header)
+and the remove buttons of **Settings → Sites** send `site:forget`: the background removes the
+origin, updates or unregisters the script, then asks Chrome to remove the permission (a
+failure is ignored). `permissions.onRemoved`, `runtime.onInstalled` and `runtime.onStartup`
+run `reconcile`: origins Chrome no longer grants are dropped and the registration is
+rewritten; after an update, tabs of remembered origins get a fresh overlay.
+
+- [ ] **Step 1: Write the failing unit tests** (`fake-sites.ts`: in-memory granted origins,
+      registered scripts, `permissions.onRemoved` with a trigger):
+  - settings: validation (origins only, http/https, unique, at most 100), defaults.
+  - sites: remember registers with the pattern; a second origin updates the matches;
+    remember without the grant → error, nothing stored; forget unregisters the last one and
+    calls `permissions.remove`, a rejected remove still forgets; `onRemoved` for one origin
+    drops only that one (Review Focus 5); reconcile after start re-registers; concurrent
+    remember/forget run in order.
+  - messages: `site:*` valid only with a site origin; the background refuses them from a tab.
+  - panel: the header button follows the active tab's origin and the settings; Always enable
+    here calls `permissions.request` before anything is awaited; the settings view lists
+    and removes sites.
+- [ ] **Step 2: Run them to see them fail**, Expected: FAIL.
+- [ ] **Step 3: Write the failing E2E** `remembered.e2e.test.ts` with a test copy of the build
+      whose manifest grants `http://localhost/*` (the prompt cannot be automated; the shipped
+      build is unchanged and `manifest:check` still runs on it): toolbar click → **Always
+      enable here** → reload → the overlay is there without a click and shows the pins;
+      **Forget this site** → reload → no overlay; Settings lists the remembered origin and
+      its remove button forgets it; a second origin (`127.0.0.1`) stays unaffected.
+- [ ] **Step 4: Implement** settings, the background module, the messages, the panel buttons
+      and the settings view (shadcn-vue components only).
+- [ ] **Step 5: Run** `pnpm test:unit && pnpm build && pnpm manifest:check && pnpm test:e2e` —
+      Expected: PASS.
+- [ ] **Step 6: Commit** — `Remember sites so the overlay loads by itself`
+
+### Task 29: Go to, and the panel's link to the page
+
+**Files:**
+
+- Modify: `src/lib/messages.ts` (`tab:go`), `src/entrypoints/background.ts`,
+  `src/entrypoints/sidepanel/ItemList.vue`, `src/entrypoints/sidepanel/App.vue`,
+  `src/entrypoints/overlay.content/Overlay.vue` (panel port)
+- Create: `src/lib/background/go-to.ts`, `tests/e2e/go-to.e2e.test.ts`
+- Test: `tests/unit/background-go-to.test.ts`, `tests/unit/messages.test.ts`,
+  `tests/unit/sidepanel-app.test.ts`
+
+**Interfaces:**
+
+- Produces: `{ type: 'tab:go'; tabId: number; pageKey: string }` (from extension pages only;
+  the page key must be a page of the collection with an `http:`/`https:` URL); `goTo(tabId,
+url)` updates the tab, waits for it to finish loading (at most 30 s) and injects the
+  overlay unless the origin is remembered; a failed injection marks nothing.
+
+Behavior: page groups other than the current one get **Go to** in their header. The panel
+holds a port to the overlay of the active tab (`tabs.connect`, name `panel`); when it closes,
+the overlay drops the panel's highlight (resolves the deferred minor "highlight stays after
+the panel closes").
+
+- [ ] **Step 1: Write the failing unit tests**: messages (`tab:go` shapes); background
+      (`tab:go` for a page of the collection → `tabs.update` then `executeScript` after
+      `complete`; an unknown page key or a `file:` page → refused; from a tab → refused;
+      a remembered origin → no injection); panel (Go to on other groups only; it sends
+      `tab:go` with the active tab id).
+- [ ] **Step 2: Run them to see them fail**, Expected: FAIL.
+- [ ] **Step 3: Write the failing E2E** `go-to.e2e.test.ts`: items on `/plain/` and
+      `/plain/text.html`; on `text.html`, **Go to** the plain page → the tab shows it, the
+      overlay is active, its pins are there; hovering an entry highlights, closing the panel
+      removes the highlight.
+- [ ] **Step 4: Implement** Go to and the port.
+- [ ] **Step 5: Run** `pnpm test:unit && pnpm build && pnpm test:e2e` — Expected: PASS.
+- [ ] **Step 6: Commit** — `Go to the pages of a collection from the panel`
+
+### Task 30: A three-page session on the Vue app, docs
+
+**Files:**
+
+- Create: `tests/e2e/acceptance-vue.e2e.test.ts`
+- Modify: `docs/specs/2026-10-05-annotation-extension.md` (sections 5, 8, 10, 11, 12, 13),
+  `AGENTS.md` (status), this plan (milestone 5 note, if anything moved)
+
+- [ ] **Step 1: Write the E2E test** (acceptance): on the Vue dev server, Home → mark the
+      feature grid as an area; Settings (client-side) → mark the submit button; About → select
+      a sentence; reload About → the pin is back at the selection; copy → the clipboard equals
+      `formatCollection(stored)`, groups Home, Settings, About in that order, each item with
+      its `Component:` line and real file paths.
+- [ ] **Step 2: Run it** — `pnpm build && pnpm test:e2e`. Expected: PASS if Tasks 23–29
+      hold; a failure is a bug in those tasks, fixed test-first.
+- [ ] **Step 3: Run all checks** — `pnpm check && pnpm build && pnpm manifest:check && pnpm test:e2e`,
+      Expected: PASS.
+- [ ] **Step 4: Docs.** Spec: section 5 (storage: `missing` in `storage.session`, settings),
+      section 8 (Go to, Pins toggle, header buttons, no "Reload the page" status), section 10
+      (orphaned overlays, revoked access, client-side navigation, re-anchoring limits),
+      section 11 (bridge by selector, origin data is page data), section 13 (results of this
+      milestone's facts). AGENTS.md: status milestone 4.
+- [ ] **Step 5: Commit** — `Cover a three-page session on a Vue app`
+
+**Acceptance:** a three-page session on the Vue fixture copies one correct prompt; E2E green
+in CI; manual smoke in a real Chrome.
 
 ---
 
 ## Milestone 5: Voice input
 
 **Goal:** Dictate comments via OpenRouter with bring-your-own key.
+
+Milestone 4 added the settings model (`src/lib/settings.ts`, remembered sites; the background
+writes it) and the panel's settings view (`SettingsView.vue`); the voice settings extend both.
 
 **Files:** `lib/voice/openrouter.ts` (`transcribe(audio: Blob, opts): Promise<string>`,
 `checkKey(key): Promise<boolean>`, error mapping), `entrypoints/offscreen/` (recorder),

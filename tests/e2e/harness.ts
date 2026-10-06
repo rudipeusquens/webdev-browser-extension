@@ -1,8 +1,11 @@
-import { readFile } from 'node:fs/promises'
+import { cp, mkdtemp, readFile, realpath, rm, writeFile } from 'node:fs/promises'
 import { createServer } from 'node:http'
 import type { AddressInfo } from 'node:net'
+import { tmpdir } from 'node:os'
 import { extname, join, normalize, resolve } from 'node:path'
+import vue from '@vitejs/plugin-vue'
 import puppeteer, { type Browser, type Page, type Realm } from 'puppeteer'
+import { createServer as createViteServer } from 'vite'
 
 export const EXTENSION_DIR = resolve(process.env.E2E_EXTENSION_DIR ?? '.output/chrome-mv3')
 const SITES = resolve('tests/fixtures/sites')
@@ -38,20 +41,74 @@ export async function startFixtureServer() {
   }
 }
 
+/**
+ * Serves tests/fixtures/sites/vue-app from a Vite dev server, like a developer's app: the
+ * elements carry Vue's component data with the absolute paths of the `.vue` files. The app
+ * runs from a copy in a temporary directory, so tests can change its files (HMR) and the
+ * paths are known; `vue` resolves to this repository's copy.
+ */
+export async function startVueDevServer() {
+  const root = await realpath(await mkdtemp(join(tmpdir(), 'webdev-vue-app-')))
+  await cp(resolve('tests/fixtures/sites/vue-app'), root, { recursive: true })
+  const server = await createViteServer({
+    root,
+    configFile: false,
+    logLevel: 'error',
+    plugins: [vue()],
+    cacheDir: join(root, '.vite'),
+    server: { host: '127.0.0.1', port: 0, fs: { allow: [root, resolve('node_modules')] } },
+    resolve: { alias: { vue: resolve('node_modules/vue/dist/vue.runtime.esm-bundler.js') } },
+  })
+  await server.listen()
+  const { port } = server.httpServer?.address() as AddressInfo
+  return {
+    origin: `http://localhost:${port}`,
+    /** Where the app's files are: `__file` paths start here. */
+    root,
+    read: (path: string) => readFile(join(root, path), 'utf8'),
+    write: (path: string, text: string) => writeFile(join(root, path), text),
+    close: async () => {
+      await server.close()
+      await rm(root, { recursive: true, force: true })
+    },
+  }
+}
+
 export interface Session {
   browser: Browser
   extensionId: string
   page: Page
 }
 
-export async function launch(): Promise<Session> {
+/**
+ * A copy of the build whose manifest grants `origins` when it is installed: Chrome's prompt
+ * for "Always enable here" cannot be automated, and with the access granted already,
+ * `permissions.request` answers without one. The shipped build stays as it is.
+ */
+async function buildWithHostPermissions(origins: string[]): Promise<string> {
+  const dir = await mkdtemp(join(tmpdir(), 'webdev-extension-'))
+  await cp(EXTENSION_DIR, dir, { recursive: true })
+  const path = join(dir, 'manifest.json')
+  const manifest = JSON.parse(await readFile(path, 'utf8')) as Record<string, unknown>
+  manifest.host_permissions = origins
+  await writeFile(path, JSON.stringify(manifest))
+  return dir
+}
+
+export async function launch(options: { hostPermissions?: string[] } = {}): Promise<Session> {
   // --no-sandbox: CI runners restrict user namespaces; the pages are our own fixtures.
   const browser = await puppeteer.launch({
     headless: true,
     enableExtensions: true,
     args: ['--no-sandbox'],
   })
-  const extensionId = await browser.installExtension(EXTENSION_DIR)
+  const dir = options.hostPermissions
+    ? await buildWithHostPermissions(options.hostPermissions)
+    : EXTENSION_DIR
+  if (dir !== EXTENSION_DIR) {
+    browser.once('disconnected', () => void rm(dir, { recursive: true, force: true }))
+  }
+  const extensionId = await browser.installExtension(dir)
   await browser.waitForTarget(
     (t) =>
       t.type() === 'service_worker' &&

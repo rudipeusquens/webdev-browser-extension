@@ -1,0 +1,36 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <title>Astro attributes fixture</title>
+    <style>
+      .hero {
+        padding: 32px;
+      }
+    </style>
+  </head>
+  <!-- The source attributes an Astro dev server writes into the page; paths are made up. -->
+  <body>
+    <main data-astro-source-file="/srv/site/src/pages/index.astro" data-astro-source-loc="5:1">
+      <section
+        class="hero"
+        data-astro-source-file="/srv/site/src/components/Hero.astro"
+        data-astro-source-loc="2:1"
+      >
+        <h1
+          data-astro-source-file="/srv/site/src/components/Hero.astro"
+          data-astro-source-loc="3:3"
+        >
+          Hello
+        </h1>
+        <a
+          class="cta"
+          href="#start"
+          data-astro-source-file="/srv/site/src/components/Hero.astro"
+          data-astro-source-loc="4:3"
+          >Get started</a
+        >
+      </section>
+    </main>
+  </body>
+</html>

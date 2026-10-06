@@ -2,11 +2,11 @@ import { beforeEach, describe, expect, it } from 'vitest'
 import { fakeBrowser } from 'wxt/testing/fake-browser'
 import { createWriter } from '@/lib/background/writer'
 import { COLLECTION_KEY, loadCollection } from '@/lib/collection/store'
-import type { BackgroundMessage } from '@/lib/messages'
+import type { CollectionMessage } from '@/lib/messages'
 import { elementInput } from './helpers/collection'
 
 const URL_A = 'http://localhost:3000/'
-const add = (id: string, comment = 'Make it wider.'): BackgroundMessage => ({
+const add = (id: string, comment = 'Make it wider.'): CollectionMessage => ({
   type: 'annotation:add',
   ...elementInput(id, URL_A, comment),
 })

@@ -80,10 +80,11 @@ and **shadcn-vue**. Manifest V3, minimum Chrome version **116** (`chrome.sidePan
 1. Action click or `Alt+Shift+A` (the `_execute_action` command, which fires the same handler)
    → background opens the side panel for the window and
    injects the overlay into the tab (the gesture grants `activeTab`).
-2. The developer marks something → the overlay builds a snapshot and asks the background to run
-   the origin bridge on the element → the overlay shows the comment popover.
-3. On save, the overlay sends the annotation to the background, which assigns the number and
-   writes the collection.
+2. The developer marks something → the overlay builds a snapshot, shows the comment popover
+   and asks the background to run the origin bridge for the snapshot's elements while the
+   comment is written.
+3. On save, the overlay adds the code origins (waiting at most 2 s after marking) and sends
+   the annotation to the background, which assigns the number and writes the collection.
 4. The side panel and every overlay update through `chrome.storage.onChanged`.
 5. **Copy as prompt** → formatter → `navigator.clipboard.writeText` in the side panel.
 
@@ -114,7 +115,8 @@ No host permission for `openrouter.ai`: its API answers CORS preflights with
 
 `chrome.storage.local` only (never `sync`). All writes go through the background, one at a
 time, so parallel saves from several tabs never lose an item. Runtime state that must not
-outlive the browser session (tabs that refused the overlay) lives in `chrome.storage.session`.
+outlive the browser session (tabs that refused the overlay, items not found when their page was
+last open) lives in `chrome.storage.session`, which content scripts cannot read.
 
 ```ts
 interface Collection {
@@ -179,7 +181,10 @@ interface Settings {
 }
 ```
 
-Anchor status (found or missing) is runtime state of the overlay, not stored.
+Anchor status (found or missing) is not part of the collection: each overlay reports which
+items of its page it found, an item counts as missing after 1.5 s without a place on the page
+(so HMR and slow renders do not flap), and the background keeps the ids of missing items in
+`storage.session` (`missing`) for the panel and the prompt.
 
 ## 6. Capture
 
@@ -221,13 +226,17 @@ further, because the result must match exactly one element.
 
 **Code origin**
 
-- **Vue 3:** from `element.__vueParentComponent`, walking `.parent`: component name
-  (`type.__name` or `type.name`) and `type.__file`; innermost five components. If the element
-  or an ancestor carries `data-v-inspector="file:line:col"`, the line is added to the innermost
-  entry.
+- **Vue 3:** from `element.__vueParentComponent` (of the nearest ancestor that has one),
+  walking `.parent`: component name (`type.__name` or `type.name`) and `type.__file`; the
+  innermost five components that have a file. If the element or an ancestor carries
+  `data-v-inspector="file:line:col"` for the innermost component's file, its line is added to
+  that entry. Vue keeps these only in the page's world, so the origin bridge reads them
+  (section 11); a component with an empty `<script setup>` has no name.
 - **Astro:** `data-astro-source-file` and `data-astro-source-loc` (line) on the element or its
   nearest ancestor.
 - Paths are reported exactly as the dev server exposes them (usually absolute).
+- Vue wins over Astro attributes (a Vue island inside an Astro page). Production builds and
+  Vue 2 expose nothing; then the line is left out.
 
 **Never captured:** values of form fields (`input`, `textarea`, `select`; for these only type
 and name are recorded, options record no attributes, and an area lists a `select` but never
@@ -297,8 +306,10 @@ Title: Shop · Viewport: 1440×900 · Color scheme: light
   heading or a list item, or inject HTML. Inline Markdown inside quoted text (emphasis, code
   spans) may still render in a Markdown viewer; the agent reads the raw text, where it stays
   page data.
-- An item whose element was not found on the last visit gets the line
-  `(not found on the page anymore, data from when it was marked)` under its heading.
+- An item whose target was not found when its page was last open gets the line
+  `(not found when the page was last open; data from when it was marked)` under its heading.
+  The target may be gone, or only not shown at that moment (a closed dialog, another tab of a
+  tabbed view, another hash route of the same page): the line says what was seen, not why.
 - Styles: only properties from the curated list, in that order.
 
 ## 8. Interaction and UI
@@ -322,24 +333,29 @@ After an annotation is saved the mode stays, so several elements can be marked i
 recording.
 
 **Pins:** numbered markers at the top-right of each target on the current page; they follow
-scroll, resize and layout changes. A text item's pin sits at its selection while that is on the
-page, else at its container; an area keeps its place inside its container. Pins that would
-cover each other move aside. Clicking a pin opens its popover for editing. A missing
-target shows no pin; its panel entry is marked "not found".
+scroll, resize and layout changes and stay inside the scroll containers and clipping boxes
+around their target (a target scrolled out of its container, or not rendered, has no pin). A
+text item's pin sits at its selection while that is on the page (found again by its text and
+context after a reload), else at its container; an area keeps its place inside its container.
+Pins that would cover each other move aside. Clicking a pin opens its popover for editing. A
+missing target shows no pin; its panel entry is marked "Not found".
 
 **Side panel** (shadcn-vue, follows the system color scheme)
 
-- Header: count; tab status ("Active on localhost:3000", "Can't run on this page", "Reload the
-  page"); **Always enable here** / **Forget this site**.
-- Mode switch (Browse, Element, Area) and a toggle to hide all pins.
+- Header: count; tab status ("Active on localhost:3000", "Can't run on this page", "Not
+  active on this page…"); **Always enable here** (asks Chrome for access to the page's origin,
+  then the overlay loads there by itself) / **Forget this site** (also gives the access back).
+- Mode switch (Browse, Element, Area) and a **Pins** toggle that hides all pins.
 - List grouped by page (current page first and marked); entries show number, type icon,
-  comment (two lines) and component or tag. Hover highlights the target on the page; click
-  scrolls to it and opens its popover; menu: Edit, Delete; other pages: **Go to**.
+  comment (two lines) and component or tag, and "Not found" when the target was missing on
+  the page's last visit. Hover highlights the target on the page (the highlight goes when the
+  panel closes); click scrolls to it and opens its popover; Delete; other pages on the web:
+  **Go to** (opens the page in the tab and starts the overlay there).
 - Footer: **Copy as prompt** (toast "Copied 3 items"), **Clear all** (confirmation dialog).
   Copying does not clear.
 - Empty state: "No feedback yet: pick an element, drag an area, or select text."
-- **Settings** (gear): remembered sites with remove; voice: API key (masked, Save, Test,
-  Remove), model, language, microphone access status with **Grant**.
+- **Settings** (gear): remembered sites with remove; voice (milestone 5): API key (masked,
+  Save, Test, Remove), model, language, microphone access status with **Grant**.
 
 Visual references: v0 and Lovable element selection (outline, tag chip, inline comment field,
 select-parent), ClickUp and Air comment pins with a side list.
@@ -374,8 +390,11 @@ select-parent), ClickUp and Air comment pins with a side list.
 | Situation                                                                      | Behavior                                                                                                                                                                                                                                                                                         |
 | ------------------------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
 | Restricted pages (`chrome://`, Chrome Web Store, PDF viewer, other extensions) | Injection fails cleanly; panel shows "Can't run on this page".                                                                                                                                                                                                                                   |
-| Client-side navigation                                                         | Overlay detects URL changes (Navigation API) and switches page group and pins.                                                                                                                                                                                                                   |
-| HMR or DOM replacement                                                         | Pins re-anchor by selector (debounced `MutationObserver`); missing → "not found", snapshot kept.                                                                                                                                                                                                 |
+| Client-side navigation                                                         | Overlay detects URL changes (Navigation API) and switches page group and pins. An item whose comment is open while the app navigates belongs to the page where it was marked.                                                                                                                    |
+| HMR or DOM replacement                                                         | Placements are looked up again after DOM changes (once per frame); text items are found again by their text and context (at most every 300 ms). Missing for 1.5 s → "Not found" in the panel and the prompt, snapshot kept.                                                                      |
+| Reload of a page that is not remembered                                        | The overlay is gone with the page; a toolbar click starts it again, **Always enable here** makes it load by itself. Pins come back where their targets are.                                                                                                                                      |
+| Remembered site, tabs already open                                             | **Always enable here** applies from the next load of a page of that site; other tabs that are open already get the overlay with a toolbar click or a reload.                                                                                                                                     |
+| Text item after a reload                                                       | Its selection is searched only inside the container it was captured in, within the first 20,000 characters of that container; text not found there puts the pin at the container.                                                                                                                |
 | Aggressive page CSS, huge z-index, strict CSP                                  | Closed shadow root, inline stylesheet, rem→px, top z-index; covered by an E2E fixture.                                                                                                                                                                                                           |
 | Modal dialogs, page popovers, fullscreen                                       | The overlay host is a manual popover in the top layer; while a modal dialog is open it lives inside that dialog (outside, everything is inert) and re-raises itself above later popovers.                                                                                                        |
 | Modal dialogs inside web components (open or closed shadow roots)              | Found when they take the focus; the overlay moves into them like into document-level dialogs.                                                                                                                                                                                                    |
@@ -383,11 +402,11 @@ select-parent), ClickUp and Air comment pins with a side list.
 | Page popovers that close on an outside click; hover-only menus                 | Known limits: clicking to mark closes such popovers (hover and press `Enter` instead); menus that open on hover cannot be reached by pointing while the glass covers the page (use `↑`/`↓`).                                                                                                     |
 | iframes, web components                                                        | Only the top frame; the host element of a web component is marked. Text selected inside a web component or an iframe gets no chip (the page reports such selections as collapsed).                                                                                                               |
 | Areas                                                                          | Limited to the viewport (no scrolling while dragging). Elements clipped by a scroll container count when their box is inside the rectangle; elements overflowing a parent that lies outside it are not listed.                                                                                   |
-| Extension updated or reloaded while a page is open                             | Orphaned overlay removes itself; panel says "Reload the page".                                                                                                                                                                                                                                   |
+| Extension updated or reloaded while a page is open                             | The orphaned overlay removes itself within a second; the panel shows the tab as not active and a toolbar click starts a fresh overlay without a reload. Open tabs of remembered sites get a fresh overlay after an update.                                                                       |
 | Service worker terminated                                                      | No in-memory state; everything is in storage.                                                                                                                                                                                                                                                    |
 | Several tabs or windows                                                        | One collection; the background is the single writer, so writes never race.                                                                                                                                                                                                                       |
 | Clipboard write fails                                                          | Dialog with the text selected for manual copying.                                                                                                                                                                                                                                                |
-| Site access revoked in `chrome://extensions`                                   | `chrome.permissions.onRemoved` updates settings and panel.                                                                                                                                                                                                                                       |
+| Site access revoked in `chrome://extensions`                                   | `chrome.permissions.onRemoved` drops the site from the settings and the registered overlay script; the panel follows. Access granted there for other sites does not load the overlay by itself.                                                                                                  |
 | Storage                                                                        | Text only; far below the 10 MB `storage.local` quota.                                                                                                                                                                                                                                            |
 | Voice: no key                                                                  | Mic button explains "Add an OpenRouter API key in settings" and opens settings.                                                                                                                                                                                                                  |
 | Voice: microphone not granted or no device                                     | Hint with **Grant** (opens the permission page) or "No microphone found".                                                                                                                                                                                                                        |
@@ -397,8 +416,13 @@ select-parent), ClickUp and Air comment pins with a side list.
 ## 11. Security
 
 - **Main-world bridge:** returns data only as the result of `executeScript`; no
-  `postMessage` channel a page could spoof. Its output is validated (shape, types, lengths)
-  before use.
+  `postMessage` channel a page could spoof. It gets the selectors of the snapshot's elements
+  and writes nothing into the page; the background runs it only for the top frame of the
+  document that asked (`documentIds`) and gives the page 1.5 s. Its output is page data: the
+  page can fake, hide or swap its components, so the output is validated (shape, types,
+  lengths), cleaned and capped before use, and rendered like any page text. The function is
+  self-contained (serialized by Chrome), and the parser it feeds runs without a DOM in the
+  service worker.
 - **Rendering:** page-derived strings are rendered as text only (no `v-html`), in the panel and
   in the overlay.
 - **Prompt injection:** page content is clearly delimited and escaped in the output, and the
@@ -446,7 +470,8 @@ deliberate bug hunt.
    - a hostile page: `* { all: unset !important }`, huge z-index overlays, strict CSP header,
      `pushState` navigation, an iframe
    - flows: activate → mark element, text, area → comment → reload → pins back → second page →
-     copy → clipboard equals the expected Markdown; remember and forget a site; voice with
+     copy → clipboard equals the expected Markdown; remember and forget a site (with a test
+     copy of the build that grants localhost, since Chrome's prompt cannot be automated); voice with
      Chrome's fake microphone (`--use-file-for-fake-audio-capture`) against a local fake
      OpenRouter (test builds only; production builds always use `https://openrouter.ai`)
 3. **Live voice test** (`pnpm test:live`): runs only locally when `OPENROUTER_API_KEY_TEST` is set in
@@ -495,6 +520,15 @@ Each spike answers one question before code depends on it; the answer goes into 
    changes re-raise it (`tests/e2e/top-layer.e2e.test.ts`).
 4. **Voice:** microphone grant flow via the permission page + offscreen recording; OpenRouter
    accepts `webm` and `provider.data_collection`; model comparison for the default.
+
+**Facts milestone 4 relies on (2026-10-06, Chrome for Testing 154):** `activeTab` survives a
+reload and a same-origin navigation of the tab and ends with a cross-origin one or a reload of
+the extension; `executeScript` in the main world runs under a strict CSP; a Vite dev server
+with `@vitejs/plugin-vue` leaves `__vueParentComponent` with absolute `type.__file` paths on
+elements, in the page's world only; `registerContentScripts` accepts match patterns with a port;
+after `chrome.runtime.reload()` an old overlay stays on the page unless it removes itself (WXT's
+`ctx.setInterval` notices the missing `runtime.id`); Chrome's permission prompt cannot be
+answered by tests, so a test copy of the build grants `http://localhost/*` in its manifest.
 
 ## 14. Project structure (target)
 

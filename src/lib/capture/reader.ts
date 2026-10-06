@@ -163,6 +163,24 @@ function nodeAt(container: Node, offset: number): Node | null {
   return node && nextNodeOf(node)
 }
 
+const isHigh = (unit: number) => unit >= 0xd800 && unit <= 0xdbff
+const isLow = (unit: number) => unit >= 0xdc00 && unit <= 0xdfff
+
+/** Where to stop reading `data` before `end` so at most `room` characters are read. */
+function cappedEnd(data: string, from: number, end: number, room: number): number {
+  if (end - from <= room) return end
+  const at = from + Math.max(0, room)
+  // Never between the two halves of one character.
+  return at > from && isHigh(data.charCodeAt(at - 1)) ? at - 1 : at
+}
+
+/** Where to start reading `data` before `end` so at most `room` characters are read. */
+function cappedStart(data: string, end: number, room: number): number {
+  if (end <= room) return 0
+  const at = end - room
+  return isLow(data.charCodeAt(at)) ? at + 1 : at
+}
+
 export interface Until {
   /** The node is past the end: stop before it. */
   stop: boolean
@@ -195,17 +213,20 @@ export function readForward(
       const { stop, endOffset } = until(node)
       if (stop) return
       const from = node === container ? offset : 0
-      const text = node instanceof Text ? node.data.slice(from, endOffset ?? node.data.length) : ''
+      const end = node instanceof Text ? (endOffset ?? node.data.length) : 0
+      // One text node can be megabytes (a log in a <pre>): never more than the limit allows.
+      const upTo = node instanceof Text ? cappedEnd(node.data, from, end, limit - length + 1) : 0
+      const text = node instanceof Text ? node.data.slice(from, upTo) : ''
       // Nothing left of the node the boundary is in: its box must not decide the spacing.
       if (!(node === container && text === '')) {
         pieces.push(pieceOf(reader, node, text, from))
         length += text.length
       }
-      if (endOffset !== undefined) return
-      if (length > limit) {
+      if (upTo < end || length > limit) {
         cut = true
         return
       }
+      if (endOffset !== undefined) return
     }
   })
   return { pieces, cut: cut || exhausted }
@@ -225,14 +246,20 @@ export function readBackward(
   // Newest first while reading.
   const pieces: Piece[] = []
   const enough = () => [...collapse(join([...pieces].reverse()))].length > limit
+  // Raw characters read from one node at most: room for white space that collapses.
+  const room = limit * 8
   let cut = false
+  /** The end of `node`'s text before `end`, at most `room` characters; marks a cut. */
+  const tail = (node: Text, end: number) => {
+    const start = cappedStart(node.data, end, room)
+    if (start > 0) cut = true
+    return pieceOf(reader, node, node.data.slice(start, end), start)
+  }
   const exhausted = reader.run(root, (walker, accepts) => {
     let node: Node | null
     if (container instanceof CharacterData) {
       // Nothing before the boundary in its node: its box must not decide the spacing.
-      if (accepts(container) && offset > 0) {
-        pieces.push(pieceOf(reader, container, (container as Text).data.slice(0, offset)))
-      }
+      if (accepts(container) && offset > 0) pieces.push(tail(container as Text, offset))
       walker.currentNode = container
       node = walker.previousNode()
     } else {
@@ -251,14 +278,14 @@ export function readBackward(
         }
       }
     }
-    for (; node; node = walker.previousNode()) {
+    for (; node && !cut; node = walker.previousNode()) {
       if (enough()) {
         cut = true
         return
       }
-      pieces.push(pieceOf(reader, node, node instanceof Text ? node.data : ''))
+      pieces.push(node instanceof Text ? tail(node, node.data.length) : pieceOf(reader, node, ''))
     }
-    cut = enough()
+    cut ||= enough()
   })
   return { pieces: pieces.reverse(), cut: cut || exhausted }
 }

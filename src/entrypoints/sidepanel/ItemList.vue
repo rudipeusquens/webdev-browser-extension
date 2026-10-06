@@ -1,16 +1,37 @@
 <script setup lang="ts">
-import { SquareDashedIcon, SquareMousePointerIcon, TextSelectIcon, Trash2Icon } from '@lucide/vue'
+import {
+  ArrowUpRightIcon,
+  SquareDashedIcon,
+  SquareMousePointerIcon,
+  TextSelectIcon,
+  Trash2Icon,
+} from '@lucide/vue'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import type { PageGroup } from '@/lib/collection/ops'
 import { targetSummary } from '@/lib/format/summary'
+import { isSiteOrigin } from '@/lib/settings'
 
-defineProps<{ groups: (PageGroup & { current: boolean })[] }>()
+defineProps<{
+  groups: (PageGroup & { current: boolean })[]
+  /** Items not found when their page was last open. */
+  missing: ReadonlySet<string>
+}>()
 const emit = defineEmits<{
   remove: [id: string]
   highlight: [id: string | null]
   reveal: [id: string]
+  go: [pageKey: string]
 }>()
+
+/** Go to works for pages on the web only. */
+function openable(url: string): boolean {
+  try {
+    return isSiteOrigin(new URL(url).origin)
+  } catch {
+    return false
+  }
+}
 
 const ICONS = { element: SquareMousePointerIcon, text: TextSelectIcon, area: SquareDashedIcon }
 </script>
@@ -23,6 +44,17 @@ const ICONS = { element: SquareMousePointerIcon, text: TextSelectIcon, area: Squ
     >
       <span class="truncate">{{ group.page.title || group.key }}</span>
       <Badge v-if="group.current" variant="outline" class="shrink-0">This page</Badge>
+      <Button
+        v-else-if="openable(group.page.url)"
+        data-testid="go-to"
+        variant="ghost"
+        size="xs"
+        class="-my-1 ml-auto shrink-0 font-normal"
+        :title="`Open ${group.key} in this tab`"
+        @click="emit('go', group.key)"
+      >
+        Go to <ArrowUpRightIcon />
+      </Button>
     </h2>
     <ul>
       <li
@@ -50,6 +82,15 @@ const ICONS = { element: SquareMousePointerIcon, text: TextSelectIcon, area: Squ
             <span class="mt-0.5 flex items-center gap-1 text-xs text-muted-foreground">
               <component :is="ICONS[item.target.kind]" class="size-3 shrink-0" />
               <span class="truncate font-mono">{{ targetSummary(item.target) }}</span>
+              <Badge
+                v-if="missing.has(item.id)"
+                data-testid="not-found"
+                variant="outline"
+                class="shrink-0 px-1 py-0 text-[10px] font-normal text-amber-700 dark:text-amber-400"
+                title="Not found when this page was last open"
+              >
+                Not found
+              </Badge>
             </span>
           </span>
         </button>

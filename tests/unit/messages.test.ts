@@ -22,7 +22,15 @@ describe('isMessage', () => {
     { type: 'overlay:highlight', id: 'a1' },
     { type: 'overlay:highlight', id: null },
     { type: 'overlay:reveal', id: 'a1' },
+    { type: 'overlay:set-pins', visible: false },
+    { type: 'site:remember', origin: 'http://localhost:3000' },
+    { type: 'site:forget', origin: 'https://example.com' },
+    { type: 'tab:go', tabId: 4, pageKey: 'http://localhost:3000/settings' },
     { type: 'overlay:changed' },
+    { type: 'origin:read', selectors: ['#save'] },
+    { type: 'anchors:report', pageKey: 'http://localhost:3000/', found: ['a1'], missing: [] },
+    { type: 'anchors:report', pageKey: 'http://localhost:3000/', found: [], missing: ['a1', 'b2'] },
+    { type: 'origin:read', selectors: Array.from({ length: 11 }, (_, i) => `#c${i}`) },
   ])('accepts $type', (message) => {
     expect(isMessage(message)).toBe(true)
   })
@@ -34,9 +42,39 @@ describe('isMessage', () => {
     ['an empty comment', { type: 'annotation:update', id: 'a1', comment: '  \n ' }],
     ['a comment over 5000', { type: 'annotation:update', id: 'a1', comment: 'x'.repeat(5001) }],
     ['an unknown mode', { type: 'overlay:set-mode', mode: 'text' }],
+    ['pins that are not a boolean', { type: 'overlay:set-pins', visible: 'no' }],
+    ['a site with a path', { type: 'site:remember', origin: 'http://localhost:3000/a' }],
+    ['a file site', { type: 'site:remember', origin: 'file:///srv/app' }],
+    ['a site that is no origin', { type: 'site:forget', origin: 'localhost' }],
+    ['a tab id that is no integer', { type: 'tab:go', tabId: 1.5, pageKey: 'http://x.test/' }],
+    ['a page that is no URL', { type: 'tab:go', tabId: 1, pageKey: 'javascript:alert(1)' }],
     ['an invalid target', { ...add, target: { kind: 'element', element: { selector: 'x' } } }],
     ['an invalid page', { ...add, page: page('chrome://settings/') }],
     ['an extra key', { type: 'collection:clear', all: true }],
+    ['no selectors', { type: 'origin:read', selectors: [] }],
+    ['12 selectors', { type: 'origin:read', selectors: Array.from({ length: 12 }, () => 'b') }],
+    ['a selector that is not a string', { type: 'origin:read', selectors: [42] }],
+    ['an empty selector', { type: 'origin:read', selectors: [''] }],
+    ['a selector over 1000', { type: 'origin:read', selectors: ['b'.repeat(1001)] }],
+    ['selectors that are not a list', { type: 'origin:read', selectors: '#save' }],
+    ['an extra key on origin:read', { type: 'origin:read', selectors: ['b'], frame: 1 }],
+    [
+      'a report with an invalid id',
+      { type: 'anchors:report', pageKey: 'http://x.test/', found: ['a b'], missing: [] },
+    ],
+    [
+      'a report for a page that is no URL',
+      { type: 'anchors:report', pageKey: 'chrome://settings/', found: [], missing: [] },
+    ],
+    [
+      'a report with too many ids',
+      {
+        type: 'anchors:report',
+        pageKey: 'http://x.test/',
+        found: Array.from({ length: 1001 }, (_, i) => `a${i}`),
+        missing: [],
+      },
+    ],
     ['null', null],
     ['a string', 'collection:clear'],
     ['an array', [{ type: 'collection:clear' }]],
@@ -57,8 +95,17 @@ describe('message groups', () => {
 
 describe('isOverlayStatus', () => {
   it('checks the reply to overlay:status', () => {
-    const status = { host: 'localhost:3000', pageKey: 'http://localhost:3000/', mode: 'browse' }
+    const status = {
+      host: 'localhost:3000',
+      pageKey: 'http://localhost:3000/',
+      mode: 'browse',
+      pins: true,
+      instance: 'f00d',
+    }
     expect(isOverlayStatus(status)).toBe(true)
+    expect(isOverlayStatus({ ...status, instance: '' })).toBe(false)
+    expect(isOverlayStatus({ ...status, instance: 'x y' })).toBe(false)
+    expect(isOverlayStatus({ ...status, pins: 'yes' })).toBe(false)
     expect(isOverlayStatus({ ...status, mode: 'x' })).toBe(false)
     expect(isOverlayStatus({ ...status, host: 'x'.repeat(300) })).toBe(false)
     expect(isOverlayStatus(undefined)).toBe(false)

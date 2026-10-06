@@ -1,21 +1,43 @@
 <script setup lang="ts">
-import { CopyIcon, MousePointer2Icon, SquareDashedIcon, SquareMousePointerIcon } from '@lucide/vue'
-import { computed, ref, watch } from 'vue'
-import { browser } from 'wxt/browser'
+import {
+  CopyIcon,
+  MapPinIcon,
+  MapPinOffIcon,
+  MousePointer2Icon,
+  SettingsIcon,
+  SquareDashedIcon,
+  SquareMousePointerIcon,
+} from '@lucide/vue'
+import { computed, onBeforeUnmount, ref, watch } from 'vue'
+import { browser, type Browser } from 'wxt/browser'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
+import { Toggle } from '@/components/ui/toggle'
 import { ToggleGroup, ToggleGroupItem } from '@/components/ui/toggle-group'
 import { groupByPage } from '@/lib/collection/ops'
 import { formatCollection } from '@/lib/format/markdown'
-import { type BackgroundMessage, type Mode, MODES, type OverlayMessage } from '@/lib/messages'
+import {
+  type BackgroundMessage,
+  type Mode,
+  MODES,
+  type OverlayMessage,
+  type Reply,
+} from '@/lib/messages'
+import { isSiteOrigin, originPattern } from '@/lib/settings'
 import ClearAllDialog from './ClearAllDialog.vue'
 import CopyFallbackDialog from './CopyFallbackDialog.vue'
 import ItemList from './ItemList.vue'
+import SettingsView from './SettingsView.vue'
 import { useActiveTab } from './use-active-tab'
+import { useMissing } from './use-missing'
+import { useSettings } from './use-settings'
 import { useCollection } from '@/composables/use-collection'
 
 const { collection } = useCollection()
 const { tabId, status, refresh } = useActiveTab()
+const { missing } = useMissing()
+const { settings } = useSettings()
+const showSettings = ref(false)
 
 const count = computed(() => collection.value.items.length)
 const groups = computed(() => {
@@ -24,6 +46,20 @@ const groups = computed(() => {
   return [...all.filter((g) => g.current), ...all.filter((g) => !g.current)]
 })
 const mode = computed(() => (status.value.kind === 'active' ? status.value.mode : undefined))
+const pinsShown = computed(() => status.value.kind !== 'active' || status.value.pins)
+/** The origin of the active page, when it is a site that can be remembered. */
+const siteOrigin = computed(() => {
+  if (status.value.kind !== 'active') return null
+  try {
+    const { origin } = new URL(status.value.pageKey)
+    return isSiteOrigin(origin) ? origin : null
+  } catch {
+    return null
+  }
+})
+const remembered = computed(
+  () => !!siteOrigin.value && settings.value.rememberedOrigins.includes(siteOrigin.value),
+)
 const statusText = computed(() => {
   switch (status.value.kind) {
     case 'active':
@@ -52,7 +88,7 @@ function toOverlay(message: OverlayMessage) {
 }
 
 async function copy() {
-  const text = formatCollection(collection.value)
+  const text = formatCollection(collection.value, { missing: missing.value })
   const n = count.value
   try {
     await navigator.clipboard.writeText(text)
@@ -63,6 +99,60 @@ async function copy() {
   copyStatus.value = `Copied ${n} item${n === 1 ? '' : 's'}`
   clearTimeout(copyTimer)
   copyTimer = setTimeout(() => (copyStatus.value = ''), 4000)
+}
+
+const siteError = ref('')
+
+/** Always enable here: Chrome asks for access inside the click, then the site is remembered. */
+function rememberSite() {
+  const origin = siteOrigin.value
+  if (!origin) return
+  siteError.value = ''
+  browser.permissions
+    .request({ origins: [originPattern(origin)] })
+    .then(async (granted) => {
+      if (!granted) return
+      const message: BackgroundMessage = { type: 'site:remember', origin }
+      const reply = (await browser.runtime.sendMessage(message)) as Reply | undefined
+      if (reply && !reply.ok) siteError.value = reply.error
+    })
+    .catch(() => undefined)
+}
+
+function forgetSite(origin: string) {
+  toBackground({ type: 'site:forget', origin })
+}
+
+function goTo(pageKey: string) {
+  if (tabId.value === undefined) return
+  toBackground({ type: 'tab:go', tabId: tabId.value, pageKey })
+}
+
+// A line to the overlay of the active tab: when the panel closes or another tab becomes
+// active, the overlay sees it go and drops what the panel had highlighted.
+let port: Browser.runtime.Port | undefined
+watch(
+  () =>
+    status.value.kind === 'active' && tabId.value !== undefined
+      ? { tab: tabId.value, overlay: status.value.instance }
+      : undefined,
+  (next, previous) => {
+    if (next?.tab === previous?.tab && next?.overlay === previous?.overlay) return
+    port?.disconnect()
+    port = undefined
+    if (!next) return
+    try {
+      port = browser.tabs.connect(next.tab, { name: 'panel' })
+    } catch {
+      // The overlay is gone again: the next status says so.
+    }
+  },
+)
+onBeforeUnmount(() => port?.disconnect())
+
+function setPins(visible: boolean) {
+  toOverlay({ type: 'overlay:set-pins', visible })
+  void refresh()
 }
 
 function setMode(next: unknown) {
@@ -79,6 +169,17 @@ function setMode(next: unknown) {
       <div class="flex items-center gap-2">
         <h1 class="font-semibold">Feedback</h1>
         <Badge v-if="count" data-testid="item-count" variant="secondary">{{ count }}</Badge>
+        <Button
+          data-testid="open-settings"
+          variant="ghost"
+          size="icon-sm"
+          class="ml-auto text-muted-foreground"
+          aria-label="Settings"
+          title="Settings"
+          @click="showSettings = true"
+        >
+          <SettingsIcon />
+        </Button>
       </div>
       <p data-testid="tab-status" class="flex items-start gap-2 text-xs text-muted-foreground">
         <span
@@ -89,7 +190,32 @@ function setMode(next: unknown) {
             'bg-muted-foreground/40': status.kind === 'idle',
           }"
         />
-        <span>{{ statusText }}</span>
+        <span class="min-w-0 flex-1">{{ statusText }}</span>
+        <Button
+          v-if="siteOrigin && !remembered"
+          data-testid="remember-site"
+          variant="outline"
+          size="xs"
+          class="-my-1 shrink-0"
+          :title="`Load the overlay on every page of ${siteOrigin}`"
+          @click="rememberSite"
+        >
+          Always enable here
+        </Button>
+        <Button
+          v-else-if="siteOrigin"
+          data-testid="forget-site"
+          variant="ghost"
+          size="xs"
+          class="-my-1 shrink-0 text-muted-foreground"
+          :title="`Stop loading the overlay on ${siteOrigin} by itself`"
+          @click="forgetSite(siteOrigin)"
+        >
+          Forget this site
+        </Button>
+      </p>
+      <p v-if="siteError" data-testid="site-error" role="alert" class="text-xs text-destructive">
+        {{ siteError }}
       </p>
       <div class="flex flex-wrap items-center gap-x-3 gap-y-2">
         <ToggleGroup
@@ -110,6 +236,20 @@ function setMode(next: unknown) {
             <SquareDashedIcon /> Area
           </ToggleGroupItem>
         </ToggleGroup>
+        <Toggle
+          data-testid="toggle-pins"
+          variant="outline"
+          size="sm"
+          :model-value="pinsShown"
+          :disabled="status.kind !== 'active'"
+          :aria-label="pinsShown ? 'Hide pins' : 'Show pins'"
+          :title="pinsShown ? 'Hide pins on the page' : 'Show pins on the page'"
+          @update:model-value="setPins"
+        >
+          <MapPinIcon v-if="pinsShown" />
+          <MapPinOffIcon v-else />
+          Pins
+        </Toggle>
         <p
           v-if="status.kind === 'active'"
           class="flex items-center gap-1 text-xs text-muted-foreground"
@@ -122,20 +262,28 @@ function setMode(next: unknown) {
       </div>
     </header>
 
-    <section class="flex-1 overflow-y-auto">
+    <SettingsView
+      v-if="showSettings"
+      :origins="settings.rememberedOrigins"
+      @forget="forgetSite"
+      @close="showSettings = false"
+    />
+    <section v-else class="flex-1 overflow-y-auto">
       <p v-if="!count" class="p-6 pt-12 text-center text-muted-foreground">
         No feedback yet: pick an element, drag an area, or select text.
       </p>
       <ItemList
         v-else
         :groups="groups"
+        :missing="missing"
         @remove="(id) => toBackground({ type: 'annotation:remove', id })"
         @highlight="(id) => toOverlay({ type: 'overlay:highlight', id })"
         @reveal="(id) => toOverlay({ type: 'overlay:reveal', id })"
+        @go="goTo"
       />
     </section>
 
-    <footer class="space-y-2 border-t p-3">
+    <footer v-if="!showSettings" class="space-y-2 border-t p-3">
       <div class="flex gap-2">
         <Button data-testid="copy-prompt" class="flex-1" :disabled="!count" @click="copy">
           <CopyIcon /> Copy as prompt
