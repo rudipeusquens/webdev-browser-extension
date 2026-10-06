@@ -2886,29 +2886,386 @@ in CI; manual smoke in a real Chrome.
 
 **Goal:** Dictate comments via OpenRouter with bring-your-own key.
 
-Milestone 4 added the settings model (`src/lib/settings.ts`, remembered sites; the background
-writes it) and the panel's settings view (`SettingsView.vue`); the voice settings extend both.
+**Expanded on 2026-10-06** from the milestone 4 code and spike 4. Tasks 31–38 name files,
+interfaces and the tests to write first; the implementation follows in the same pull request.
+Steps are test-first: write the listed tests, watch them fail, implement, watch them pass,
+commit.
 
-**Files:** `lib/voice/openrouter.ts` (`transcribe(audio: Blob, opts): Promise<string>`,
-`checkKey(key): Promise<boolean>`, error mapping), `entrypoints/offscreen/` (recorder),
-`entrypoints/mic-permission/`, background voice coordinator, popover mic button and states,
-settings → voice, `tests/fixtures/audio/` (text-to-speech clips + expected text, generation
-script), `tests/live/voice.live.test.ts`.
+**Facts this milestone relies on** (spike 4, verified on 2026-10-06 with Chrome for Testing
+154 and the live API):
 
-**Required tests:**
+- `POST https://openrouter.ai/api/v1/audio/transcriptions` takes the spec's JSON body with
+  `input_audio.format: "webm"` and `provider.data_collection: "deny"`; it answers
+  `{ text, usage }` within about a second for a 7 s clip (about $0.0002 with
+  `openai/gpt-4o-mini-transcribe`). Silence gives `text: ""`; a wrong key 401
+  (`"Missing Authentication header"`); an unknown model 400 (`"Model … does not exist"`);
+  audio it cannot decode 400 (`"Provider returned 400"`). `GET /api/v1/key` answers 200 or
+  401 and costs nothing. Both answer CORS preflights from any origin with
+  `Access-Control-Allow-Origin: *` and allow the `Authorization` header.
+- In an offscreen document (`USER_MEDIA`), `getUserMedia` fails with `NotAllowedError` until
+  the extension's origin has the microphone permission (`permissions.query` says `prompt`;
+  the document cannot show Chrome's prompt) and with `NotFoundError` when there is no device.
+  Once the origin is granted, `MediaRecorder` records `audio/webm;codecs=opus` (EBML header
+  `1A 45 DF A3`) there.
+- Chrome's DevTools protocol sets the permission for the extension's origin:
+  `Browser.setPermission({ permission: { name: "microphone" }, setting, origin })` with
+  `granted`, `prompt` or `denied`; extension pages see the change through
+  `permissions.query(…).onchange`. `--use-fake-device-for-media-stream` gives a beeping fake
+  microphone, `--use-file-for-fake-audio-capture=<wav>` plays a file instead.
+- `sidePanel.open()` called by the background while it handles a message that a content
+  script sent from a trusted click succeeds; without a user gesture it fails.
+- All four models of the spec's list exist and transcribe the synthetic English and German
+  clips (`tests/fixtures/audio/`) almost word for word; they differ only in hyphens and
+  commas (table in spec section 13).
+- WXT's fake browser does not implement `runtime.connect`, `tabs.connect`, `offscreen.*` or
+  `runtime.getContexts`; unit tests use in-memory fakes.
 
-- Unit `openrouter`: request body shape (`input_audio.format: "webm"`,
-  `provider.data_collection: "deny"`, `language` omitted for `auto`); 401/402/429/5xx/timeout →
-  the spec's messages; empty text → "No speech detected"; the key never appears in thrown
-  errors.
-- Unit: an ESLint rule (`no-restricted-syntax`) forbids reading `openrouterKey` in
-  `entrypoints/overlay.content/**`; a lint fixture proves it fires.
-- E2E with Chrome's fake microphone (`--use-fake-device-for-media-stream`,
-  `--use-file-for-fake-audio-capture`) against a local fake OpenRouter (test build only):
-  record → stop → transcript inserted at the caret; Esc cancels without a request; failure →
-  Retry without re-recording; no key → settings hint.
-- Live (`pnpm test:live`, local only): fixture audio → real API → transcript contains the
-  expected words; also records the model comparison for the spec.
+**Decisions:**
+
+- **The offscreen document records and transcribes.** A service worker is stopped when a
+  `fetch` takes longer than 30 s, and the request may take up to 65 s; the document has no
+  such limit and keeps the audio for **Retry**. The background reads the key and the voice
+  settings and sends them with `start` and `retry` over the recorder's own port, so no other
+  context receives them. The document lives for one session: created on `start`, closed when
+  the session ends.
+- **One port per comment.** The popover opens a port named `voice` to the background on the
+  first dictation and closes it when it closes; a closed port (popover closed, page gone,
+  overlay replaced) cancels the recording or the request and closes the offscreen document.
+  States flow back over the same port, so a recording stopped at the 120 s limit still
+  reaches the popover. While a session runs, the recorder sends a heartbeat every 10 s, which
+  keeps the service worker alive (Chrome 114+ counts port messages).
+- **One session at a time.** A `start` from another popover ends the running session; that
+  popover shows "Recording stopped: another one started."
+- **Storage:** voice settings under their own key `voice` (`{ model, language }`), the API
+  key under `openrouterKey`, both in `storage.local` and written only by the background.
+  Separate keys keep a malformed value from resetting the remembered sites, and keep the key
+  out of the `settings` object the panel and the overlay read. The ESLint rule forbids the
+  overlay entrypoint to reference `openrouterKey`, import `@/lib/voice/key` or call
+  `storage.local.get()` without keys.
+- **Panel requests** (`voice:set`, `voice:key:save`, `voice:key:remove`, `voice:key:test`)
+  are accepted only from the side panel's own URL. **Overlay requests** (`voice:grant`,
+  `voice:settings`) only from the top frame of a tab; `voice:settings` opens the panel on its
+  settings (a `panelView` entry in `storage.session` that the panel of that window reads).
+- **Errors** map to the spec's messages; timeouts say "Transcription timed out", no network
+  "Could not reach OpenRouter", and a 400 adds OpenRouter's own message (text only, one line,
+  at most 200 characters, never the key). Every failure after recording keeps the audio for
+  **Retry**, which reads the key and settings again.
+- **Fixture audio** comes from OpenRouter's text-to-speech (`scripts/voice-fixtures.mjs`,
+  local, with the test key): synthetic voices only, committed as 16-bit mono WAV.
+
+**Known limits:** the text arrives after the recording stops (no live transcript); the
+microphone permission is granted once in a tab of the extension (Chrome's prompt cannot show
+in the panel or the offscreen document); a page can see that the popover's comment field
+changed, as it can with typing.
+
+**Review focus for this milestone** (each line has a test in the owning task):
+
+1. The popover closes, the page navigates or the overlay is replaced while recording or
+   transcribing: nothing is sent, the microphone is released, no text lands anywhere
+   (Tasks 34, 35, 37).
+2. A page dispatching clicks or `Alt+V` at the overlay, or messages at the background: no
+   recording starts; overlay and panel messages from the wrong sender are refused
+   (Tasks 31, 34, 35).
+3. The API key never reaches the overlay, an error, a log line or the prompt; requests go
+   only to `openrouter.ai` (Tasks 31, 32, 37).
+4. Failures (401, 402, 429, 5xx, timeout, offline, empty text, unknown model): the right
+   message, **Retry** without speaking again, and a retry after fixing the key works
+   (Tasks 32, 33, 37).
+5. The transcript lands at the caret with one separating space, replaces a selection,
+   respects the comment limit and the comment guard, and keeps what the developer typed
+   during the recording (Tasks 35, 37).
+
+**Pre-flight (shared interfaces):** Task 31's `loadKey`, `loadVoiceSettings` and
+`isPanelSender` feed Task 34 (the coordinator reads both) and Task 36 (the panel); Task 32's
+`transcribe` and `VoiceFailure` are what Task 33's recorder calls; Task 33's `VoiceState`,
+`VoiceCommand` and `RecorderCommand` (`src/lib/voice/protocol.ts`) are the contract of Tasks
+34 and 35; Task 34's `voice:grant` and `voice:settings` are sent by Task 35 and answered by
+Task 36's `panelView`; Task 37 drives everything through the shipped build.
+
+### Task 31: Voice settings and the API key
+
+**Files:**
+
+- Create: `src/lib/voice/settings.ts`, `src/lib/voice/key.ts`,
+  `src/lib/background/voice-settings.ts`
+- Modify: `src/lib/messages.ts`, `src/entrypoints/background.ts`, `src/lib/settings.ts`
+  (comment), `eslint.config.mjs`
+- Test: `tests/unit/voice-settings.test.ts`, `tests/unit/background-voice-settings.test.ts`,
+  `tests/unit/eslint-overlay-key.test.ts`, `tests/unit/messages.test.ts`
+
+**Interfaces:**
+
+- Produces (`settings.ts`): `VOICE_KEY = 'voice'`, `interface VoiceSettings { model: string;
+language: string }`, `DEFAULT_MODEL = 'openai/gpt-4o-mini-transcribe'`, `MODELS: { id;
+label }[]` (the spec's four), `LANGUAGES: { code; label }[]` (`auto` first),
+  `isModelId(x)` (`vendor/name`, at most 100 characters, letters, digits, `._-:`),
+  `isLanguage(x)` (`auto` or two lowercase letters), `isVoiceSettings(x)`,
+  `loadVoiceSettings(): Promise<VoiceSettings>` (defaults for anything malformed),
+  `watchVoiceSettings(cb): () => void`.
+- Produces (`key.ts`): `KEY_STORAGE = 'openrouterKey'`, `isApiKey(x)` (8–256 visible ASCII
+  characters, no spaces), `loadKey(): Promise<string | undefined>`, `maskKey(key): string`
+  (`sk-or-v1-…` or `…`, then the last four characters).
+- Produces (`voice-settings.ts`): `isPanelSender(sender): boolean` (no tab, our id, URL
+  is the panel's), `saveVoice(settings)`, `saveKey(key)`, `removeKey()`,
+  `testKey(check = checkKey): Promise<KeyTestReply>`.
+- Produces (`messages.ts`): `VoiceSettingsMessage = { type: 'voice:set'; model; language } |
+{ type: 'voice:key:save'; key } | { type: 'voice:key:remove' } | { type: 'voice:key:test' }`,
+  `KeyTestReply = { ok: true; valid: boolean } | { ok: false; error: string }`, guards in
+  `isBackgroundMessage`.
+
+- [ ] **Step 1: Write the failing tests:**
+  - settings: defaults when nothing is stored; a stored valid value loads; a malformed model,
+    language or extra key falls back to the defaults without touching `settings`; the watcher
+    reports changes of `voice` only.
+  - key: `isApiKey` accepts a key-shaped string and refuses spaces, control characters, too
+    short or too long; `maskKey` never returns more than the prefix and four characters;
+    `loadKey` returns `undefined` for a malformed stored value.
+  - background: each message from the panel writes; the same messages from a tab, from
+    another extension page URL or with a malformed key or model are refused and write
+    nothing; `voice:key:test` without a key says so; with a key it answers valid/invalid from
+    the injected check and "Could not reach OpenRouter" when the check throws; no reply or
+    error contains the key.
+  - ESLint: a file under `src/entrypoints/overlay.content/` that reads `openrouterKey`,
+    imports `@/lib/voice/key` or calls `browser.storage.local.get()` without keys fails
+    lint; the same code elsewhere passes.
+- [ ] **Step 2: Run them, watch them fail;** **Step 3: implement;** **Step 4: run
+      `pnpm test:unit` and `pnpm lint`;** **Step 5: commit** "Store the voice settings and the
+      API key".
+
+### Task 32: OpenRouter client
+
+**Files:**
+
+- Create: `src/lib/voice/openrouter.ts`
+- Test: `tests/unit/voice-openrouter.test.ts`
+
+**Interfaces:**
+
+- Produces: `OPENROUTER = 'https://openrouter.ai'` (the one place the origin is written; the
+  E2E harness rewrites it in a copy of the build), `interface TranscribeRequest { key: string;
+model: string; language: string }`, `transcribe(audio: Blob, request, options?: { signal?:
+AbortSignal; fetch?: typeof fetch }): Promise<string>` (trimmed text), `checkKey(key,
+options?): Promise<boolean>`, `class VoiceFailure extends Error { code: VoiceError; detail?:
+string }` (its message is the code only), `TIMEOUT = 65_000`.
+- `VoiceError` (in `src/lib/voice/protocol.ts`, created here): `'no-key' | 'mic-not-granted' |
+'mic-blocked' | 'no-mic' | 'mic-failed' | 'invalid-key' | 'no-credits' | 'rate-limited' |
+'rejected' | 'failed' | 'timeout' | 'offline' | 'no-speech' | 'interrupted' | 'taken'`, with
+  `voiceErrorText(error, detail?)`.
+
+- [ ] **Step 1: Write the failing tests** (mocked `fetch`): request URL, method, headers
+      (`Authorization: Bearer <key>`, JSON content type) and body (`model`, `input_audio.data`
+      is the blob's base64, `format: "webm"`, `provider.data_collection: "deny"`, `language`
+      only when not `auto`); 401 → `invalid-key`, 402 → `no-credits`, 429 → `rate-limited`,
+      400/404/422 → `rejected` with OpenRouter's message cut to one line of 200 characters,
+      5xx and malformed JSON → `failed`, a rejected `fetch` → `offline`, no answer within 65 s
+      (fake timers) → `timeout`, an aborted signal → `AbortError` passes through; `"  "` →
+      `no-speech`; text is trimmed; neither `message`, `detail` nor `String(error)` of any
+      failure contains the key, even when OpenRouter's message quotes it; `checkKey` → true on
+      200, false on 401/403, `offline`/`failed` otherwise; a 2 MB blob encodes without a
+      stack overflow.
+- [ ] **Steps 2–5** as in Task 31; commit "Talk to OpenRouter's transcription API".
+
+### Task 33: Recorder
+
+**Files:**
+
+- Create: `src/lib/voice/recorder.ts`, `src/entrypoints/offscreen/index.html`,
+  `src/entrypoints/offscreen/main.ts`
+- Modify: `src/lib/voice/protocol.ts`
+- Test: `tests/unit/voice-recorder.test.ts`, `tests/unit/voice-protocol.test.ts`
+
+**Interfaces:**
+
+- Produces (`protocol.ts`): `VoiceState = { state: 'idle' } | { state: 'starting' } |
+{ state: 'recording'; limit: number } | { state: 'transcribing' } | { state: 'done'; text:
+string; atLimit: boolean } | { state: 'failed'; error: VoiceError; detail?: string; retry:
+boolean }`, `VoiceCommand = { type: 'start' | 'stop' | 'cancel' | 'retry' }` (overlay →
+  background), `RecorderCommand = { type: 'start'; request: TranscribeRequest } | { type:
+'stop' } | { type: 'cancel' } | { type: 'retry'; request: TranscribeRequest }`
+  (background → recorder), `RecorderMessage = VoiceState | { state: 'alive' }`, guards
+  `isVoiceState`, `isVoiceCommand`, `isRecorderCommand`, `isRecorderMessage`, port names
+  `VOICE_PORT = 'voice'`, `RECORDER_PORT = 'recorder'`, `LIMIT = 120_000`.
+- Produces (`recorder.ts`): `createRecorder(deps: { permission(): Promise<PermissionState>;
+getUserMedia(): Promise<MediaStream>; record(stream): MediaRecorderLike; transcribe(audio:
+Blob, request, signal): Promise<string>; emit(state: RecorderMessage): void }): {
+command(c: RecorderCommand): void; stop(): void }` — `stop()` ends everything (port gone).
+- The offscreen page connects `RECORDER_PORT`, feeds it into the recorder, sends a heartbeat
+  every 10 s while busy, and stops the recorder when the port closes.
+
+- [ ] **Step 1: Write the failing tests** (fake stream, fake `MediaRecorder`, fake timers):
+      `start` → `starting`, then `recording` with the limit; permission `prompt` →
+      `mic-not-granted`, `denied` → `mic-blocked`, `getUserMedia` `NotFoundError` → `no-mic`,
+      other errors → `mic-failed`, none with `retry`; `stop` → `transcribing` → `done` with the
+      text, the tracks stopped as soon as recording ends; 120 s → stops by itself, `done` with
+      `atLimit`; `cancel` while recording → `idle`, no transcription, tracks stopped; `cancel`
+      while transcribing aborts the signal and drops a late answer; a failure → `failed` with
+      `retry: true` (except `no-speech`), and `retry` sends the same audio with the new
+      request; a second `start` while busy is refused; `stop()` releases the microphone and
+      drops the audio; the recorder asks for `audio/webm;codecs=opus` at 32 kbit/s.
+- [ ] **Steps 2–5**; commit "Record and transcribe in an offscreen document".
+
+### Task 34: Background coordinator and the microphone page
+
+**Files:**
+
+- Create: `src/lib/background/voice.ts`, `src/entrypoints/mic-permission/index.html`,
+  `src/entrypoints/mic-permission/main.ts`, `src/entrypoints/mic-permission/App.vue`
+- Modify: `src/entrypoints/background.ts`, `src/lib/messages.ts`
+- Test: `tests/unit/background-voice.test.ts`, `tests/unit/mic-permission.test.ts`,
+  `tests/unit/helpers/fake-port.ts`
+
+**Interfaces:**
+
+- Consumes: `loadKey`, `loadVoiceSettings`, `isPanelSender` (Task 31); protocol (Task 33).
+- Produces: `createVoice(deps?: { offscreen?: OffscreenLike; contexts?: () =>
+Promise<unknown[]> })` with `onConnect(port)`; messages `{ type: 'voice:grant' }` (opens
+  `mic-permission.html` in a new tab next to the sender's) and `{ type: 'voice:settings' }`
+  (opens the panel synchronously, then writes `panelView: { windowId, view: 'settings', at
+}` to `storage.session`), both only from frame 0 of a tab.
+- The microphone page asks for the microphone on load and on **Allow microphone**, stops
+  the tracks at once, says "Microphone allowed. You can close this tab." (and closes its tab
+  after 1.5 s), or explains a block ("Chrome blocked the microphone for this extension…")
+  or a missing device.
+
+- [ ] **Step 1: Write the failing tests:**
+  - coordinator (fake ports and offscreen API): `start` without a key → `failed: no-key`,
+    no document; with a key → closes a stale document, creates one (`USER_MEDIA`), waits for
+    the recorder port (5 s, else `failed: mic-failed`) and sends `start` with key, model and
+    language; recorder states reach the overlay port, heartbeats do not; `stop`, `cancel`
+    pass through; `retry` reads key and settings again; the overlay port closing cancels and
+    closes the document; a second overlay's `start` ends the first session with `failed:
+taken`; the recorder port closing mid-session → `failed: interrupted`; a `voice` port
+    from a subframe, another extension or the panel is disconnected at once; a recorder port
+    from any URL but `offscreen.html` is refused; `done` closes the document.
+  - `voice:grant` and `voice:settings` from a tab's top frame work, from the panel or a
+    subframe are refused.
+  - microphone page: allowed, blocked (`NotAllowedError`) and missing device
+    (`NotFoundError`) texts; tracks stopped.
+- [ ] **Steps 2–5**; commit "Coordinate dictation in the background".
+
+### Task 35: Dictation in the comment popover
+
+**Files:**
+
+- Create: `src/entrypoints/overlay.content/use-voice.ts`,
+  `src/entrypoints/overlay.content/transcript.ts`, `src/entrypoints/overlay.content/VoiceButton.vue`
+- Modify: `CommentPopover.vue`, `comment-guard.ts`, `keys.ts`
+- Test: `tests/unit/overlay-transcript.test.ts`, `tests/unit/overlay-use-voice.test.ts`,
+  `tests/unit/comment-popover.test.ts`, `tests/unit/overlay-keys.test.ts`,
+  `tests/unit/comment-guard.test.ts`
+
+**Interfaces:**
+
+- Produces (`transcript.ts`): `insertTranscript(value, start, end, text, max =
+LIMITS.comment): { value: string; caret: number; cut: boolean }` — replaces the selection,
+  adds a space before when the character before is not whitespace, one after when the
+  character after is not whitespace or punctuation, cuts the text to fit `max`.
+- Produces (`use-voice.ts`): `useVoice(connect = () => browser.runtime.connect({ name:
+VOICE_PORT })): { state: Ref<VoiceState>; seconds: Ref<number>; busy: ComputedRef<boolean>;
+toggle(); cancel(); retry(); onText(cb: (text: string, atLimit: boolean) => void) }` —
+  connects on the first `toggle`, disconnects on scope dispose, treats a closed port as
+  `failed: interrupted`.
+- `CommentGuard.accept(value)`: the overlay's own edit becomes the verified text.
+- `popoverKey` returns `'voice'` for a trusted `Alt+V` (`code === 'KeyV'`, no Ctrl, Meta or
+  Shift; not while composing).
+- Popover footer: hint or voice status on the left (`● 0:12`, "Transcribing…"), the mic
+  button and **Save** on the right; above it the voice message with its action (**Retry**,
+  **Grant**, **Open settings**). Save is disabled while recording or transcribing; `Esc`
+  cancels a running recording or request first; the text field stays editable.
+
+- [ ] **Step 1: Write the failing tests:**
+  - `insertTranscript`: empty field; caret at the start, middle, end; after a space, before a
+    space or punctuation; a selection replaced; the limit cuts and reports it.
+  - `useVoice` (fake port): toggle connects and sends `start`, toggles to `stop` while
+    recording; the seconds count up and stop; `done` calls `onText` once; a closed port →
+    `interrupted`; unmount disconnects; `cancel` and `retry` send their commands.
+  - popover: the mic button sits next to Save; untrusted clicks do nothing; states show their
+    texts; `done` inserts at the caret, focuses the field and keeps the guard in step (a
+    later save sends the inserted text); text typed while recording stays; `Esc` while
+    recording sends `cancel` and keeps the popover; Save is disabled while busy; each error
+    shows its message and action; `voice:grant` and `voice:settings` are sent only from
+    trusted clicks.
+  - keys: `Alt+V` → `'voice'`; with Ctrl, Meta, Shift, while composing or untrusted → null;
+    macOS `Alt+V` (`key: '√'`, `code: 'KeyV'`) → `'voice'`.
+- [ ] **Steps 2–5**; commit "Dictate into the comment popover".
+
+### Task 36: Voice settings in the panel
+
+**Files:**
+
+- Create: `src/entrypoints/sidepanel/VoiceSettings.vue`,
+  `src/entrypoints/sidepanel/use-voice-settings.ts`, shadcn-vue `input`, `label` and `select`
+  (or `native-select`) in `src/components/ui/`
+- Modify: `SettingsView.vue`, `App.vue`
+- Test: `tests/unit/sidepanel-voice.test.ts`
+
+**Interfaces:**
+
+- Consumes: Task 31 messages, `maskKey`, `KEY_STORAGE`, `MODELS`, `LANGUAGES`;
+  `panelView` (Task 34).
+- Produces: settings section **Voice**: API key (password field + **Save** when none is
+  saved; else the masked key with **Test** and **Remove**; test result line), model (the list
+  plus **Custom model…** with a field), language (`Detect automatically` + list), microphone
+  (Allowed / Not allowed yet + **Grant** / Blocked + how to allow it), a line on what is sent
+  where. App: opens the settings when `panelView` names this window's panel (on load and on
+  change, at most 10 s old) and removes the entry.
+
+- [ ] **Step 1: Write the failing tests:** saving sends `voice:key:save` and clears the
+      field; the stored key shows masked only (never the full key in the DOM); Test shows
+      "Key works." / "Invalid API key." / the error; Remove sends `voice:key:remove`; model and
+      language send `voice:set`; a custom model id is validated before sending; the microphone
+      status follows `permissions.query` and its `change` event; **Grant** opens the page;
+      `panelView` for this window opens the settings, for another window does not, an old one
+      is ignored.
+- [ ] **Steps 2–5**; commit "Set up voice in the panel".
+
+### Task 37: Dictation end to end
+
+**Files:**
+
+- Create: `tests/e2e/voice.e2e.test.ts`, `tests/e2e/fake-openrouter.ts`
+- Modify: `tests/e2e/harness.ts`
+
+**Interfaces:**
+
+- Harness: `launch({ openrouter?: string; microphone?: 'granted' | 'prompt' | 'denied' })`
+  — with `openrouter`, a copy of the build in which every `https://openrouter.ai` of the
+  JavaScript files points at the fake (the launch fails when there is none to replace, so a
+  test can never reach the real API); `microphone` adds Chrome's fake device and sets the
+  permission over CDP. `setMicrophone(s, setting)`.
+- Fake OpenRouter: answers preflights, records every request (headers and JSON body),
+  answers from a queue (`reply(status, body, delay?)`), `/api/v1/key` by key.
+
+- [ ] **Step 1: Write the failing E2E tests:** record → stop → the fake's text lands at the
+      caret and is saved (request body: default model, `webm` whose base64 starts with the
+      EBML header, `data_collection: "deny"`, no `language`, the key only in
+      `Authorization`); `Alt+V` starts and stops; `Esc` while recording sends nothing and
+      the offscreen document is gone; closing the popover while transcribing inserts nothing;
+      500 → "Transcription failed" → **Retry** sends the same audio once more and inserts;
+      401 shows "Invalid API key"; `""` shows "No speech detected."; no key → **Open
+      settings** opens the panel's settings; microphone `prompt` → **Grant** opens the
+      microphone page; settings in the panel save, test, mask and remove the key and a chosen
+      language reaches the request; the comment saved by dictation is in the copied prompt.
+- [ ] **Steps 2–5**; commit "Test dictation end to end".
+
+### Task 38: Live test, fixtures and docs
+
+**Files:**
+
+- Create: `tests/live/voice.live.test.ts`, `vitest.live.config.ts`,
+  `scripts/voice-fixtures.mjs`, `scripts/voice-fixtures.test.mjs`,
+  `tests/fixtures/audio/clips.json`, `tests/fixtures/audio/*.wav`
+- Modify: `package.json` (`test:live`), `.gitattributes` (`*.wav binary`), `AGENTS.md`,
+  spec sections 5, 8, 9, 10, 11, 13
+
+- [ ] **Step 1:** `wav()` test for the fixture script (RIFF header fields), watch it fail,
+      implement, generate the clips.
+- [ ] **Step 2:** live test, skipped without `OPENROUTER_API_KEY_TEST`: the real extension
+      with the clip as fake microphone and the real API; for each clip the transcript in the
+      popover contains at least 80 % of the expected words; then each model of `MODELS` once
+      per clip, printing words found and time (the comparison for the spec).
+- [ ] **Step 3:** run `pnpm test:live` locally; record the comparison in spec section 13.
+- [ ] **Step 4:** commit "Add the live voice test".
 
 **Acceptance:** dictating a comment works in a real Chrome; live test green locally; CI never
 calls OpenRouter.
