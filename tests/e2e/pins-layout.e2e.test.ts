@@ -111,6 +111,17 @@ describe('pins in scroll containers and on sticky elements', () => {
     expect(await top('#head')).toBe(0)
   })
 
+  it('hides and shows all pins with P, and the panel follows', async () => {
+    await mark('#head', 1)
+    expect(await pin()).not.toBeNull()
+    await session.page.keyboard.press('p')
+    expect(await pin()).toBeNull()
+    await panel.waitForSelector('[data-testid="toggle-pins"][aria-pressed="false"]')
+    await session.page.keyboard.press('p')
+    expect(await pin()).not.toBeNull()
+    await panel.waitForSelector('[data-testid="toggle-pins"][aria-pressed="true"]')
+  })
+
   it('hides and shows all pins from the panel', async () => {
     await mark('#head', 1)
     expect(await pin()).not.toBeNull()

@@ -1,5 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import {
+  linesOf,
+  outlineBox,
   clippersOf,
   type LiveAnchor,
   pinPosition,
@@ -277,5 +279,89 @@ describe('pinPositions', () => {
       { id: 'b', rect: same, bounds: null },
     ])
     expect(pins).toEqual([])
+  })
+})
+
+describe('outlineBox', () => {
+  const viewport: Rect = { x: 0, y: 0, width: 1000, height: 800 }
+  const all = { top: true, right: true, bottom: true, left: true }
+
+  it('draws its line just outside a target that is fully visible', () => {
+    expect(outlineBox({ x: 100, y: 50, width: 200, height: 40 }, viewport)).toEqual({
+      x: 98,
+      y: 48,
+      width: 204,
+      height: 44,
+      sides: all,
+    })
+  })
+
+  it('leaves the line off where a scroll container cuts the target', () => {
+    const box = { x: 40, y: 200, width: 300, height: 120 }
+    // Half scrolled out at the top of the box.
+    expect(outlineBox({ x: 41, y: 180, width: 298, height: 40 }, box)).toEqual({
+      x: 39,
+      y: 200,
+      width: 302,
+      height: 22,
+      sides: { ...all, top: false },
+    })
+    // Wider than the box on both sides.
+    expect(outlineBox({ x: 0, y: 250, width: 500, height: 20 }, box)?.sides).toEqual({
+      top: true,
+      right: false,
+      bottom: true,
+      left: false,
+    })
+  })
+
+  it('is null for a target that is out of sight or has no box', () => {
+    expect(outlineBox({ x: 10, y: 900, width: 50, height: 50 }, viewport)).toBeNull()
+    expect(outlineBox({ x: 10, y: 10, width: 0, height: 50 }, viewport)).toBeNull()
+  })
+})
+
+describe('linesOf', () => {
+  const rect = (x: number, y: number, width: number, height: number) =>
+    ({ x, y, width, height, top: y, bottom: y + height, left: x, right: x + width }) as DOMRect
+  const range = (rects: DOMRect[]) => ({ getClientRects: () => rects }) as unknown as Range
+
+  it('measures a text once: its box for the pin, its lines on screen for the marking', () => {
+    const measured = linesOf(
+      range([rect(10, -40, 100, 20), rect(10, 100, 300, 20), rect(10, 120, 0, 20)]),
+      800,
+    )
+    // As Range.getBoundingClientRect(): only a rect without width and height is left out.
+    expect(measured.rect).toEqual({ x: 10, y: -40, width: 300, height: 180 })
+    expect(measured.lines).toEqual([{ x: 10, y: 100, width: 300, height: 20 }])
+  })
+
+  it('joins the pieces of one line, one per text node, into one box', () => {
+    // <span>word</span> <span>word</span>: a rect per span and per space between them.
+    const pieces = [
+      rect(10, 100, 40, 20),
+      rect(50, 100, 4, 20),
+      rect(54, 100, 40, 20),
+      rect(10, 120, 60, 20),
+      rect(70, 120.5, 30, 19),
+    ]
+    expect(linesOf(range(pieces), 800).lines).toEqual([
+      { x: 10, y: 100, width: 84, height: 20 },
+      { x: 10, y: 120, width: 90, height: 20 },
+    ])
+  })
+
+  it('keeps pieces apart that are not next to each other', () => {
+    const apart = [rect(10, 100, 40, 20), rect(80, 100, 40, 20), rect(10, 160, 40, 20)]
+    expect(linesOf(range(apart), 800).lines).toHaveLength(3)
+  })
+
+  it('keeps at most 50 lines and has no box without any', () => {
+    const many = Array.from({ length: 80 }, (_, i) => rect(0, i * 10, 50, 10))
+    expect(linesOf(range(many), 10000).lines).toHaveLength(50)
+    expect(linesOf(range([]), 800)).toEqual({
+      rect: { x: 0, y: 0, width: 0, height: 0 },
+      lines: [],
+    })
   })
 })

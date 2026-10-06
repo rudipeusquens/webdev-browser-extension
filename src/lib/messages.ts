@@ -43,8 +43,11 @@ export type SiteMessage =
 /** Side panel → background: open a page of the collection in a tab (Go to). */
 export type GoToMessage = { type: 'tab:go'; tabId: number; pageKey: string }
 
+/** Overlay → background: it could not start; the error itself stays in the page's console. */
+export type FailedMessage = { type: 'overlay:failed' }
+
 export type BackgroundMessage =
-  CollectionMessage | OriginMessage | AnchorMessage | SiteMessage | GoToMessage
+  CollectionMessage | OriginMessage | AnchorMessage | SiteMessage | GoToMessage | FailedMessage
 
 /** Most ids one `anchors:report` lists in each of its lists. */
 const MAX_REPORTED = 1000
@@ -63,8 +66,25 @@ export type OverlayMessage =
   | { type: 'overlay:reveal'; id: string }
   | { type: 'overlay:set-pins'; visible: boolean }
 
-/** Overlay → side panel: something the panel shows has changed; ask again. */
-export type PanelMessage = { type: 'overlay:changed' }
+/**
+ * Overlay → side panel: something the panel shows has changed; ask again. It names the overlay,
+ * so the panel keeps a line to it even on a tab it does not show.
+ */
+export type PanelMessage = { type: 'overlay:changed'; instance: string }
+
+/**
+ * Background → side panel: the toolbar icon or its shortcut was used on this tab. An open panel
+ * of that window whose page is active there closes itself and says so (spec section 8).
+ */
+export type PanelToggle = { type: 'panel:toggle'; windowId: number; tabId: number }
+export type PanelToggleReply = { closing: boolean }
+
+/**
+ * Side panel → overlay, on the line it keeps open to every overlay it showed: it moved to
+ * another tab. The overlay drops the panel's highlight and keeps its mode; the line goes only
+ * when the panel closes (or a new overlay replaces this one).
+ */
+export type PanelAway = { type: 'panel:away' }
 
 export type Message = BackgroundMessage | OverlayMessage | PanelMessage
 
@@ -103,6 +123,7 @@ export function isBackgroundMessage(x: unknown): x is BackgroundMessage {
     case 'annotation:remove':
       return hasKeys(x, ['type', 'id']) && isAnnotationId(x.id)
     case 'collection:clear':
+    case 'overlay:failed':
       return hasKeys(x, ['type'])
     case 'tab:go':
       return (
@@ -153,7 +174,26 @@ export function isOverlayMessage(x: unknown): x is OverlayMessage {
 }
 
 export function isPanelMessage(x: unknown): x is PanelMessage {
-  return hasKeys(x, ['type']) && x.type === 'overlay:changed'
+  return (
+    hasKeys(x, ['type', 'instance']) && x.type === 'overlay:changed' && isAnnotationId(x.instance)
+  )
+}
+
+export function isPanelToggle(x: unknown): x is PanelToggle {
+  return (
+    hasKeys(x, ['type', 'windowId', 'tabId']) &&
+    x.type === 'panel:toggle' &&
+    Number.isInteger(x.windowId) &&
+    Number.isInteger(x.tabId)
+  )
+}
+
+export function isPanelToggleReply(x: unknown): x is PanelToggleReply {
+  return hasKeys(x, ['closing']) && typeof x.closing === 'boolean'
+}
+
+export function isPanelAway(x: unknown): x is PanelAway {
+  return hasKeys(x, ['type']) && x.type === 'panel:away'
 }
 
 export function isMessage(x: unknown): x is Message {

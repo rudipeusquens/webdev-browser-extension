@@ -20,8 +20,10 @@ import { truncate } from '@/lib/text'
 import {
   type BackgroundMessage,
   isOverlayMessage,
+  isPanelAway,
   type Mode,
   type OverlayStatus,
+  type PanelMessage,
   type Reply,
 } from '@/lib/messages'
 import { createAnchorStatus } from './anchor-status'
@@ -36,6 +38,8 @@ import {
   clippersOf,
   isLiveRange,
   type LiveAnchor,
+  linesOf,
+  outlineBox,
   pinPositions,
   placeItems,
   pruneLive,
@@ -46,6 +50,7 @@ import { rectBetween } from './place'
 import SelectionChip from './SelectionChip.vue'
 import TextHighlight from './TextHighlight.vue'
 import { usePage } from './use-page'
+import { createTextMarks, pageSurface } from './text-marks'
 import { useTracking } from './use-tracking'
 
 const props = defineProps<{ host: HTMLElement; layer: Layer }>()
@@ -90,12 +95,15 @@ interface Draft {
   edit?: { id: string; number: number; comment: string }
 }
 
+// This overlay, for the panel: a second toolbar click starts a new one on the same tab.
+const instance = newId()
 const mode = ref<Mode>('browse')
 const path = shallowRef<TargetPath | null>(null)
 const hovered = shallowRef<Element | null>(null)
 const draft = shallowRef<Draft | null>(null)
 const highlighted = ref<string | null>(null)
-// The panel can hide the pins, until it shows them again or the overlay restarts.
+// The panel or the P key can hide the pins, until they show them again or the overlay
+// restarts.
 const pinsShown = ref(true)
 // The page's selection the Comment chip offers to comment on (browse mode), and the
 // character the chip sits under.
@@ -163,9 +171,15 @@ const hoverLabel = computed(() =>
     : '',
 )
 const dragRect = computed(() => drag.value && rectBetween(drag.value.from, drag.value.to))
+// A selected text is measured once per frame, before anything is written: box and lines.
+const draftText = computed(() => {
+  void frame.value
+  const range = draft.value?.range
+  return range ? linesOf(range, window.innerHeight) : null
+})
 const draftRect = computed(() => {
   void frame.value
-  return draft.value?.rect() ?? null
+  return draftText.value?.rect ?? draft.value?.rect() ?? null
 })
 const chipLine = computed(() => {
   void frame.value
@@ -193,23 +207,61 @@ const clippers = computed(() => {
   }
   return found
 })
-const pins = computed(() => {
+// The pin whose outline is drawn stronger: the pointer rests on it.
+const hoveredPin = ref<string | null>(null)
+/** The page's placed items while pins are shown, with where each can be seen, now. */
+const shown = computed(() => {
   void frame.value
   if (!pinsShown.value) return []
   const viewport = { x: 0, y: 0, width: window.innerWidth, height: window.innerHeight }
-  const numbers = new Map(pageItems.value.map((item) => [item.id, item.number]))
-  const onPage = pageItems.value.flatMap((item) => {
+  return pageItems.value.flatMap((item) => {
     const placement = placements.value.get(item.id)
     if (!placement) return []
     const bounds = visibleBounds(clippers.value.get(item.id) ?? [], viewport)
-    return [{ id: item.id, rect: placement.rect(), bounds }]
+    return [{ item, rect: placement.rect(), bounds }]
   })
+})
+const pins = computed(() => {
+  const numbers = new Map(pageItems.value.map((item) => [item.id, item.number]))
+  const onPage = shown.value.map(({ item, rect, bounds }) => ({ id: item.id, rect, bounds }))
   return pinPositions(onPage).map(({ id, x, y }) => ({
     id,
     number: numbers.get(id),
     left: `${x}px`,
     top: `${y}px`,
   }))
+})
+// A pin that goes away under the pointer (hidden, scrolled out of its box) gets no mouseleave.
+watch(pins, (current) => {
+  if (hoveredPin.value && !current.some((pin) => pin.id === hoveredPin.value)) {
+    hoveredPin.value = null
+  }
+})
+
+/**
+ * The line around each pinned element or area. Texts are shaded by the browser instead
+ * (text-marks.ts). The item being edited has the popover's own marking.
+ */
+const outlines = computed(() => {
+  const editing = draft.value?.edit?.id
+  return shown.value.flatMap(({ item, rect, bounds }) => {
+    if (item.id === editing || !bounds || item.target.kind === 'text') return []
+    const strong = item.id === hoveredPin.value
+    const box = outlineBox(rect, bounds)
+    if (!box) return []
+    const side = (on: boolean) => (on ? '2px' : '0')
+    // Moved by its transform: scrolling does not make the browser draw the line again.
+    const style = {
+      transform: `translate(${box.x}px, ${box.y}px)`,
+      width: `${box.width}px`,
+      height: `${box.height}px`,
+      borderTopWidth: side(box.sides.top),
+      borderRightWidth: side(box.sides.right),
+      borderBottomWidth: side(box.sides.bottom),
+      borderLeftWidth: side(box.sides.left),
+    }
+    return [{ id: item.id, strong, dashed: item.target.kind === 'area', style }]
+  })
 })
 const highlight = computed(() => {
   void frame.value
@@ -220,6 +272,28 @@ const highlight = computed(() => {
   if (!item || !rect || rect.width === 0 || rect.height === 0) return null
   return { rect, label: `Item ${item.number}` }
 })
+
+// Pinned texts are shaded by the browser: set again when what is pinned, hovered or edited
+// changes (a text found again changes the placements), never while the page scrolls.
+const textMarks = createTextMarks(pageSurface(document))
+watch(
+  [placements, pinsShown, hoveredPin, () => draft.value?.edit?.id],
+  () => {
+    const normal: Range[] = []
+    const strong: Range[] = []
+    const editing = draft.value?.edit?.id
+    if (pinsShown.value) {
+      for (const item of pageItems.value) {
+        const range = placements.value.get(item.id)?.range
+        // A text not found again has its pin at its container, and no shading.
+        if (!range || item.id === editing) continue
+        ;(item.id === hoveredPin.value ? strong : normal).push(range)
+      }
+    }
+    textMarks.set(normal, strong)
+  },
+  { immediate: true },
+)
 
 watch(collection, (current) => pruneLive(live, current.items))
 
@@ -271,7 +345,16 @@ watch(page, () => {
 })
 
 function notifyPanel() {
-  browser.runtime.sendMessage({ type: 'overlay:changed' }).catch(() => undefined)
+  const changed: PanelMessage = { type: 'overlay:changed', instance }
+  browser.runtime.sendMessage(changed).catch(() => undefined)
+}
+
+function showPins(visible: boolean) {
+  if (pinsShown.value === visible) return
+  pinsShown.value = visible
+  // A pin that goes away under the pointer gets no mouseleave.
+  hoveredPin.value = null
+  notifyPanel()
 }
 
 function hover(el: Element | null) {
@@ -608,13 +691,12 @@ function onKeydown(e: KeyboardEvent) {
   e.stopImmediatePropagation()
   const walk = path.value
   if (typeof action === 'object') setMode(action.mode)
+  else if (action === 'pins') showPins(!pinsShown.value)
   else if (action === 'cancel') cancel()
   else if (walk && action === 'up') hovered.value = walk.up()
   else if (walk && action === 'down') hovered.value = walk.down()
   else if (walk && action === 'select') select(walk.current)
 }
-
-const instance = newId()
 
 const status = (): OverlayStatus => ({
   instance,
@@ -639,7 +721,7 @@ const onMessage: Parameters<typeof browser.runtime.onMessage.addListener>[0] = (
       sendResponse({ ok: true } satisfies Reply)
       return
     case 'overlay:set-pins':
-      pinsShown.value = message.visible
+      showPins(message.visible)
       sendResponse({ ok: true } satisfies Reply)
       return
     case 'overlay:highlight':
@@ -656,11 +738,19 @@ const onMessage: Parameters<typeof browser.runtime.onMessage.addListener>[0] = (
   }
 }
 
-/** The panel keeps a line open while it shows this tab; its highlight goes with it. */
+/**
+ * The panel keeps a line open to every overlay it has shown. When it moves to another tab, its
+ * highlight goes; when it closes, the line goes and the page is left to work normally (spec
+ * section 8).
+ */
 const onConnect: Parameters<typeof browser.runtime.onConnect.addListener>[0] = (port) => {
   if (port.name !== 'panel' || port.sender?.id !== browser.runtime.id) return
+  port.onMessage.addListener((message) => {
+    if (isPanelAway(message)) highlighted.value = null
+  })
   port.onDisconnect.addListener(() => {
     highlighted.value = null
+    setMode('browse')
   })
 }
 
@@ -677,6 +767,7 @@ onMounted(() => {
 })
 
 onBeforeUnmount(() => {
+  textMarks.stop()
   clearTimeout(hoverTimer)
   clearTimeout(reanchorTimer)
   anchors.stop()
@@ -705,6 +796,18 @@ onBeforeUnmount(() => {
       @wheel="onWheel"
       @contextmenu.prevent
     />
+    <template v-for="outline in outlines" :key="outline.id">
+      <div
+        data-testid="overlay-outline"
+        :data-strong="outline.strong"
+        class="pointer-events-none fixed top-0 left-0 z-[2147483647] rounded-[3px] will-change-transform"
+        :class="[
+          outline.dashed ? 'border-dashed' : 'border-solid',
+          outline.strong ? 'border-blue-600' : 'border-blue-600/70',
+        ]"
+        :style="outline.style"
+      />
+    </template>
     <HoverBox v-if="hoverRect" :rect="hoverRect" :label="hoverLabel" />
     <HoverBox
       v-if="highlight && !draft"
@@ -720,11 +823,13 @@ onBeforeUnmount(() => {
       class="fixed z-[2147483647] flex size-5 items-center justify-center rounded-full bg-blue-600 text-xs leading-none font-semibold text-white shadow-md ring-2 ring-white"
       :style="{ left: pin.left, top: pin.top }"
       :aria-label="`Edit item ${pin.number}`"
+      @mouseenter="hoveredPin = pin.id"
+      @mouseleave="hoveredPin = null"
       @click="onPinClick($event, pin.id)"
     >
       {{ pin.number }}
     </button>
-    <TextHighlight v-if="draft?.range" :range="draft.range" :frame="frame" />
+    <TextHighlight v-if="draftText" :boxes="draftText.lines" />
     <HoverBox
       v-else-if="draftRect"
       :rect="draftRect"

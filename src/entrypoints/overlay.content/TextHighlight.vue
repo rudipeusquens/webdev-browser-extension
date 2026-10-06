@@ -1,37 +1,38 @@
 <script setup lang="ts">
 import { computed } from 'vue'
+import type { Rect } from '@/lib/collection/model'
 
+// The lines of the text being commented, measured beforehand (pins.ts, linesOf): measuring
+// here, while the overlay is being written, would force a layout on every frame. Saved texts
+// are shaded by the browser instead (text-marks.ts).
 const props = defineProps<{
-  range: Range
-  /** Changes whenever positions may have changed (see use-tracking.ts). */
-  frame?: number
+  /** The lines to shade, in viewport coordinates. */
+  boxes: Rect[]
 }>()
 
-// A selection over a whole page has thousands of lines; the ones on screen are enough.
-const MAX_BOXES = 50
-
-const boxes = computed(() => {
-  void props.frame
-  const height = window.innerHeight
-  return [...props.range.getClientRects()]
-    .filter((r) => r.width > 0 && r.height > 0 && r.bottom > 0 && r.top < height)
-    .slice(0, MAX_BOXES)
-    .map((r) => ({
-      left: `${r.x}px`,
-      top: `${r.y}px`,
-      width: `${r.width}px`,
-      height: `${r.height}px`,
-    }))
-})
+// The lines move as one: when the page scrolls, only the block's transform changes and the
+// lines inside keep their places, so the browser moves them without drawing them again.
+const origin = computed(() => ({
+  x: Math.min(...props.boxes.map((b) => b.x)),
+  y: Math.min(...props.boxes.map((b) => b.y)),
+}))
+const lines = computed(() =>
+  props.boxes.map((b) => ({
+    left: `${b.x - origin.value.x}px`,
+    top: `${b.y - origin.value.y}px`,
+    width: `${b.width}px`,
+    height: `${b.height}px`,
+  })),
+)
 </script>
 
 <template>
-  <div data-testid="overlay-text-highlight">
-    <div
-      v-for="(box, i) in boxes"
-      :key="i"
-      class="pointer-events-none fixed z-[2147483647] bg-blue-600/25"
-      :style="box"
-    />
+  <div
+    v-if="boxes.length"
+    data-testid="overlay-text-highlight"
+    class="pointer-events-none fixed top-0 left-0 z-[2147483647] will-change-transform"
+    :style="{ transform: `translate(${origin.x}px, ${origin.y}px)` }"
+  >
+    <div v-for="(line, i) in lines" :key="i" class="absolute bg-blue-600/25" :style="line" />
   </div>
 </template>

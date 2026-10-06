@@ -1,5 +1,12 @@
 import { describe, expect, it } from 'vitest'
-import { isBackgroundMessage, isMessage, isOverlayMessage, isOverlayStatus } from '@/lib/messages'
+import {
+  isBackgroundMessage,
+  isMessage,
+  isOverlayMessage,
+  isOverlayStatus,
+  isPanelToggle,
+  isPanelToggleReply,
+} from '@/lib/messages'
 import { page, snapshot } from './helpers/collection'
 
 const add = {
@@ -26,7 +33,8 @@ describe('isMessage', () => {
     { type: 'site:remember', origin: 'http://localhost:3000' },
     { type: 'site:forget', origin: 'https://example.com' },
     { type: 'tab:go', tabId: 4, pageKey: 'http://localhost:3000/settings' },
-    { type: 'overlay:changed' },
+    { type: 'overlay:changed', instance: 'one' },
+    { type: 'overlay:failed' },
     { type: 'origin:read', selectors: ['#save'] },
     { type: 'anchors:report', pageKey: 'http://localhost:3000/', found: ['a1'], missing: [] },
     { type: 'anchors:report', pageKey: 'http://localhost:3000/', found: [], missing: ['a1', 'b2'] },
@@ -51,6 +59,10 @@ describe('isMessage', () => {
     ['an invalid target', { ...add, target: { kind: 'element', element: { selector: 'x' } } }],
     ['an invalid page', { ...add, page: page('chrome://settings/') }],
     ['an extra key', { type: 'collection:clear', all: true }],
+    ['a change without the overlay instance', { type: 'overlay:changed' }],
+    ['a change with an invalid instance', { type: 'overlay:changed', instance: 'a b' }],
+    // The error stays on the page: its text may hold page content.
+    ['a failure with its error', { type: 'overlay:failed', error: 'TypeError: x' }],
     ['no selectors', { type: 'origin:read', selectors: [] }],
     ['12 selectors', { type: 'origin:read', selectors: Array.from({ length: 12 }, () => 'b') }],
     ['a selector that is not a string', { type: 'origin:read', selectors: [42] }],
@@ -90,6 +102,7 @@ describe('message groups', () => {
     expect(isBackgroundMessage({ type: 'overlay:status' })).toBe(false)
     expect(isOverlayMessage({ type: 'overlay:status' })).toBe(true)
     expect(isOverlayMessage({ type: 'overlay:changed' })).toBe(false)
+    expect(isBackgroundMessage({ type: 'overlay:failed' })).toBe(true)
   })
 })
 
@@ -109,5 +122,29 @@ describe('isOverlayStatus', () => {
     expect(isOverlayStatus({ ...status, mode: 'x' })).toBe(false)
     expect(isOverlayStatus({ ...status, host: 'x'.repeat(300) })).toBe(false)
     expect(isOverlayStatus(undefined)).toBe(false)
+  })
+})
+
+describe('the toolbar toggle', () => {
+  it('checks the request to an open panel', () => {
+    expect(isPanelToggle({ type: 'panel:toggle', windowId: 7, tabId: 1 })).toBe(true)
+    for (const bad of [
+      { type: 'panel:toggle', windowId: '7', tabId: 1 },
+      { type: 'panel:toggle', windowId: 7, tabId: 1.5 },
+      { type: 'panel:toggle', windowId: 7 },
+      { type: 'panel:toggle', windowId: 7, tabId: 1, extra: true },
+      { type: 'overlay:changed' },
+      null,
+    ]) {
+      expect(isPanelToggle(bad), JSON.stringify(bad)).toBe(false)
+    }
+  })
+
+  it('checks the answer of the panel', () => {
+    expect(isPanelToggleReply({ closing: true })).toBe(true)
+    expect(isPanelToggleReply({ closing: false })).toBe(true)
+    for (const bad of [{ closing: 'yes' }, { closing: true, extra: 1 }, {}, undefined]) {
+      expect(isPanelToggleReply(bad)).toBe(false)
+    }
   })
 })

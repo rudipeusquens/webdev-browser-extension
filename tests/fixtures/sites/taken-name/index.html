@@ -1,0 +1,19 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <title>Taken name fixture</title>
+  </head>
+  <body>
+    <h1>A page that takes the overlay's element name</h1>
+    <script>
+      // An element of the overlay's name that refuses a shadow root: the overlay cannot start.
+      customElements.define(
+        'webdev-overlay',
+        class extends HTMLElement {
+          static disabledFeatures = ['shadow']
+        },
+      )
+    </script>
+  </body>
+</html>

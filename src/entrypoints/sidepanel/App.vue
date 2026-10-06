@@ -8,8 +8,8 @@ import {
   SquareDashedIcon,
   SquareMousePointerIcon,
 } from '@lucide/vue'
-import { computed, onBeforeUnmount, ref, watch } from 'vue'
-import { browser, type Browser } from 'wxt/browser'
+import { computed, ref, watch } from 'vue'
+import { browser } from 'wxt/browser'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Toggle } from '@/components/ui/toggle'
@@ -30,12 +30,15 @@ import ItemList from './ItemList.vue'
 import SettingsView from './SettingsView.vue'
 import { useActiveTab } from './use-active-tab'
 import { useMissing } from './use-missing'
+import { useOverlayLines } from './use-overlay-lines'
+import { usePanelToggle } from './use-panel-toggle'
 import { useSettings } from './use-settings'
 import { useShortcut } from './use-shortcut'
 import { useCollection } from '@/composables/use-collection'
 
 const { collection } = useCollection()
-const { tabId, status, refresh } = useActiveTab()
+const { tabId, windowId, status, refresh } = useActiveTab()
+usePanelToggle(windowId)
 const { missing } = useMissing()
 const { settings } = useSettings()
 const { shortcut } = useShortcut()
@@ -68,6 +71,8 @@ const statusText = computed(() => {
       return `Active on ${status.value.host}`
     case 'blocked':
       return "Can't run on this page"
+    case 'failed':
+      return "Couldn't start on this page. Reload it and try again; the page's console has details."
     default: {
       const press = shortcut.value ? `, press ${shortcut.value}` : ''
       return `Not active on this page. Click the toolbar icon${press} or right-click the page and choose "Annotate this page".`
@@ -132,27 +137,7 @@ function goTo(pageKey: string) {
   toBackground({ type: 'tab:go', tabId: tabId.value, pageKey })
 }
 
-// A line to the overlay of the active tab: when the panel closes or another tab becomes
-// active, the overlay sees it go and drops what the panel had highlighted.
-let port: Browser.runtime.Port | undefined
-watch(
-  () =>
-    status.value.kind === 'active' && tabId.value !== undefined
-      ? { tab: tabId.value, overlay: status.value.instance }
-      : undefined,
-  (next, previous) => {
-    if (next?.tab === previous?.tab && next?.overlay === previous?.overlay) return
-    port?.disconnect()
-    port = undefined
-    if (!next) return
-    try {
-      port = browser.tabs.connect(next.tab, { name: 'panel' })
-    } catch {
-      // The overlay is gone again: the next status says so.
-    }
-  },
-)
-onBeforeUnmount(() => port?.disconnect())
+useOverlayLines(tabId, status)
 
 function setPins(visible: boolean) {
   toOverlay({ type: 'overlay:set-pins', visible })
@@ -190,7 +175,7 @@ function setMode(next: unknown) {
           class="mt-1 size-2 shrink-0 rounded-full"
           :class="{
             'bg-green-500': status.kind === 'active',
-            'bg-red-500': status.kind === 'blocked',
+            'bg-red-500': status.kind === 'blocked' || status.kind === 'failed',
             'bg-muted-foreground/40': status.kind === 'idle',
           }"
         />
@@ -247,7 +232,7 @@ function setMode(next: unknown) {
           :model-value="pinsShown"
           :disabled="status.kind !== 'active'"
           :aria-label="pinsShown ? 'Hide pins' : 'Show pins'"
-          :title="pinsShown ? 'Hide pins on the page' : 'Show pins on the page'"
+          :title="pinsShown ? 'Hide pins on the page (P)' : 'Show pins on the page (P)'"
           @update:model-value="setPins"
         >
           <MapPinIcon v-if="pinsShown" />
@@ -256,11 +241,13 @@ function setMode(next: unknown) {
         </Toggle>
         <p
           v-if="status.kind === 'active'"
+          data-testid="page-keys"
           class="flex items-center gap-1 text-xs text-muted-foreground"
-          title="On the page: E for element mode, A for area mode, Esc for browse mode"
+          title="On the page: E for element mode, A for area mode, P to show or hide the pins, Esc for browse mode"
         >
           <kbd class="rounded border bg-muted px-1 font-mono">E</kbd>
           <kbd class="rounded border bg-muted px-1 font-mono">A</kbd>
+          <kbd class="rounded border bg-muted px-1 font-mono">P</kbd>
           <kbd class="rounded border bg-muted px-1 font-mono">Esc</kbd>
         </p>
       </div>

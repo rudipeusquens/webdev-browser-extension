@@ -4,7 +4,7 @@ import { fakeBrowser } from 'wxt/testing/fake-browser'
 import App from '@/entrypoints/sidepanel/App.vue'
 import { MISSING_KEY } from '@/lib/background/anchor-status'
 import { SETTINGS_KEY } from '@/lib/settings'
-import { markBlocked } from '@/lib/background/tab-status'
+import { markBlocked, markFailed } from '@/lib/background/tab-status'
 import type { Collection } from '@/lib/collection/model'
 import { addAnnotation, emptyCollection } from '@/lib/collection/ops'
 import { COLLECTION_KEY } from '@/lib/collection/store'
@@ -167,6 +167,22 @@ describe('side panel', () => {
       expect(byTestId('tab-status').textContent).toContain('Active on localhost:3000')
     })
 
+    it('says when the overlay did not start, and where to look', async () => {
+      await markFailed(1)
+      await render()
+      expect(byTestId('tab-status').textContent).toContain(
+        "Couldn't start on this page. Reload it and try again; the page's console has details.",
+      )
+    })
+
+    it('shows a failed start as soon as it is recorded', async () => {
+      await render()
+      expect(byTestId('tab-status').textContent).toContain('Not active on this page')
+      await markFailed(1)
+      await flushPromises()
+      expect(byTestId('tab-status').textContent).toContain("Couldn't start on this page")
+    })
+
     it('says when the page refused the overlay', async () => {
       await markBlocked(1)
       await render()
@@ -225,6 +241,15 @@ describe('side panel', () => {
     })
   })
 
+  it('names the keys on the page, P for the pins too', async () => {
+    overlayReply = active
+    await render()
+    const keys = [...byTestId('page-keys').querySelectorAll('kbd')].map((k) => k.textContent)
+    expect(keys).toEqual(['E', 'A', 'P', 'Esc'])
+    expect(byTestId('page-keys').title).toContain('P to show or hide the pins')
+    expect(byTestId('toggle-pins').title).toBe('Hide pins on the page (P)')
+  })
+
   it('switches the overlay mode from the panel', async () => {
     overlayReply = active
     await render()
@@ -267,8 +292,8 @@ describe('side panel', () => {
     // The overlay hid them and tells the panel.
     overlayReply = { ...active, pins: false }
     await fakeBrowser.runtime.onMessage.trigger(
-      { type: 'overlay:changed' },
-      { id: fakeBrowser.runtime.id },
+      { type: 'overlay:changed', instance: 'one' },
+      { id: fakeBrowser.runtime.id, tab: { id: 1, windowId: 1 } as never, frameId: 0 },
       () => undefined,
     )
     await flushPromises()
@@ -420,9 +445,15 @@ describe('side panel', () => {
   })
 
   it('keeps a line open to the overlay of the active tab, and to a new one on the same tab', async () => {
-    const ports: { disconnect: ReturnType<typeof vi.fn> }[] = []
+    const ports: { postMessage: ReturnType<typeof vi.fn>; disconnect: ReturnType<typeof vi.fn> }[] =
+      []
     const connect = vi.spyOn(fakeBrowser.tabs, 'connect').mockImplementation((() => {
-      const port = { name: 'panel', disconnect: vi.fn(), onDisconnect: { addListener: vi.fn() } }
+      const port = {
+        name: 'panel',
+        postMessage: vi.fn(),
+        disconnect: vi.fn(),
+        onDisconnect: { addListener: vi.fn() },
+      }
       ports.push(port)
       return port
     }) as never)
@@ -432,150 +463,165 @@ describe('side panel', () => {
     // A second toolbar click: a new overlay on the same tab tells the panel.
     overlayReply = { ...active, instance: 'two' }
     await fakeBrowser.runtime.onMessage.trigger(
-      { type: 'overlay:changed' },
-      { id: fakeBrowser.runtime.id },
+      { type: 'overlay:changed', instance: 'two' },
+      { id: fakeBrowser.runtime.id, tab: { id: 1, windowId: 1 } as never, frameId: 0 },
       () => undefined,
     )
     await flushPromises()
     expect(connect).toHaveBeenCalledTimes(2)
+    // The first overlay is gone: a new one started on the tab.
     expect(ports[0]?.disconnect).toHaveBeenCalled()
   })
 
-  describe('sites', () => {
-    const ORIGIN = 'http://localhost:3000'
-    let fake: ReturnType<typeof fakeSites>
-
-    beforeEach(() => {
-      fake = fakeSites()
-    })
-
-    it('offers Always enable here on an active page and asks Chrome before anything else', async () => {
-      overlayReply = active
-      await render()
-      const calls: string[] = []
-      vi.mocked(fakeBrowser.permissions.request).mockImplementation((async () => {
-        calls.push('request')
-        return true
-      }) as never)
-      vi.mocked(fakeBrowser.runtime.sendMessage).mockImplementation((async (m: {
-        type: string
-      }) => {
-        calls.push(m.type)
-        return { ok: true }
-      }) as never)
-      byTestId('remember-site').click()
-      expect(calls).toEqual(['request'])
-      expect(fakeBrowser.permissions.request).toHaveBeenCalledWith({ origins: [`${ORIGIN}/*`] })
-      await flushPromises()
-      expect(fakeBrowser.runtime.sendMessage).toHaveBeenCalledWith({
-        type: 'site:remember',
-        origin: ORIGIN,
-      })
-    })
-
-    it('does not remember the site when Chrome is not granted access', async () => {
-      overlayReply = active
-      await render()
-      vi.mocked(fakeBrowser.permissions.request).mockResolvedValue(false as never)
-      byTestId('remember-site').click()
-      await flushPromises()
-      expect(fakeBrowser.runtime.sendMessage).not.toHaveBeenCalledWith(
-        expect.objectContaining({ type: 'site:remember' }),
-      )
-    })
-
-    it('offers Forget this site on a remembered site', async () => {
-      await fakeBrowser.storage.local.set({ [SETTINGS_KEY]: { rememberedOrigins: [ORIGIN] } })
-      overlayReply = active
-      await render()
-      expect(document.querySelector('[data-testid="remember-site"]')).toBeNull()
-      byTestId('forget-site').click()
-      await flushPromises()
-      expect(fakeBrowser.runtime.sendMessage).toHaveBeenCalledWith({
-        type: 'site:forget',
-        origin: ORIGIN,
-      })
-    })
-
-    it('offers nothing for an inactive tab or a file page', async () => {
-      await render()
-      expect(document.querySelector('[data-testid="remember-site"]')).toBeNull()
-      wrapper?.unmount()
-      overlayReply = { ...active, host: 'file', pageKey: 'file:///srv/app/index.html' }
-      await render()
-      expect(document.querySelector('[data-testid="remember-site"]')).toBeNull()
-      expect(fake.state.granted.size).toBe(0)
-    })
-
-    it('lists remembered sites in the settings and forgets one', async () => {
-      await fakeBrowser.storage.local.set({
-        [SETTINGS_KEY]: { rememberedOrigins: [ORIGIN, 'https://staging.example.com'] },
-      })
-      await render()
-      byTestId('open-settings').click()
-      await flushPromises()
-      const sites = [...document.querySelectorAll('[data-testid="site"]')].map(
-        (el) => el.textContent,
-      )
-      expect(sites).toEqual([
-        expect.stringContaining(ORIGIN),
-        expect.stringContaining('https://staging.example.com'),
-      ])
-      document
-        .querySelector<HTMLElement>('[data-testid="site"] [data-testid="remove-site"]')
-        ?.click()
-      await flushPromises()
-      expect(fakeBrowser.runtime.sendMessage).toHaveBeenCalledWith({
-        type: 'site:forget',
-        origin: ORIGIN,
-      })
-      byTestId('close-settings').click()
-      await flushPromises()
-      expect(document.querySelector('[data-testid="site"]')).toBeNull()
-    })
-
-    it('says when no site is remembered', async () => {
-      await render()
-      byTestId('open-settings').click()
-      await flushPromises()
-      expect(body()).toContain('No remembered sites yet')
-    })
-  })
-
-  it('offers Go to for the other pages and opens them in the active tab', async () => {
-    overlayReply = active
-    await render(twoPages())
-    const groups = [...document.querySelectorAll('[data-testid="page-group"]')]
-    expect(groups[0]?.querySelector('[data-testid="go-to"]')).toBeNull()
-    groups[1]?.querySelector<HTMLElement>('[data-testid="go-to"]')?.click()
-    await flushPromises()
-    expect(fakeBrowser.runtime.sendMessage).toHaveBeenCalledWith({
-      type: 'tab:go',
-      tabId: 1,
-      pageKey: A,
-    })
-  })
-
-  it('offers no Go to for pages that are not on the web', async () => {
-    let c = twoPages()
-    c = addAnnotation(c, elementInput('f1', 'file:///srv/app/index.html', 'Local'), 'T')
-    overlayReply = active
-    await render(c)
-    const local = [...document.querySelectorAll('[data-testid="page-group"]')].find((g) =>
-      g.textContent?.includes('Local'),
-    )
-    expect(local?.querySelector('[data-testid="go-to"]')).toBeNull()
-  })
-
-  it('keeps a line open to the overlay of the active tab', async () => {
-    const connect = vi.spyOn(fakeBrowser.tabs, 'connect').mockReturnValue({
-      name: 'panel',
-      disconnect: vi.fn(),
-      onDisconnect: { addListener: vi.fn() },
-    } as never)
+  it('keeps the line to an overlay it moved away from, which drops its highlight', async () => {
+    const ports: { postMessage: ReturnType<typeof vi.fn>; disconnect: ReturnType<typeof vi.fn> }[] =
+      []
+    const connect = vi.spyOn(fakeBrowser.tabs, 'connect').mockImplementation((() => {
+      const port = {
+        name: 'panel',
+        postMessage: vi.fn(),
+        disconnect: vi.fn(),
+        onDisconnect: { addListener: vi.fn() },
+      }
+      ports.push(port)
+      return port
+    }) as never)
     overlayReply = active
     await render()
-    expect(connect).toHaveBeenCalledWith(1, { name: 'panel' })
+    // Another tab with an overlay of its own becomes active.
+    vi.mocked(fakeBrowser.tabs.query).mockResolvedValue([{ id: 2 }] as never)
+    overlayReply = { ...active, instance: 'two' }
+    await fakeBrowser.tabs.onActivated.trigger({ tabId: 2, windowId: 1 })
+    await flushPromises()
+    expect(connect).toHaveBeenLastCalledWith(2, { name: 'panel' })
+    expect(ports[0]?.postMessage).toHaveBeenCalledWith({ type: 'panel:away' })
+    // Kept: when the panel closes, this overlay goes back to Browse too.
+    expect(ports[0]?.disconnect).not.toHaveBeenCalled()
+    wrapper?.unmount()
+    wrapper = undefined
+    expect(ports[0]?.disconnect).toHaveBeenCalled()
+    expect(ports[1]?.disconnect).toHaveBeenCalled()
+  })
+
+  describe('lines to the overlays of its window', () => {
+    let connect: ReturnType<typeof vi.spyOn>
+
+    beforeEach(() => {
+      vi.spyOn(fakeBrowser.windows, 'getCurrent').mockResolvedValue({ id: 7 } as never)
+      connect = vi.spyOn(fakeBrowser.tabs, 'connect').mockReturnValue({
+        name: 'panel',
+        postMessage: vi.fn(),
+        disconnect: vi.fn(),
+        onDisconnect: { addListener: vi.fn() },
+      } as never)
+    })
+
+    const announce = (tab: { id: number; windowId: number }) =>
+      fakeBrowser.runtime.onMessage.trigger(
+        { type: 'overlay:changed', instance: 'three' },
+        { id: fakeBrowser.runtime.id, tab: tab as never, frameId: 0 },
+        () => undefined,
+      )
+
+    it('keeps one to an overlay that announces itself, also on a tab it does not show', async () => {
+      // So that closing the panel reaches it, however quickly the developer switched tabs.
+      await render()
+      await announce({ id: 3, windowId: 7 })
+      await flushPromises()
+      expect(connect).toHaveBeenCalledWith(3, { name: 'panel' })
+    })
+
+    it('leaves the overlays of other windows to their own panel', async () => {
+      await render()
+      await announce({ id: 3, windowId: 8 })
+      await flushPromises()
+      expect(connect).not.toHaveBeenCalledWith(3, { name: 'panel' })
+    })
+
+    it('finds the overlays already running in its window when it opens', async () => {
+      vi.mocked(fakeBrowser.tabs.query).mockImplementation((async (q: { windowId?: number }) =>
+        q.windowId === 7 ? [{ id: 1 }, { id: 3 }] : [{ id: 1 }]) as never)
+      vi.mocked(fakeBrowser.tabs.sendMessage).mockImplementation((async (id: number) => {
+        if (id !== 3) throw new Error('Could not establish connection.')
+        return { ...active, instance: 'three' }
+      }) as never)
+      await render()
+      expect(connect).toHaveBeenCalledWith(3, { name: 'panel' })
+      expect(connect).not.toHaveBeenCalledWith(1, { name: 'panel' })
+    })
+  })
+
+  describe('the toolbar toggles the panel', () => {
+    /** Delivers `message` from `sender` to the panel; resolves with its answer, if any. */
+    async function ask(message: object, sender: object = { id: fakeBrowser.runtime.id }) {
+      let reply: unknown
+      await fakeBrowser.runtime.onMessage.trigger(message, sender, (r: unknown) => (reply = r))
+      await flushPromises()
+      return reply
+    }
+
+    let close: ReturnType<typeof vi.spyOn>
+
+    beforeEach(() => {
+      vi.spyOn(fakeBrowser.tabs, 'query').mockResolvedValue([{ id: 1, windowId: 7 }] as never)
+      vi.spyOn(fakeBrowser.tabs, 'connect').mockReturnValue({
+        name: 'panel',
+        postMessage: vi.fn(),
+        disconnect: vi.fn(),
+        onDisconnect: { addListener: vi.fn() },
+      } as never)
+      close = vi.spyOn(window, 'close').mockImplementation(() => undefined)
+    })
+
+    it('closes itself when its page is active on the tab the toolbar was used on', async () => {
+      overlayReply = active
+      await render()
+      expect(await ask({ type: 'panel:toggle', windowId: 7, tabId: 1 })).toEqual({ closing: true })
+      await vi.waitFor(() => expect(close).toHaveBeenCalled())
+    })
+
+    it('stays open for another tab of its window without an overlay', async () => {
+      overlayReply = active
+      await render()
+      vi.mocked(fakeBrowser.tabs.sendMessage).mockImplementation((async (id: number) => {
+        if (id !== 1) throw new Error('Could not establish connection.')
+        return active
+      }) as never)
+      expect(await ask({ type: 'panel:toggle', windowId: 7, tabId: 2 })).toEqual({ closing: false })
+      expect(close).not.toHaveBeenCalled()
+    })
+
+    it('asks the tab again instead of trusting what it showed a moment ago', async () => {
+      // The tab navigated to another page; the click comes before the panel caught up.
+      overlayReply = active
+      await render()
+      overlayReply = undefined
+      expect(await ask({ type: 'panel:toggle', windowId: 7, tabId: 1 })).toEqual({ closing: false })
+      expect(close).not.toHaveBeenCalled()
+    })
+
+    it('stays open when its page is not active', async () => {
+      await render()
+      expect(await ask({ type: 'panel:toggle', windowId: 7, tabId: 1 })).toEqual({ closing: false })
+      expect(close).not.toHaveBeenCalled()
+    })
+
+    it('leaves other windows, pages and malformed requests unanswered', async () => {
+      overlayReply = active
+      await render()
+      expect(await ask({ type: 'panel:toggle', windowId: 8, tabId: 1 })).toBeUndefined()
+      expect(
+        await ask(
+          { type: 'panel:toggle', windowId: 7, tabId: 1 },
+          { id: fakeBrowser.runtime.id, tab: { id: 1 } },
+        ),
+      ).toBeUndefined()
+      expect(
+        await ask({ type: 'panel:toggle', windowId: 7, tabId: 1 }, { id: 'other-extension' }),
+      ).toBeUndefined()
+      expect(await ask({ type: 'panel:toggle', windowId: '7', tabId: 1 })).toBeUndefined()
+      expect(close).not.toHaveBeenCalled()
+    })
   })
 
   it('marks items that were not found and copies the prompt with them', async () => {

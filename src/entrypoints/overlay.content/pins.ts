@@ -148,6 +148,90 @@ function intersect(a: Rect, b: Rect): Rect | null {
   return right > x && bottom > y ? { x, y, width: right - x, height: bottom - y } : null
 }
 
+/** Width of the line around a pinned target; it is drawn just outside the target. */
+const LINE = 2
+
+export interface OutlineBox extends Rect {
+  /** The sides with a line: none where a scroll container or the viewport cuts the target. */
+  sides: { top: boolean; right: boolean; bottom: boolean; left: boolean }
+}
+
+/**
+ * The outline of a pinned target: the visible part of `rect` inside `bounds`, grown by the
+ * line on the sides that are not cut off. Null when nothing of the target is visible there or
+ * the target has no box (not rendered).
+ */
+export function outlineBox(rect: Rect, bounds: Rect): OutlineBox | null {
+  if (rect.width === 0 || rect.height === 0) return null
+  const visible = intersect(rect, bounds)
+  if (!visible) return null
+  const sides = {
+    top: rect.y >= bounds.y,
+    right: rect.x + rect.width <= bounds.x + bounds.width,
+    bottom: rect.y + rect.height <= bounds.y + bounds.height,
+    left: rect.x >= bounds.x,
+  }
+  const line = (on: boolean) => (on ? LINE : 0)
+  return {
+    x: visible.x - line(sides.left),
+    y: visible.y - line(sides.top),
+    width: visible.width + line(sides.left) + line(sides.right),
+    height: visible.height + line(sides.top) + line(sides.bottom),
+    sides,
+  }
+}
+
+/** Lines of a text drawn at most: a selection over a whole page has thousands. */
+const MAX_LINES = 50
+
+/** Whether `r` continues the line box `line`: same line, right next to it. */
+const continues = (line: Rect, r: Rect) =>
+  Math.abs(r.y - line.y) <= 1 &&
+  Math.abs(r.height - line.height) <= 1 &&
+  Math.abs(r.x - (line.x + line.width)) <= 1
+
+/**
+ * One measurement of a text, read before anything is written: its box, as
+ * `Range.getBoundingClientRect()` gives it, and its lines on screen. The overlay never forces a
+ * layout while it renders, and it measures a text once for its pin and its marking. Chrome
+ * gives a rect per text node: the pieces of one line are joined, so a line of many small
+ * elements is one box to draw.
+ */
+export function linesOf(range: Range, viewportHeight: number): { rect: Rect; lines: Rect[] } {
+  let left = Infinity
+  let top = Infinity
+  let right = -Infinity
+  let bottom = -Infinity
+  const lines: Rect[] = []
+  for (const r of range.getClientRects()) {
+    if (r.width === 0 && r.height === 0) continue
+    left = Math.min(left, r.x)
+    top = Math.min(top, r.y)
+    right = Math.max(right, r.x + r.width)
+    bottom = Math.max(bottom, r.y + r.height)
+    const onScreen = r.width > 0 && r.height > 0 && r.y + r.height > 0 && r.y < viewportHeight
+    if (!onScreen) continue
+    const last = lines.at(-1)
+    if (last && continues(last, r)) {
+      const top = Math.min(last.y, r.y)
+      const bottom = Math.max(last.y + last.height, r.y + r.height)
+      lines[lines.length - 1] = {
+        x: last.x,
+        y: top,
+        width: Math.max(last.x + last.width, r.x + r.width) - last.x,
+        height: bottom - top,
+      }
+    } else if (lines.length < MAX_LINES) {
+      lines.push({ x: r.x, y: r.y, width: r.width, height: r.height })
+    }
+  }
+  const rect =
+    left === Infinity
+      ? { x: 0, y: 0, width: 0, height: 0 }
+      : { x: left, y: top, width: right - left, height: bottom - top }
+  return { rect, lines }
+}
+
 /** The part of the viewport that `clippers` let through, or null when nothing is visible. */
 export function visibleBounds(clippers: Element[], viewport: Rect): Rect | null {
   let bounds: Rect | null = viewport

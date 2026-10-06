@@ -3,20 +3,24 @@
 
 import { onBeforeUnmount, onMounted, type Ref, ref } from 'vue'
 import { browser } from 'wxt/browser'
-import { BLOCKED_PREFIX, isBlocked } from '@/lib/background/tab-status'
+import { BLOCKED_PREFIX, FAILED_PREFIX, isBlocked, isFailed } from '@/lib/background/tab-status'
 import { isOverlayStatus, isPanelMessage, type Mode } from '@/lib/messages'
 
 export type TabStatus =
   | { kind: 'active'; host: string; pageKey: string; mode: Mode; pins: boolean; instance: string }
   | { kind: 'blocked' }
+  | { kind: 'failed' }
   | { kind: 'idle' }
 
 export function useActiveTab(): {
   tabId: Ref<number | undefined>
+  /** The window of the active tab: the panel's own. */
+  windowId: Ref<number | undefined>
   status: Ref<TabStatus>
   refresh: () => Promise<void>
 } {
   const tabId = ref<number>()
+  const windowId = ref<number>()
   const status = ref<TabStatus>({ kind: 'idle' })
   let latest = 0
 
@@ -29,10 +33,12 @@ export function useActiveTab(): {
       const reply = await browser.tabs.sendMessage(id, { type: 'overlay:status' }).catch(() => {})
       if (isOverlayStatus(reply)) next = { kind: 'active', ...reply }
       else if (await isBlocked(id)) next = { kind: 'blocked' }
+      else if (await isFailed(id)) next = { kind: 'failed' }
     }
     // An older refresh must not overwrite a newer one.
     if (run !== latest) return
     tabId.value = id
+    windowId.value = tab?.windowId
     status.value = next
   }
 
@@ -44,8 +50,8 @@ export function useActiveTab(): {
     if (sender.id === browser.runtime.id && isPanelMessage(message)) void refresh()
   }
   const onStorage = (changes: Record<string, unknown>, area: string) => {
-    if (area === 'session' && Object.keys(changes).some((k) => k.startsWith(BLOCKED_PREFIX)))
-      void refresh()
+    const status = (k: string) => k.startsWith(BLOCKED_PREFIX) || k.startsWith(FAILED_PREFIX)
+    if (area === 'session' && Object.keys(changes).some(status)) void refresh()
   }
 
   onMounted(() => {
@@ -62,5 +68,5 @@ export function useActiveTab(): {
     browser.storage.onChanged.removeListener(onStorage)
   })
 
-  return { tabId, status, refresh }
+  return { tabId, windowId, status, refresh }
 }
