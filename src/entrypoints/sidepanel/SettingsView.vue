@@ -1,19 +1,28 @@
 <script setup lang="ts">
+import type { Settings } from '@/lib/settings'
+import GeneralSettings from './GeneralSettings.vue'
 import ShortcutList from './ShortcutList.vue'
 import SiteList from './SiteList.vue'
 import VoiceSettings from './VoiceSettings.vue'
 
 /** `shortcut`: the toolbar shortcut Chrome assigned, empty when there is none. */
-defineProps<{ origins: string[]; shortcut: string }>()
+defineProps<{ settings: Settings; shortcut: string }>()
 const emit = defineEmits<{ forget: [origin: string] }>()
 </script>
 
 <template>
-  <section class="flex-1 space-y-6 overflow-y-auto p-4">
-    <VoiceSettings />
+  <!-- Sections apart, with a line between them. -->
+  <section data-testid="settings" class="flex-1 divide-y overflow-y-auto px-4">
+    <GeneralSettings class="py-6" :settings="settings" />
 
-    <SiteList :remembered="origins" @forget="(origin) => emit('forget', origin)" />
+    <VoiceSettings class="py-6" />
 
-    <ShortcutList :toolbar="shortcut" />
+    <SiteList
+      class="py-6"
+      :remembered="settings.rememberedOrigins"
+      @forget="(origin) => emit('forget', origin)"
+    />
+
+    <ShortcutList class="py-6" :toolbar="shortcut" />
   </section>
 </template>

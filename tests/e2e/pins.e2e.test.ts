@@ -188,7 +188,7 @@ describe('pins and editing', () => {
     await save(BUTTON, 'Wider')
     await waitForPins([{ number: '1', color: 'bg-blue-600' }])
     await panel.click('[data-testid="copy-prompt"]')
-    await panel.waitForSelector('::-p-text(Copied 1 item)')
+    await panel.waitForSelector('::-p-text(Copied 1 pin)')
     // Done: the filter Open shows no pin and no outline for it.
     await waitForPins([])
     expect(await outlineColors()).toEqual([])

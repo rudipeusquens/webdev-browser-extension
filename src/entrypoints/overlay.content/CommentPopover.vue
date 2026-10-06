@@ -172,7 +172,7 @@ onBeforeUnmount(() => resizes.disconnect())
     ref="card"
     data-testid="overlay-popover"
     role="dialog"
-    :aria-label="number ? `Edit item ${number}` : 'Comment'"
+    :aria-label="number ? `Edit pin ${number}` : 'New pin'"
     class="fixed z-[2147483647] flex w-72 flex-col gap-2 rounded-lg border bg-popover p-3 text-sm text-popover-foreground shadow-lg"
     :style="position"
     @keydown="onKeydown"
@@ -180,7 +180,7 @@ onBeforeUnmount(() => resizes.disconnect())
     <div class="flex items-center justify-between gap-2">
       <!-- The label cuts itself: an ellipsis takes the color of the element that cuts. -->
       <p class="flex min-w-0 items-baseline gap-1 font-medium">
-        <span class="shrink-0">{{ number ? `Item ${number}` : 'Comment' }}</span>
+        <span class="shrink-0">{{ number ? `Pin ${number}` : 'New pin' }}</span>
         <span class="min-w-0 truncate font-mono text-xs font-normal text-muted-foreground">{{
           label
         }}</span>
@@ -264,7 +264,7 @@ onBeforeUnmount(() => resizes.disconnect())
         variant="ghost"
         size="sm"
         class="-ml-2 text-muted-foreground hover:text-destructive"
-        :aria-label="`Delete item ${number}`"
+        :aria-label="`Delete pin ${number}`"
         @click="onButton($event, () => emit('remove'))"
       >
         <Trash2Icon /> Delete
@@ -275,7 +275,7 @@ onBeforeUnmount(() => resizes.disconnect())
         variant="ghost"
         size="sm"
         class="-ml-2 text-muted-foreground"
-        :aria-label="`Restore item ${number}`"
+        :aria-label="`Restore pin ${number}`"
         @click="onButton($event, () => emit('restore'))"
       >
         <ArchiveRestoreIcon /> Restore

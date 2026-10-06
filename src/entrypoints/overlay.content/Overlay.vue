@@ -299,7 +299,7 @@ const highlight = computed(() => {
   const rect = placement?.rect()
   // A target without a box (not rendered) has nothing to outline.
   if (!item || !rect || rect.width === 0 || rect.height === 0) return null
-  return { rect, label: `Item ${item.number}` }
+  return { rect, label: `Pin ${item.number}` }
 })
 
 // Pinned texts are shaded by the browser: set again when what is pinned, hovered or edited
@@ -918,7 +918,7 @@ onBeforeUnmount(() => {
       class="fixed z-[2147483647] flex size-5 items-center justify-center rounded-full text-xs leading-none font-semibold text-white shadow-md ring-2 ring-white"
       :class="pin.tone"
       :style="{ left: pin.left, top: pin.top }"
-      :aria-label="`Edit item ${pin.number}`"
+      :aria-label="`Edit pin ${pin.number}`"
       @mouseenter="hoveredPin = pin.id"
       @mouseleave="hoveredPin = null"
       @click="onPinClick($event, pin.id)"

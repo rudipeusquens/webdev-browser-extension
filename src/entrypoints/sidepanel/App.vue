@@ -208,17 +208,17 @@ async function copy() {
   const ids = openIds.value
   const current = site.value
   if (!current || ids.length === 0) return
-  await writePrompt(ids, `Copied ${plural(ids.length, 'item')}`)
+  await writePrompt(ids, `Copied ${plural(ids.length, 'pin')}`)
   await change(
     { type: 'collection:copied', site: current, ids },
-    (error) => `Copied, but the items could not be marked done: ${error}`,
+    (error) => `Copied, but the pins could not be marked done: ${error}`,
   )
 }
 
 /** The last copy again, for a paste that went wrong; it changes nothing. */
 async function copyAgain() {
   const ids = againIds.value
-  if (ids.length > 0) await writePrompt(ids, `Copied ${plural(ids.length, 'item')} again`)
+  if (ids.length > 0) await writePrompt(ids, `Copied ${plural(ids.length, 'pin')} again`)
 }
 
 const siteError = ref('')
@@ -389,22 +389,39 @@ function setMode(next: unknown) {
         </Button>
       </div>
       <template v-if="!showSettings">
-        <div class="flex flex-wrap items-center gap-x-3 gap-y-2">
+        <!-- The modes share the row; Pins keeps 8 px to them, and wraps when it must. -->
+        <div class="flex flex-wrap items-center gap-2">
           <ToggleGroup
             type="single"
             variant="outline"
             size="sm"
+            class="w-auto flex-1"
             :model-value="mode"
             :disabled="status.kind !== 'active'"
             @update:model-value="setMode"
           >
-            <ToggleGroupItem value="browse" data-testid="mode-browse" aria-label="Browse mode">
+            <ToggleGroupItem
+              value="browse"
+              data-testid="mode-browse"
+              class="flex-1 gap-1.5 px-2"
+              aria-label="Browse mode"
+            >
               <MousePointer2Icon /> Browse
             </ToggleGroupItem>
-            <ToggleGroupItem value="element" data-testid="mode-element" aria-label="Element mode">
+            <ToggleGroupItem
+              value="element"
+              data-testid="mode-element"
+              class="flex-1 gap-1.5 px-2"
+              aria-label="Element mode"
+            >
               <SquareMousePointerIcon /> Element
             </ToggleGroupItem>
-            <ToggleGroupItem value="area" data-testid="mode-area" aria-label="Area mode">
+            <ToggleGroupItem
+              value="area"
+              data-testid="mode-area"
+              class="flex-1 gap-1.5 px-2"
+              aria-label="Area mode"
+            >
               <SquareDashedIcon /> Area
             </ToggleGroupItem>
           </ToggleGroup>
@@ -412,6 +429,7 @@ function setMode(next: unknown) {
             data-testid="toggle-pins"
             variant="outline"
             size="sm"
+            class="gap-1.5 px-2"
             :model-value="pinsShown"
             :disabled="status.kind !== 'active'"
             :aria-label="pinsShown ? 'Hide pins' : 'Show pins'"
@@ -437,7 +455,7 @@ function setMode(next: unknown) {
             value="open"
             data-testid="filter-open"
             class="flex-1"
-            title="Open items only: what Copy as prompt copies"
+            title="Open pins only: what Copy as prompt copies"
           >
             Open <span class="text-muted-foreground tabular-nums">{{ counts.open }}</span>
           </ToggleGroupItem>
@@ -445,7 +463,7 @@ function setMode(next: unknown) {
             value="all"
             data-testid="filter-all"
             class="flex-1"
-            title="Open and done items"
+            title="Open and done pins"
           >
             All <span class="text-muted-foreground tabular-nums">{{ counts.all }}</span>
           </ToggleGroupItem>
@@ -453,7 +471,7 @@ function setMode(next: unknown) {
             value="with-deleted"
             data-testid="filter-with-deleted"
             class="flex-1"
-            title="Deleted items too"
+            title="Deleted pins too"
           >
             + Deleted <span class="text-muted-foreground tabular-nums">{{ counts.deleted }}</span>
           </ToggleGroupItem>
@@ -494,47 +512,37 @@ function setMode(next: unknown) {
         <p v-if="siteError" data-testid="site-error" role="alert" class="text-xs text-destructive">
           {{ siteError }}
         </p>
-        <p
-          v-if="status.kind === 'active'"
-          data-testid="page-keys"
-          class="flex items-center gap-1 text-xs text-muted-foreground"
-          title="On the page: E for element mode, A for area mode, P to show or hide the pins, Esc for browse mode"
-        >
-          Keys on the page:
-          <kbd class="rounded border bg-muted px-1 font-mono">E</kbd>
-          <kbd class="rounded border bg-muted px-1 font-mono">A</kbd>
-          <kbd class="rounded border bg-muted px-1 font-mono">P</kbd>
-          <kbd class="rounded border bg-muted px-1 font-mono">Esc</kbd>
-        </p>
       </template>
     </header>
 
     <SettingsView
       v-if="showSettings"
-      :origins="settings.rememberedOrigins"
+      :settings="settings"
       :shortcut="shortcut"
       @forget="forgetSite"
     />
-    <section v-else class="flex-1 overflow-y-auto">
-      <p v-if="!site" data-testid="no-site" class="p-6 pt-12 text-center text-muted-foreground">
-        Feedback is kept per site. Start the overlay on a page to see the feedback of its site.
-      </p>
-      <p v-else-if="!items.length" class="p-6 pt-12 text-center text-muted-foreground">
-        No feedback yet: pick an element, drag an area, or select text.
-      </p>
-      <p
-        v-else-if="!shown.length"
-        data-testid="filter-hides"
-        class="p-6 pt-12 text-center text-muted-foreground"
-      >
-        Nothing open here. {{ plural(items.length, 'item') }}
-        {{ items.length === 1 ? 'is' : 'are' }} hidden by this filter.
-      </p>
+    <section v-else data-testid="list-area" class="flex-1 overflow-y-auto">
+      <!-- Empty states sit in the middle of the list area. -->
+      <div v-if="!site || !shown.length" class="flex min-h-full items-center justify-center p-6">
+        <div data-testid="empty-state" class="max-w-72 text-center text-muted-foreground">
+          <p v-if="!site" data-testid="no-site">
+            Feedback is kept per site. Start the overlay on a page to see the feedback of its site.
+          </p>
+          <p v-else-if="!items.length">
+            No feedback yet: pick an element, drag an area, or select text.
+          </p>
+          <p v-else data-testid="filter-hides">
+            Nothing to show here. {{ plural(items.length, 'pin') }}
+            {{ items.length === 1 ? 'is' : 'are' }} hidden by this filter.
+          </p>
+        </div>
+      </div>
       <ItemList
         v-else
         :groups="groups"
         :missing="missing"
         :pointed="pointed"
+        :page-titles="settings.pageTitles"
         @remove="(id) => changeItem('annotation:remove', id)"
         @restore="(id) => changeItem('annotation:restore', id)"
         @reopen="(id) => changeItem('annotation:reopen', id)"
@@ -545,17 +553,21 @@ function setMode(next: unknown) {
       />
     </section>
 
-    <footer v-if="!showSettings" class="space-y-2 border-t p-3">
-      <p v-if="panelError" data-testid="panel-error" role="alert" class="text-xs text-destructive">
-        {{ panelError }}
-      </p>
+    <footer v-if="!showSettings" class="relative border-t p-3">
+      <!-- Above the buttons, so the footer's padding is the same on every side. -->
+      <div v-if="panelError || copyStatus" class="mb-2 space-y-1 text-xs">
+        <p v-if="panelError" data-testid="panel-error" role="alert" class="text-destructive">
+          {{ panelError }}
+        </p>
+        <p v-if="copyStatus" class="text-muted-foreground" aria-hidden="true">{{ copyStatus }}</p>
+      </div>
       <!-- Two rows: three labels do not fit side by side in a narrow panel. -->
       <div class="grid grid-cols-2 gap-2">
         <Button
           data-testid="copy-prompt"
           class="col-span-2"
           :disabled="!count"
-          title="Copy the open items; they become done"
+          title="Copy the open pins; they become done"
           @click="copy"
         >
           <CopyIcon /> Copy as prompt
@@ -564,7 +576,7 @@ function setMode(next: unknown) {
           data-testid="copy-again"
           variant="outline"
           :disabled="!againIds.length"
-          title="Copy the last copied items again; nothing changes"
+          title="Copy the last copied pins again; nothing changes"
           @click="copyAgain"
         >
           <RepeatIcon /> Copy again
@@ -578,9 +590,8 @@ function setMode(next: unknown) {
           Clear all
         </Button>
       </div>
-      <p data-testid="copy-status" aria-live="polite" class="min-h-4 text-xs text-muted-foreground">
-        {{ copyStatus }}
-      </p>
+      <!-- Always there, so screen readers announce each copy. -->
+      <p data-testid="copy-status" aria-live="polite" class="sr-only">{{ copyStatus }}</p>
     </footer>
 
     <ClearAllDialog

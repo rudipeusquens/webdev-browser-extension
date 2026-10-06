@@ -63,10 +63,18 @@ describe('activation', () => {
     expect(await assignedShortcut(await serviceWorker(session))).toMatch(SHORTCUT)
   })
 
-  it('adds "Annotate this page" to the context menu of pages', async () => {
+  it('adds "Annotate this page" to the context menu only while Settings turns it on', async () => {
+    await session.page.goto(`${server.origin}/plain/`)
+    const panel = await clickAction(session)
     const worker = await serviceWorker(session)
+    expect(await menuEntry(worker, 'annotate')).not.toBe('found')
+    await panel.click('[data-testid="open-settings"]')
+    await panel.click('[data-testid="option-context-menu"]')
     await vi.waitFor(async () => expect(await menuEntry(worker, 'annotate')).toBe('found'))
     expect(await menuEntry(worker, 'nothing')).not.toBe('found')
+    await panel.click('[data-testid="option-context-menu"]')
+    await vi.waitFor(async () => expect(await menuEntry(worker, 'annotate')).not.toBe('found'))
+    await panel.click('[data-testid="close-settings"]')
   })
 
   it('says when the overlay cannot start on a page', async () => {

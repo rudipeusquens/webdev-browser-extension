@@ -21,7 +21,7 @@ import {
   type PanelView,
   type Reply,
 } from '@/lib/messages'
-import { isSiteOrigin, originPattern } from '@/lib/settings'
+import { isSiteOrigin, loadSettings, originPattern } from '@/lib/settings'
 import { VIEW_KEY } from '@/lib/view'
 
 /** The page's context menu entry: it activates the extension like the toolbar icon. */
@@ -93,14 +93,19 @@ export default defineBackground(() => {
     if (info.menuItemId === MENU_ENTRY && tab) activate(tab)
   })
 
-  /** Chrome keeps the entry across restarts and updates; written again, it is never doubled. */
-  function addMenuEntry() {
+  /**
+   * The entry exists while its option is on (off by default). Chrome keeps entries across
+   * restarts and updates; written again, it is never doubled, and one an older version left
+   * goes.
+   */
+  function setMenuEntry(on: boolean) {
     // Read, so Chrome does not log an unchecked error.
     const checked = () => browser.runtime.lastError
     try {
       // Callbacks: contextMenus returns promises only from Chrome 123 on.
       browser.contextMenus.removeAll(() => {
         checked()
+        if (!on) return
         browser.contextMenus.create(
           {
             id: MENU_ENTRY,
@@ -115,6 +120,11 @@ export default defineBackground(() => {
       // No entry then; the icon and the shortcut still work.
     }
   }
+
+  const syncMenuEntry = () =>
+    loadSettings()
+      .then(({ contextMenu }) => setMenuEntry(contextMenu))
+      .catch(() => undefined)
 
   browser.tabs.onUpdated.addListener((tabId, info) => {
     if (info.status !== 'loading') return
@@ -132,7 +142,7 @@ export default defineBackground(() => {
   browser.permissions.onRemoved.addListener(() => void reconcile())
   browser.runtime.onStartup.addListener(() => {
     void reconcile()
-    addMenuEntry()
+    void syncMenuEntry()
   })
   browser.runtime.onInstalled.addListener(({ reason }) => {
     void reconcile().then(async (origins) => {
@@ -142,7 +152,7 @@ export default defineBackground(() => {
       const tabs = await browser.tabs.query({ url: origins.map(originPattern) })
       for (const { id } of tabs) if (id !== undefined) await inject(id).catch(() => undefined)
     })
-    addMenuEntry()
+    void syncMenuEntry()
   })
 
   /** Go to: only pages of the collection, only on the web. */
@@ -195,6 +205,14 @@ export default defineBackground(() => {
         return browser.storage.local
           .set({ [VIEW_KEY]: { filter: message.filter } })
           .then(() => ({ ok: true }) satisfies Reply)
+      case 'settings:set':
+        if (!isPanelSender(sender)) {
+          return { ok: false, error: 'Settings are set in the panel.' } satisfies Reply
+        }
+        return sites.setOption(message.key, message.value).then((reply) => {
+          if (message.key === 'contextMenu') setMenuEntry(message.value)
+          return reply
+        })
       case 'tab:go':
         if (sender.tab)
           return { ok: false, error: 'Pages are opened from the panel.' } satisfies Reply

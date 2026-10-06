@@ -50,7 +50,7 @@ const plural = (n: number, word: string) => `${n} ${word}${n === 1 ? '' : 's'}`
 function labelOf(msg: CollectionMessage, before: Collection, after: Collection): string {
   const item = (id: string) => {
     const found = after.items.find((i) => i.id === id) ?? before.items.find((i) => i.id === id)
-    return `item ${found?.number ?? ''}`.trim()
+    return `pin ${found?.number ?? ''}`.trim()
   }
   switch (msg.type) {
     case 'annotation:add':
@@ -67,7 +67,7 @@ function labelOf(msg: CollectionMessage, before: Collection, after: Collection):
       const done = after.items.filter(
         (i) => i.status === 'done' && before.items.find((b) => b.id === i.id)?.status === 'open',
       ).length
-      return done > 0 ? `Mark ${plural(done, 'item')} done` : 'Copy as prompt'
+      return done > 0 ? `Mark ${plural(done, 'pin')} done` : 'Copy as prompt'
     }
     case 'collection:clear':
       return 'Clear all'

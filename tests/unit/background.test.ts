@@ -422,6 +422,34 @@ describe('background: remembered sites', () => {
     expect((await loadSettings()).rememberedOrigins).toEqual([])
   })
 
+  it('sets an option for the panel only, and keeps the remembered sites', async () => {
+    await send({ type: 'site:remember', origin: A }, panel)
+    const set = { type: 'settings:set', key: 'pageTitles', value: true }
+    expect(await send(set, pageSender(`${A}/`))).toMatchObject({ ok: false })
+    expect(await send(set, { id: fakeBrowser.runtime.id })).toMatchObject({ ok: false })
+    expect((await loadSettings()).pageTitles).toBe(false)
+    expect(await send(set, panelSender)).toEqual({ ok: true })
+    expect(await loadSettings()).toEqual({
+      rememberedOrigins: [A],
+      pageTitles: true,
+      contextMenu: false,
+    })
+  })
+
+  it('writes options and remembered sites one after another', async () => {
+    const on = { type: 'settings:set', key: 'contextMenu', value: true }
+    await Promise.all([
+      send({ type: 'site:remember', origin: A }, panel),
+      send(on, panelSender),
+      send({ type: 'settings:set', key: 'pageTitles', value: true }, panelSender),
+    ])
+    expect(await loadSettings()).toEqual({
+      rememberedOrigins: [A],
+      pageTitles: true,
+      contextMenu: true,
+    })
+  })
+
   it('forgets a site whose access was revoked in chrome://extensions', async () => {
     await send({ type: 'site:remember', origin: A }, panel)
     fake.revoke(`${A}/*`)
@@ -552,7 +580,33 @@ describe('background: the page context menu', () => {
 
   afterEach(() => vi.restoreAllMocks())
 
+  const menuOn = () =>
+    fakeBrowser.storage.local.set({
+      [SETTINGS_KEY]: { rememberedOrigins: [], pageTitles: false, contextMenu: true },
+    })
+
+  it('has no entry while the option is off, and removes one an older version left', async () => {
+    menus.entries.set('annotate', { id: 'annotate' } as never)
+    await fakeBrowser.runtime.onInstalled.trigger({ reason: 'update' } as never)
+    await flush()
+    expect([...menus.entries.keys()]).toEqual([])
+    await fakeBrowser.runtime.onStartup.trigger()
+    await flush()
+    expect([...menus.entries.keys()]).toEqual([])
+  })
+
+  it('adds and removes the entry when the panel turns the option on and off', async () => {
+    const set = (value: boolean) =>
+      send({ type: 'settings:set', key: 'contextMenu', value }, panelSender)
+    expect(await set(true)).toEqual({ ok: true })
+    await vi.waitFor(() => expect([...menus.entries.keys()]).toEqual(['annotate']))
+    expect(await set(false)).toEqual({ ok: true })
+    await vi.waitFor(() => expect([...menus.entries.keys()]).toEqual([]))
+    expect(menus.duplicates).toEqual([])
+  })
+
   it('offers "Annotate this page" on pages once installed, and still once after an update', async () => {
+    await menuOn()
     await fakeBrowser.runtime.onInstalled.trigger({ reason: 'install' } as never)
     await flush()
     await fakeBrowser.runtime.onInstalled.trigger({ reason: 'update' } as never)
@@ -570,6 +624,7 @@ describe('background: the page context menu', () => {
 
   it('writes the entry again when the browser starts', async () => {
     // Chrome restores it from its own storage; a lost one comes back with the next start.
+    await menuOn()
     await fakeBrowser.runtime.onStartup.trigger()
     await flush()
     expect([...menus.entries.keys()]).toEqual(['annotate'])

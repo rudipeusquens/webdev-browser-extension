@@ -127,18 +127,18 @@ describe('undo and redo', () => {
     const { write, undo } = createWriter(() => 'T')
     expect(await loadLabels(SITE)).toEqual({})
     await write(SITE, add('a1'))
-    expect(await loadLabels(SITE)).toEqual({ undo: 'Add item 1' })
+    expect(await loadLabels(SITE)).toEqual({ undo: 'Add pin 1' })
     // Stored apart from the steps, so the panel never reads them.
     const stored = await fakeBrowser.storage.session.get(`${LABELS_PREFIX}${SITE}`)
-    expect(stored[`${LABELS_PREFIX}${SITE}`]).toEqual({ undo: 'Add item 1' })
+    expect(stored[`${LABELS_PREFIX}${SITE}`]).toEqual({ undo: 'Add pin 1' })
     await write(SITE, add('a2'))
     await write(SITE, { type: 'collection:copied', site: SITE, ids: ['a1', 'a2'] })
-    expect(await loadLabels(SITE)).toEqual({ undo: 'Mark 2 items done' })
+    expect(await loadLabels(SITE)).toEqual({ undo: 'Mark 2 pins done' })
     await write(SITE, { type: 'annotation:remove', site: SITE, id: 'a1' })
     await undo(SITE)
     expect(await loadLabels(SITE)).toEqual({
-      undo: 'Mark 2 items done',
-      redo: 'Delete item 1',
+      undo: 'Mark 2 pins done',
+      redo: 'Delete pin 1',
     })
     await write(SITE, { type: 'collection:clear', site: SITE })
     expect(await loadLabels(SITE)).toEqual({ undo: 'Clear all' })

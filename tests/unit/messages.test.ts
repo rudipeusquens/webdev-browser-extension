@@ -53,6 +53,8 @@ describe('isMessage', () => {
     { type: 'voice:key:save', key: 'test-key-123' },
     { type: 'voice:key:remove' },
     { type: 'voice:key:test' },
+    { type: 'settings:set', key: 'pageTitles', value: true },
+    { type: 'settings:set', key: 'contextMenu', value: false },
   ])('accepts $type', (message) => {
     expect(isMessage(message)).toBe(true)
   })
@@ -89,6 +91,9 @@ describe('isMessage', () => {
     ['a file site', { type: 'site:remember', origin: 'file:///srv/app' }],
     ['a site that is no origin', { type: 'site:forget', origin: 'localhost' }],
     ['a tab id that is no integer', { type: 'tab:go', tabId: 1.5, pageKey: 'http://x.test/' }],
+    ['an unknown option', { type: 'settings:set', key: 'rememberedOrigins', value: true }],
+    ['an option that is no boolean', { type: 'settings:set', key: 'pageTitles', value: 'on' }],
+    ['an option with more', { type: 'settings:set', key: 'pageTitles', value: true, all: 1 }],
     ['a page that is no URL', { type: 'tab:go', tabId: 1, pageKey: 'javascript:alert(1)' }],
     ['an invalid target', { ...add, target: { kind: 'element', element: { selector: 'x' } } }],
     ['an invalid page', { ...add, page: page('chrome://settings/') }],

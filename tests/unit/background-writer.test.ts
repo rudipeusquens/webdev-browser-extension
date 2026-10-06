@@ -1,5 +1,6 @@
 import { beforeEach, describe, expect, it } from 'vitest'
 import { fakeBrowser } from 'wxt/testing/fake-browser'
+import { loadLabels } from '@/lib/background/history'
 import { createWriter } from '@/lib/background/writer'
 import { addAnnotation, emptyCollection } from '@/lib/collection/ops'
 import { collectionKey, LEGACY_KEY, loadSite } from '@/lib/collection/store'
@@ -54,6 +55,31 @@ describe('createWriter', () => {
     expect((await loadSite(OTHER)).items).toHaveLength(1)
     // An emptied site leaves nothing behind.
     expect(Object.keys(await stored())).toEqual([collectionKey(OTHER)])
+  })
+
+  it('names each step by its pins, for the Undo and Redo tooltips', async () => {
+    const { write } = createWriter()
+    const steps: string[] = []
+    const step = async (msg: CollectionMessage) => {
+      expect(await write(SITE, msg)).toEqual({ ok: true })
+      steps.push((await loadLabels(SITE)).undo ?? '')
+    }
+    await step(add('a1'))
+    await step({ type: 'annotation:update', site: SITE, id: 'a1', comment: 'Other.' })
+    await step(add('a2'))
+    await step({ type: 'collection:copied', site: SITE, ids: ['a1', 'a2'] })
+    await step({ type: 'annotation:reopen', site: SITE, id: 'a1' })
+    await step({ type: 'annotation:remove', site: SITE, id: 'a1' })
+    await step({ type: 'annotation:restore', site: SITE, id: 'a1' })
+    expect(steps).toEqual([
+      'Add pin 1',
+      'Edit pin 1',
+      'Add pin 2',
+      'Mark 2 pins done',
+      'Reopen pin 1',
+      'Delete pin 1',
+      'Restore pin 1',
+    ])
   })
 
   it('refuses an item for another site than the page', async () => {

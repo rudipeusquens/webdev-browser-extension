@@ -76,17 +76,17 @@ describe('the review loop', () => {
     await save('p', 'Shorter text')
     await until(async () => (await statuses(one.origin)).length === 3, 'three items')
 
-    let text = await copy('copy-prompt', 'Copied 3 items')
+    let text = await copy('copy-prompt', 'Copied 3 pins')
     expect(text).toContain('# UI feedback: 3 items on 1 page')
     expect(text).not.toContain('On the other project')
     await until(async () => (await statuses(one.origin)).every(([, s]) => s === 'done'), 'all done')
 
     await save('h1', 'Heading still too small')
-    text = await copy('copy-prompt', 'Copied 1 item')
+    text = await copy('copy-prompt', 'Copied 1 pin')
     expect(text).toContain('# UI feedback: 1 item on 1 page')
     expect(text).toContain('### 4. Element')
     expect(text).not.toContain('Bigger heading')
-    text = await copy('copy-again', 'Copied 1 item again')
+    text = await copy('copy-again', 'Copied 1 pin again')
     expect(text).toContain('Heading still too small')
 
     await panel.click('[data-testid="undo"]')
@@ -114,8 +114,8 @@ describe('the review loop', () => {
     await until(async () => (await statuses(one.origin)).at(-1)?.[1] === 'deleted', 'deleted')
 
     await panel.click('[data-testid="filter-with-deleted"]')
-    await panel.waitForSelector('[aria-label="Restore item 4"]')
-    await panel.click('[aria-label="Restore item 4"]')
+    await panel.waitForSelector('[aria-label="Restore pin 4"]')
+    await panel.click('[aria-label="Restore pin 4"]')
     await until(async () => (await statuses(one.origin)).at(-1)?.[1] === 'open', 'restored')
     await panel.click('[data-testid="filter-open"]')
 

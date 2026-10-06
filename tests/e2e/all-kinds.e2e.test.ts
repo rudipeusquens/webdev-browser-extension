@@ -80,7 +80,7 @@ describe('all three marking types', () => {
     await waitForItems(panel, 3)
 
     await panel.click('[data-testid="copy-prompt"]')
-    await panel.waitForSelector('::-p-text(Copied 3 items)')
+    await panel.waitForSelector('::-p-text(Copied 3 pins)')
     const clipboard = await panel.evaluate(() => navigator.clipboard.readText())
     expect(clipboard).toBe(
       formatCollection((await storedCollection(panel)) as unknown as Collection),
