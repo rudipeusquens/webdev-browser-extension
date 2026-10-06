@@ -4,7 +4,7 @@ import type { AddressInfo } from 'node:net'
 import { tmpdir } from 'node:os'
 import { extname, join, normalize, resolve } from 'node:path'
 import vue from '@vitejs/plugin-vue'
-import puppeteer, { type Browser, type Page, type Realm } from 'puppeteer'
+import puppeteer, { type Browser, type Page, type Realm, type WebWorker } from 'puppeteer'
 import { createServer as createViteServer } from 'vite'
 
 export const EXTENSION_DIR = resolve(process.env.E2E_EXTENSION_DIR ?? '.output/chrome-mv3')
@@ -116,6 +116,18 @@ export async function launch(options: { hostPermissions?: string[] } = {}): Prom
   )
   const page = await browser.newPage()
   return { browser, extensionId, page }
+}
+
+/** The extension's service worker. */
+export async function serviceWorker(s: Session): Promise<WebWorker> {
+  const target = await s.browser.waitForTarget(
+    (t) =>
+      t.type() === 'service_worker' &&
+      t.url() === `chrome-extension://${s.extensionId}/background.js`,
+  )
+  const worker = await target.worker()
+  if (!worker) throw new Error('the service worker is not running')
+  return worker
 }
 
 /** Clicks the toolbar action on `s.page` and returns the side panel page. */

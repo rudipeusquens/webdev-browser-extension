@@ -31,12 +31,14 @@ import SettingsView from './SettingsView.vue'
 import { useActiveTab } from './use-active-tab'
 import { useMissing } from './use-missing'
 import { useSettings } from './use-settings'
+import { useShortcut } from './use-shortcut'
 import { useCollection } from '@/composables/use-collection'
 
 const { collection } = useCollection()
 const { tabId, status, refresh } = useActiveTab()
 const { missing } = useMissing()
 const { settings } = useSettings()
+const { shortcut } = useShortcut()
 const showSettings = ref(false)
 
 const count = computed(() => collection.value.items.length)
@@ -66,8 +68,10 @@ const statusText = computed(() => {
       return `Active on ${status.value.host}`
     case 'blocked':
       return "Can't run on this page"
-    default:
-      return 'Not active on this page. Click the toolbar icon or press Alt+Shift+A.'
+    default: {
+      const press = shortcut.value ? `, press ${shortcut.value}` : ''
+      return `Not active on this page. Click the toolbar icon${press} or right-click the page and choose "Annotate this page".`
+    }
   }
 })
 

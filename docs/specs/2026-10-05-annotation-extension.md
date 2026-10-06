@@ -64,22 +64,22 @@ and **shadcn-vue**. Manifest V3, minimum Chrome version **116** (`chrome.sidePan
 
 ### Components
 
-| Unit                    | Runs in                               | Responsibility                                                                                                                                                                                                                                                                                               |
-| ----------------------- | ------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| **Background**          | service worker                        | Single writer of the collection and settings in `chrome.storage.local`; handles the action click and the keyboard command (opens the side panel, injects the overlay); remembered sites (`chrome.permissions` + `chrome.scripting.registerContentScripts`); coordinates voice recording and calls OpenRouter |
-| **Overlay**             | content script, closed shadow root    | Modes, hover highlight, area drag, selection chip, comment popover with mic button, numbered pins; builds snapshots; re-anchors pins                                                                                                                                                                         |
-| **Origin bridge**       | page main world, injected per request | Reads Vue component chains (properties invisible to the isolated world) and returns them as the result of `chrome.scripting.executeScript`                                                                                                                                                                   |
-| **Side panel**          | extension page                        | Collection list, mode switch, copy, clear, settings (sites, voice)                                                                                                                                                                                                                                           |
-| **Recorder**            | offscreen document (`USER_MEDIA`)     | Records microphone audio with `MediaRecorder` (`audio/webm;codecs=opus`); created on demand, closed after each recording                                                                                                                                                                                     |
-| **Mic permission page** | extension page in a tab               | One-time `getUserMedia` call so Chrome grants the microphone to the extension origin (side panel and offscreen documents cannot show the prompt)                                                                                                                                                             |
-| **Formatter**           | pure module                           | Collection → Markdown; no browser APIs                                                                                                                                                                                                                                                                       |
-| **Capture library**     | pure modules                          | Selector generation, style extraction, truncation, area element selection; DOM in, plain data out                                                                                                                                                                                                            |
+| Unit                    | Runs in                               | Responsibility                                                                                                                                                                                                                                                                                                                              |
+| ----------------------- | ------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **Background**          | service worker                        | Single writer of the collection and settings in `chrome.storage.local`; handles the action click, the keyboard command and the page's context menu entry (opens the side panel, injects the overlay); remembered sites (`chrome.permissions` + `chrome.scripting.registerContentScripts`); coordinates voice recording and calls OpenRouter |
+| **Overlay**             | content script, closed shadow root    | Modes, hover highlight, area drag, selection chip, comment popover with mic button, numbered pins; builds snapshots; re-anchors pins                                                                                                                                                                                                        |
+| **Origin bridge**       | page main world, injected per request | Reads Vue component chains (properties invisible to the isolated world) and returns them as the result of `chrome.scripting.executeScript`                                                                                                                                                                                                  |
+| **Side panel**          | extension page                        | Collection list, mode switch, copy, clear, settings (sites, voice)                                                                                                                                                                                                                                                                          |
+| **Recorder**            | offscreen document (`USER_MEDIA`)     | Records microphone audio with `MediaRecorder` (`audio/webm;codecs=opus`); created on demand, closed after each recording                                                                                                                                                                                                                    |
+| **Mic permission page** | extension page in a tab               | One-time `getUserMedia` call so Chrome grants the microphone to the extension origin (side panel and offscreen documents cannot show the prompt)                                                                                                                                                                                            |
+| **Formatter**           | pure module                           | Collection → Markdown; no browser APIs                                                                                                                                                                                                                                                                                                      |
+| **Capture library**     | pure modules                          | Selector generation, style extraction, truncation, area element selection; DOM in, plain data out                                                                                                                                                                                                                                           |
 
 ### Data flow: annotating
 
-1. Action click or `Alt+Shift+A` (the `_execute_action` command, which fires the same handler)
-   → background opens the side panel for the window and
-   injects the overlay into the tab (the gesture grants `activeTab`).
+1. Action click, `Ctrl+Shift+K` (the `_execute_action` command, which fires the same handler)
+   or **Annotate this page** in the page's context menu → background opens the side panel for
+   the window and injects the overlay into the tab (each of the three grants `activeTab`).
 2. The developer marks something → the overlay builds a snapshot, shows the comment popover
    and asks the background to run the origin bridge for the snapshot's elements while the
    comment is written.
@@ -106,6 +106,7 @@ and **shadcn-vue**. Manifest V3, minimum Chrome version **116** (`chrome.sidePan
 | `sidePanel`                                           | the panel                                                                  |
 | `offscreen`                                           | microphone recording                                                       |
 | `clipboardWrite`                                      | copying from the panel                                                     |
+| `contextMenus`                                        | **Annotate this page** in the page's context menu                          |
 | optional host permissions `http://*/*`, `https://*/*` | requested per origin by **Always enable here**, never at install           |
 
 No host permission for `openrouter.ai`: its API answers CORS preflights with
@@ -314,9 +315,13 @@ Title: Shop · Viewport: 1440×900 · Color scheme: light
 
 ## 8. Interaction and UI
 
-**Activation:** action click or `Alt+Shift+A` (suggested key of the `_execute_action` command) opens
-the side panel and activates the overlay on the tab. On remembered origins the overlay loads by
-itself.
+**Activation:** action click, `Ctrl+Shift+K` (suggested key of the `_execute_action` command,
+`⇧⌘K` on macOS) or **Annotate this page** in the page's context menu opens the side panel and
+activates the overlay on the tab. On remembered origins the overlay loads by itself. Chrome
+grants `activeTab` for these three only; a button in the panel cannot activate a tab without
+a permission prompt. When the overlay is not active, the panel names all three, with the
+shortcut Chrome actually assigned (the developer can change it in
+`chrome://extensions/shortcuts`).
 
 **Modes** (switch in the panel, or keys while focus is not in a page field):
 
@@ -502,6 +507,13 @@ Each spike answers one question before code depends on it; the answer goes into 
    `onClicked` with the `activeTab` grant: `tests/e2e/overlay.e2e.test.ts` injects the overlay
    without any host permission, `tests/e2e/activate.e2e.test.ts` sees the panel open. Fallback
    not needed; the keyboard shortcut stays on the manual smoke checklist.
+   **Found later (2026-10-06):** Chrome assigns no suggested key that is one of its own
+   shortcuts, without any error: `Alt+Shift+A` (the first choice; it focuses inactive dialogs
+   on Windows and Linux) and `Ctrl+K` stay unassigned, `Ctrl+Shift+K` is assigned. Reloading
+   an unpacked extension assigns a changed suggested key unless the developer set one.
+   `tests/e2e/activate.e2e.test.ts` now checks the key Chrome assigned
+   (`chrome.commands.getAll`). Pressing the key and picking the context menu entry cannot be
+   automated and stay on the manual checklist.
 3. **Overlay styling:** Tailwind v4 and reka-ui popovers inside a closed shadow root on a page
    with strict CSP (`@property` registration, portal target inside the shadow root).
    **Result (2026-10-05):** works under `style-src 'self'`, `* { all: unset !important }`, a

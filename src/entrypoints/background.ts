@@ -15,6 +15,9 @@ import {
 } from '@/lib/messages'
 import { isSiteOrigin, originPattern } from '@/lib/settings'
 
+/** The page's context menu entry: it activates the extension like the toolbar icon. */
+const MENU_ENTRY = 'annotate'
+
 export default defineBackground(() => {
   const write = createWriter()
   const recordAnchors = createAnchorStore()
@@ -23,12 +26,14 @@ export default defineBackground(() => {
   const inject = (tabId: number) =>
     browser.scripting.executeScript({ target: { tabId }, files: [`/${OVERLAY_SCRIPT}`] })
 
-  browser.action.onClicked.addListener((tab) => {
+  /** The icon, its shortcut and the page's context menu entry: each grants `activeTab`. */
+  function activate(tab: Browser.tabs.Tab) {
     // Chrome accepts sidePanel.open() only synchronously inside the user gesture:
     // nothing may be awaited before this call.
     browser.sidePanel.open({ windowId: tab.windowId }).catch(() => undefined)
     const tabId = tab.id
-    if (tabId === undefined) return
+    // -1: a frame outside any tab, such as one in another extension's panel.
+    if (tabId === undefined || tabId < 0) return
     inject(tabId)
       // Restricted pages (chrome://, Web Store) refuse injection; the panel says so.
       .then(
@@ -36,7 +41,35 @@ export default defineBackground(() => {
         () => markBlocked(tabId),
       )
       .catch(() => undefined)
+  }
+
+  browser.action.onClicked.addListener(activate)
+  browser.contextMenus.onClicked.addListener((info, tab) => {
+    if (info.menuItemId === MENU_ENTRY && tab) activate(tab)
   })
+
+  /** Chrome keeps the entry across restarts and updates; written again, it is never doubled. */
+  function addMenuEntry() {
+    // Read, so Chrome does not log an unchecked error.
+    const checked = () => browser.runtime.lastError
+    try {
+      // Callbacks: contextMenus returns promises only from Chrome 123 on.
+      browser.contextMenus.removeAll(() => {
+        checked()
+        browser.contextMenus.create(
+          {
+            id: MENU_ENTRY,
+            title: 'Annotate this page',
+            contexts: ['page', 'frame', 'selection', 'link', 'editable', 'image', 'video', 'audio'],
+            documentUrlPatterns: ['http://*/*', 'https://*/*', 'file:///*'],
+          },
+          checked,
+        )
+      })
+    } catch {
+      // No entry then; the icon and the shortcut still work.
+    }
+  }
 
   browser.tabs.onUpdated.addListener((tabId, info) => {
     if (info.status === 'loading') void clearBlocked(tabId).catch(() => undefined)
@@ -49,7 +82,10 @@ export default defineBackground(() => {
   // their registration is written again whenever the extension starts.
   const reconcile = () => sites.reconcile().catch(() => [] as string[])
   browser.permissions.onRemoved.addListener(() => void reconcile())
-  browser.runtime.onStartup.addListener(() => void reconcile())
+  browser.runtime.onStartup.addListener(() => {
+    void reconcile()
+    addMenuEntry()
+  })
   browser.runtime.onInstalled.addListener(({ reason }) => {
     void reconcile().then(async (origins) => {
       // After an update, the open tabs of remembered sites hold orphaned overlays that
@@ -58,6 +94,7 @@ export default defineBackground(() => {
       const tabs = await browser.tabs.query({ url: origins.map(originPattern) })
       for (const { id } of tabs) if (id !== undefined) await inject(id).catch(() => undefined)
     })
+    addMenuEntry()
   })
 
   /** Go to: only pages of the collection, only on the web. */

@@ -70,6 +70,35 @@ describe('shadowRootOf', () => {
     vi.spyOn(chromeDom(), 'openOrClosedShadowRoot').mockReturnValue(undefined)
     expect(shadowRootOf(document.body)).toBeNull()
   })
+
+  it('is null for SVG and MathML elements, which Chrome refuses to look into', () => {
+    // Only HTML elements can have a shadow root; Chrome throws for every other element.
+    const refusing = vi.spyOn(chromeDom(), 'openOrClosedShadowRoot').mockImplementation((el) => {
+      if (!(el instanceof HTMLElement)) {
+        throw new TypeError(
+          'Error in invocation of dom.openOrClosedShadowRoot(HTMLElement element)',
+        )
+      }
+      return el.shadowRoot ?? undefined
+    })
+    document.body.innerHTML = '<svg><a href="#x"><rect width="1" height="1"></rect></a></svg>'
+    // happy-dom parses <math> as HTML; Chrome, like the standard, as MathML.
+    const math = document.createElementNS('http://www.w3.org/1998/Math/MathML', 'math')
+    math.append(document.createElementNS('http://www.w3.org/1998/Math/MathML', 'mi'))
+    document.body.append(math)
+    const foreign = [...document.querySelectorAll('svg, svg a, rect'), math, ...math.children]
+    expect(foreign).toHaveLength(5)
+    for (const el of foreign) expect(shadowRootOf(el), el.localName).toBeNull()
+    // Not asked at all: the overlay looks at every element of a page when it starts.
+    expect(refusing).not.toHaveBeenCalled()
+  })
+
+  it('is null when chrome.dom refuses an element for any other reason', () => {
+    vi.spyOn(chromeDom(), 'openOrClosedShadowRoot').mockImplementation(() => {
+      throw new TypeError('Error in invocation of dom.openOrClosedShadowRoot(HTMLElement element)')
+    })
+    expect(shadowRootOf(document.body)).toBeNull()
+  })
 })
 
 describe('deepActiveElement', () => {

@@ -6,9 +6,17 @@ import { checkManifest } from './check-manifest.mjs'
 const valid = () => ({
   manifest_version: 3,
   minimum_chrome_version: '116',
-  permissions: ['storage', 'activeTab', 'scripting', 'offscreen', 'clipboardWrite', 'sidePanel'],
+  permissions: [
+    'storage',
+    'activeTab',
+    'scripting',
+    'offscreen',
+    'clipboardWrite',
+    'sidePanel',
+    'contextMenus',
+  ],
   optional_host_permissions: ['https://*/*', 'http://*/*'],
-  commands: { _execute_action: { suggested_key: { default: 'Alt+Shift+A' } } },
+  commands: { _execute_action: { suggested_key: { default: 'Ctrl+Shift+K' } } },
   side_panel: { default_path: 'sidepanel.html' },
 })
 
@@ -73,6 +81,14 @@ describe('checkManifest', () => {
       icons: { 16: 'icon/16.png' },
     }
     assert.deepEqual(checkManifest(m), [])
+  })
+
+  it('rejects a shortcut Chrome keeps for itself', () => {
+    // Chrome assigns no suggested key that is one of its own shortcuts, and says nothing.
+    for (const key of ['Alt+Shift+A', 'Ctrl+K']) {
+      const m = { ...valid(), commands: { _execute_action: { suggested_key: { default: key } } } }
+      assert.match(checkManifest(m).join('\n'), /Ctrl\+Shift\+K/, key)
+    }
   })
 
   it('rejects a lower minimum Chrome version', () => {

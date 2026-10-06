@@ -36,6 +36,12 @@ function twoPages(): Collection {
   return c
 }
 
+/** The shortcut Chrome reports for the toolbar action. */
+const shortcutIs = (shortcut: string) =>
+  vi
+    .spyOn(fakeBrowser.commands, 'getAll')
+    .mockResolvedValue([{ name: '_execute_action', shortcut, description: '' }] as never)
+
 let wrapper: VueWrapper | undefined
 let overlayReply: unknown
 const writeText = vi.fn()
@@ -167,11 +173,49 @@ describe('side panel', () => {
       expect(byTestId('tab-status').textContent).toContain("Can't run on this page")
     })
 
-    it('explains how to activate otherwise', async () => {
+    it('explains how to activate otherwise, with the shortcut Chrome assigned', async () => {
+      shortcutIs('Ctrl+Shift+K')
       await render()
       expect(byTestId('tab-status').textContent).toContain(
-        'Not active on this page. Click the toolbar icon or press Alt+Shift+A.',
+        'Not active on this page. Click the toolbar icon, press Ctrl+Shift+K or right-click ' +
+          'the page and choose "Annotate this page".',
       )
+    })
+
+    it.each([
+      ['there is none', () => shortcutIs('')],
+      ['it cannot be read', () => undefined],
+    ])('names no shortcut when %s', async (_, setUp) => {
+      setUp()
+      await render()
+      expect(byTestId('tab-status').textContent).toContain(
+        'Not active on this page. Click the toolbar icon or right-click the page and choose ' +
+          '"Annotate this page".',
+      )
+    })
+
+    it('reads the shortcut again when a tab becomes active', async () => {
+      // It changes in chrome://extensions/shortcuts, a tab of its own.
+      shortcutIs('')
+      await render()
+      shortcutIs('Alt+Shift+K')
+      await fakeBrowser.tabs.onActivated.trigger({ tabId: 1, windowId: 1 })
+      await flushPromises()
+      expect(byTestId('tab-status').textContent).toContain('press Alt+Shift+K')
+    })
+
+    it('keeps the newest shortcut when an older read answers last', async () => {
+      let answerOld: (value: unknown) => void = () => undefined
+      const old = new Promise((done) => (answerOld = done))
+      vi.spyOn(fakeBrowser.commands, 'getAll')
+        .mockReturnValueOnce(old as never)
+        .mockResolvedValueOnce([{ name: '_execute_action', shortcut: 'Alt+Shift+K' }] as never)
+      await render()
+      await fakeBrowser.tabs.onActivated.trigger({ tabId: 1, windowId: 1 })
+      await flushPromises()
+      answerOld([{ name: '_execute_action', shortcut: 'Ctrl+Shift+K' }])
+      await flushPromises()
+      expect(byTestId('tab-status').textContent).toContain('press Alt+Shift+K')
     })
 
     it('ignores a malformed overlay reply', async () => {

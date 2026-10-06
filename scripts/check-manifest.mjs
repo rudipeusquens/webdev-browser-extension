@@ -8,12 +8,16 @@ import { pathToFileURL } from 'node:url'
 const PERMISSIONS = [
   'activeTab',
   'clipboardWrite',
+  'contextMenus',
   'offscreen',
   'scripting',
   'sidePanel',
   'storage',
 ]
 const OPTIONAL_HOSTS = ['http://*/*', 'https://*/*']
+// Chrome assigns no suggested key that is one of its own shortcuts (Alt+Shift+A, Ctrl+K), and
+// says nothing: tests/e2e/activate.e2e.test.ts checks the key Chrome actually assigned.
+const SHORTCUT = 'Ctrl+Shift+K'
 // Every other top-level key could widen access (optional_permissions, externally_connectable,
 // content_security_policy, oauth2, …) and needs a deliberate change here.
 const ALLOWED_KEYS = new Set([
@@ -50,8 +54,8 @@ export function checkManifest(m) {
     errors.push('content_scripts must be absent (runtime injection only)')
   }
   if (m.web_accessible_resources?.length) errors.push('web_accessible_resources must be absent')
-  if (m.commands?._execute_action?.suggested_key?.default !== 'Alt+Shift+A') {
-    errors.push('_execute_action must suggest Alt+Shift+A')
+  if (m.commands?._execute_action?.suggested_key?.default !== SHORTCUT) {
+    errors.push(`_execute_action must suggest ${SHORTCUT}`)
   }
   for (const key of Object.keys(m)) {
     if (!ALLOWED_KEYS.has(key) && !CHECKED_KEYS.has(key)) {
