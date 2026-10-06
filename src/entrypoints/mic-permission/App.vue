@@ -39,6 +39,10 @@ onBeforeUnmount(() => clearTimeout(closing))
         Webdev Browser Extension records only while you dictate a comment, after you click the mic
         button or press Alt+V. The recording goes to OpenRouter for transcription and is not kept.
       </p>
+      <p class="text-sm text-muted-foreground">
+        When Chrome asks, allow the microphone for good, not only this time: dictation happens in
+        the background, after this tab has closed.
+      </p>
 
       <p
         data-testid="mic-status"

@@ -46,6 +46,12 @@ describe('dictating a comment', () => {
     server = await startFixtureServer()
     fake = await startFakeOpenRouter()
     s = await launch({ openrouter: fake.origin, microphone: 'granted' })
+    await s.browser
+      .defaultBrowserContext()
+      .overridePermissions(`chrome-extension://${s.extensionId}`, [
+        'clipboard-read',
+        'clipboard-sanitized-write',
+      ])
     await s.page.goto(`${server.origin}/plain/`)
     // The toolbar click grants activeTab and opens the panel; later tests start overlays
     // without toggling it.
@@ -142,6 +148,28 @@ describe('dictating a comment', () => {
 
     await s.page.keyboard.press('Enter')
     expect(await savedComments()).toEqual([`Fix this ${FAKE_TEXT}`])
+
+    // The dictated comment is in the prompt the panel copies.
+    const panel = await panelPage()
+    await panel.click('[data-testid="copy-prompt"]')
+    await panel.waitForSelector('::-p-text(Copied 1 item)')
+    const prompt = await panel.evaluate(() => navigator.clipboard.readText())
+    expect(prompt).toContain(`> Fix this ${FAKE_TEXT}`)
+    await panel.click('[data-testid="clear-all"]')
+    await panel.click('[data-testid="clear-confirm"]')
+    await s.page.bringToFront()
+  })
+
+  it('keeps what is typed while it records', async () => {
+    await popover()
+    await record(600)
+    await clickInOverlay(s, 'textarea')
+    await s.page.keyboard.type('Typed meanwhile')
+    await s.page.keyboard.down('Alt')
+    await s.page.keyboard.press('KeyV')
+    await s.page.keyboard.up('Alt')
+    for (let i = 0; i < 50 && !(await field()).includes(FAKE_TEXT); i++) await sleep(100)
+    expect(await field()).toBe(`Typed meanwhile ${FAKE_TEXT}`)
   })
 
   it('starts and stops on Alt+V', async () => {
@@ -216,8 +244,13 @@ describe('dictating a comment', () => {
     await waitForText('[data-testid="overlay-voice-message"]', text)
   })
 
-  it('opens the panel settings when there is no key', async () => {
+  it('opens the panel on its settings when there is no key, also when it was closed', async () => {
     await setKey(s, null)
+    // The panel closes itself (as on a second click on the toolbar icon).
+    await (await panelPage()).evaluate(() => window.close())
+    for (let i = 0; i < 50 && (await panelTarget()); i++) await sleep(100)
+    expect(await panelTarget()).toBeUndefined()
+    await s.page.bringToFront()
     await popover()
     await clickInOverlay(s, '[data-testid="overlay-mic"]')
     await waitForText(
@@ -296,6 +329,21 @@ describe('dictating a comment', () => {
     expect(overlay).not.toContain('openrouterKey')
     expect(overlay).not.toContain('openrouter.ai')
   })
+
+  const panelTarget = async () =>
+    s.browser
+      .targets()
+      .find((t) => t.url() === `chrome-extension://${s.extensionId}/sidepanel.html`)
+
+  /** The open side panel. */
+  async function panelPage() {
+    const target = await s.browser.waitForTarget(
+      (t) => t.url() === `chrome-extension://${s.extensionId}/sidepanel.html`,
+    )
+    const panel = await target.asPage()
+    await panel.setViewport({ width: 400, height: 900 })
+    return panel
+  }
 
   /** Everything in chrome.storage.local, as JSON. */
   async function storageText(): Promise<string> {

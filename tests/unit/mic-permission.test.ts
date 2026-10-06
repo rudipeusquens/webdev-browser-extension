@@ -99,6 +99,8 @@ describe('the microphone page', () => {
     await flushPromises()
     expect(page.text()).toMatch(/only while you dictate/i)
     expect(page.text()).toContain('OpenRouter')
+    // A one-time grant would end with this tab.
+    expect(page.text()).toMatch(/for good, not only this time/)
     page.unmount()
   })
 })
