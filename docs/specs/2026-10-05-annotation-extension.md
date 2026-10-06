@@ -323,6 +323,14 @@ a permission prompt. When the overlay is not active, the panel names all three, 
 shortcut Chrome actually assigned (the developer can change it in
 `chrome://extensions/shortcuts`).
 
+The action click and its shortcut toggle: while the panel is open and the overlay answers on
+that tab, they close the panel instead (the background asks the open panel, which checks the
+tab again, since it may have just navigated, and closes itself; this works from Chrome 116,
+where `sidePanel.close()` needs 141). On another tab they activate it there and the panel stays
+open. The context menu entry only ever opens. However the panel closes, the overlay switches
+to Browse: pins stay, the page works normally. A panel that moves to another tab tells the
+overlay first, which then keeps its mode.
+
 **Modes** (switch in the panel, or keys while focus is not in a page field):
 
 | Mode    | Key   | Behavior                                                                                                                                                                                                                    |

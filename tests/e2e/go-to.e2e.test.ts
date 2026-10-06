@@ -1,6 +1,13 @@
 import type { Page } from 'puppeteer'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
-import { clickAction, contentRealm, launch, type Session, startFixtureServer } from './harness'
+import {
+  clickAction,
+  contentRealm,
+  launch,
+  serviceWorker,
+  type Session,
+  startFixtureServer,
+} from './harness'
 import { markElement, overlayMounted, sleep, waitForItems, waitInOverlay } from './overlay-helpers'
 
 const POPOVER = '[data-testid="overlay-popover"]'
@@ -90,8 +97,22 @@ describe('the panel and the pages of the collection', () => {
     await panel.evaluate(() => chrome.storage.local.clear())
     await overlayMounted(session)
     await mark('h1', 'Highlight me again', 1)
-    // The overlay starts again on the same tab while the panel stays open.
-    panel = await clickAction(session)
+    // The overlay starts again on the same tab while the panel stays open, as the page's
+    // context menu entry does it (a second toolbar click closes the panel).
+    const worker = await serviceWorker(session)
+    await worker.evaluate(async () => {
+      const { chrome } = globalThis as unknown as {
+        chrome: {
+          tabs: { query(q: object): Promise<{ id: number }[]> }
+          scripting: { executeScript(o: object): Promise<unknown> }
+        }
+      }
+      const [tab] = await chrome.tabs.query({ active: true, lastFocusedWindow: true })
+      await chrome.scripting.executeScript({
+        target: { tabId: tab?.id },
+        files: ['/content-scripts/overlay.js'],
+      })
+    })
     await overlayMounted(session)
     await sleep(500)
     await panel.hover('[data-testid="item"]')

@@ -10,7 +10,9 @@ import { loadCollection } from '@/lib/collection/store'
 import {
   type BackgroundMessage,
   isBackgroundMessage,
+  isPanelToggleReply,
   type OriginReply,
+  type PanelToggle,
   type Reply,
 } from '@/lib/messages'
 import { isSiteOrigin, originPattern } from '@/lib/settings'
@@ -26,14 +28,18 @@ export default defineBackground(() => {
   const inject = (tabId: number) =>
     browser.scripting.executeScript({ target: { tabId }, files: [`/${OVERLAY_SCRIPT}`] })
 
-  /** The icon, its shortcut and the page's context menu entry: each grants `activeTab`. */
-  function activate(tab: Browser.tabs.Tab) {
-    // Chrome accepts sidePanel.open() only synchronously inside the user gesture:
-    // nothing may be awaited before this call.
+  /**
+   * The icon, its shortcut and the page's context menu entry open the panel; each grants
+   * `activeTab`. Chrome accepts sidePanel.open() only synchronously inside the user gesture:
+   * nothing may be awaited before this call. The tab, if there is one to start the overlay on.
+   */
+  function openPanel(tab: Browser.tabs.Tab): number | undefined {
     browser.sidePanel.open({ windowId: tab.windowId }).catch(() => undefined)
-    const tabId = tab.id
     // -1: a frame outside any tab, such as one in another extension's panel.
-    if (tabId === undefined || tabId < 0) return
+    return tab.id !== undefined && tab.id >= 0 ? tab.id : undefined
+  }
+
+  function start(tabId: number) {
     void clearFailed(tabId).catch(() => undefined)
     inject(tabId)
       // Restricted pages (chrome://, Web Store) refuse injection; the panel says so.
@@ -44,7 +50,34 @@ export default defineBackground(() => {
       .catch(() => undefined)
   }
 
-  browser.action.onClicked.addListener(activate)
+  /** The context menu entry only ever opens the panel and starts the overlay. */
+  function activate(tab: Browser.tabs.Tab) {
+    const tabId = openPanel(tab)
+    if (tabId !== undefined) start(tabId)
+  }
+
+  /**
+   * The icon and its shortcut toggle the panel: an open panel whose page is active on this tab
+   * closes itself and says so (spec section 8); otherwise the overlay starts.
+   */
+  function toggle(tab: Browser.tabs.Tab) {
+    const tabId = openPanel(tab)
+    if (tabId === undefined) return
+    const ask: PanelToggle = { type: 'panel:toggle', windowId: tab.windowId, tabId }
+    browser.runtime
+      .sendMessage(ask)
+      // No panel answers when none is open.
+      .then(
+        (reply) => isPanelToggleReply(reply) && reply.closing,
+        () => false,
+      )
+      .then((closing) => {
+        if (!closing) start(tabId)
+      })
+      .catch(() => undefined)
+  }
+
+  browser.action.onClicked.addListener(toggle)
   browser.contextMenus.onClicked.addListener((info, tab) => {
     if (info.menuItemId === MENU_ENTRY && tab) activate(tab)
   })

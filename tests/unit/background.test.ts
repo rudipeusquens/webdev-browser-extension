@@ -15,11 +15,18 @@ const tab = { id: 5, windowId: 1 } as Parameters<
 >[0]
 const flush = () => new Promise((done) => setTimeout(done, 0))
 
+/** No side panel is open: nothing answers a message from the background. */
+const noPanel = () =>
+  vi
+    .spyOn(fakeBrowser.runtime, 'sendMessage')
+    .mockRejectedValue(new Error('Could not establish connection. Receiving end does not exist.'))
+
 describe('background', () => {
   beforeEach(() => {
     fakeBrowser.reset()
     fakeSites()
     fakeContextMenus()
+    noPanel()
     vi.spyOn(fakeBrowser.sidePanel, 'open').mockResolvedValue(undefined)
     background.main()
   })
@@ -28,12 +35,40 @@ describe('background', () => {
 
   it('opens the panel before anything is awaited and injects the overlay', async () => {
     const inject = vi.spyOn(fakeBrowser.scripting, 'executeScript').mockResolvedValue([] as never)
-    await fakeBrowser.action.onClicked.trigger(tab)
+    const clicked = fakeBrowser.action.onClicked.trigger(tab)
+    // Synchronously, inside the click: Chrome refuses sidePanel.open() after an await.
     expect(fakeBrowser.sidePanel.open).toHaveBeenCalledWith({ windowId: 1 })
-    expect(inject).toHaveBeenCalledWith({
-      target: { tabId: 5 },
-      files: ['/content-scripts/overlay.js'],
-    })
+    await clicked
+    await vi.waitFor(() =>
+      expect(inject).toHaveBeenCalledWith({
+        target: { tabId: 5 },
+        files: ['/content-scripts/overlay.js'],
+      }),
+    )
+  })
+
+  it('leaves the page alone when the open panel closes on a click', async () => {
+    const inject = vi.spyOn(fakeBrowser.scripting, 'executeScript').mockResolvedValue([] as never)
+    const asked = vi
+      .spyOn(fakeBrowser.runtime, 'sendMessage')
+      .mockResolvedValue({ closing: true } as never)
+    const clicked = fakeBrowser.action.onClicked.trigger(tab)
+    expect(fakeBrowser.sidePanel.open).toHaveBeenCalledWith({ windowId: 1 })
+    await clicked
+    await flush()
+    expect(asked).toHaveBeenCalledWith({ type: 'panel:toggle', windowId: 1, tabId: 5 })
+    expect(inject).not.toHaveBeenCalled()
+  })
+
+  it.each([
+    ['the open panel stays open', { closing: false }],
+    ['nothing answers', undefined],
+    ['the answer is malformed', { closing: 'yes' }],
+  ])('activates the page when %s', async (_, reply) => {
+    const inject = vi.spyOn(fakeBrowser.scripting, 'executeScript').mockResolvedValue([] as never)
+    vi.spyOn(fakeBrowser.runtime, 'sendMessage').mockResolvedValue(reply as never)
+    await fakeBrowser.action.onClicked.trigger(tab)
+    await vi.waitFor(() => expect(inject).toHaveBeenCalled())
   })
 
   it('marks a tab that refuses injection and clears it after a later success', async () => {
@@ -385,6 +420,8 @@ describe('background: the page context menu', () => {
 
   it('opens the panel before anything is awaited and injects the overlay', async () => {
     const inject = vi.spyOn(fakeBrowser.scripting, 'executeScript').mockResolvedValue([] as never)
+    // The entry only ever opens: an open panel is not asked to close.
+    const asked = vi.spyOn(fakeBrowser.runtime, 'sendMessage')
     menus.click('annotate', tab)
     // Synchronously, inside the click: Chrome refuses sidePanel.open() after an await.
     expect(fakeBrowser.sidePanel.open).toHaveBeenCalledWith({ windowId: 1 })
@@ -393,6 +430,7 @@ describe('background: the page context menu', () => {
       target: { tabId: 5 },
       files: ['/content-scripts/overlay.js'],
     })
+    expect(asked).not.toHaveBeenCalled()
   })
 
   it('ignores other entries and clicks outside a tab', async () => {

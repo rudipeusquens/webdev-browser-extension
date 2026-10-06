@@ -14,10 +14,13 @@ export type TabStatus =
 
 export function useActiveTab(): {
   tabId: Ref<number | undefined>
+  /** The window of the active tab: the panel's own. */
+  windowId: Ref<number | undefined>
   status: Ref<TabStatus>
   refresh: () => Promise<void>
 } {
   const tabId = ref<number>()
+  const windowId = ref<number>()
   const status = ref<TabStatus>({ kind: 'idle' })
   let latest = 0
 
@@ -35,6 +38,7 @@ export function useActiveTab(): {
     // An older refresh must not overwrite a newer one.
     if (run !== latest) return
     tabId.value = id
+    windowId.value = tab?.windowId
     status.value = next
   }
 
@@ -64,5 +68,5 @@ export function useActiveTab(): {
     browser.storage.onChanged.removeListener(onStorage)
   })
 
-  return { tabId, status, refresh }
+  return { tabId, windowId, status, refresh }
 }

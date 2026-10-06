@@ -21,6 +21,7 @@ import {
   type Mode,
   MODES,
   type OverlayMessage,
+  type PanelLeave,
   type Reply,
 } from '@/lib/messages'
 import { isSiteOrigin, originPattern } from '@/lib/settings'
@@ -30,12 +31,14 @@ import ItemList from './ItemList.vue'
 import SettingsView from './SettingsView.vue'
 import { useActiveTab } from './use-active-tab'
 import { useMissing } from './use-missing'
+import { usePanelToggle } from './use-panel-toggle'
 import { useSettings } from './use-settings'
 import { useShortcut } from './use-shortcut'
 import { useCollection } from '@/composables/use-collection'
 
 const { collection } = useCollection()
-const { tabId, status, refresh } = useActiveTab()
+const { tabId, windowId, status, refresh } = useActiveTab()
+usePanelToggle(windowId)
 const { missing } = useMissing()
 const { settings } = useSettings()
 const { shortcut } = useShortcut()
@@ -144,6 +147,12 @@ watch(
       : undefined,
   (next, previous) => {
     if (next?.tab === previous?.tab && next?.overlay === previous?.overlay) return
+    try {
+      // Moving on, not closing: the overlay keeps its mode.
+      port?.postMessage({ type: 'panel:leave' } satisfies PanelLeave)
+    } catch {
+      // That overlay is gone already.
+    }
     port?.disconnect()
     port = undefined
     if (!next) return

@@ -436,9 +436,15 @@ describe('side panel', () => {
   })
 
   it('keeps a line open to the overlay of the active tab, and to a new one on the same tab', async () => {
-    const ports: { disconnect: ReturnType<typeof vi.fn> }[] = []
+    const ports: { postMessage: ReturnType<typeof vi.fn>; disconnect: ReturnType<typeof vi.fn> }[] =
+      []
     const connect = vi.spyOn(fakeBrowser.tabs, 'connect').mockImplementation((() => {
-      const port = { name: 'panel', disconnect: vi.fn(), onDisconnect: { addListener: vi.fn() } }
+      const port = {
+        name: 'panel',
+        postMessage: vi.fn(),
+        disconnect: vi.fn(),
+        onDisconnect: { addListener: vi.fn() },
+      }
       ports.push(port)
       return port
     }) as never)
@@ -454,7 +460,85 @@ describe('side panel', () => {
     )
     await flushPromises()
     expect(connect).toHaveBeenCalledTimes(2)
+    // Leaving, not closing: the overlay keeps its mode.
+    expect(ports[0]?.postMessage).toHaveBeenCalledWith({ type: 'panel:leave' })
     expect(ports[0]?.disconnect).toHaveBeenCalled()
+    expect(ports[0]?.postMessage.mock.invocationCallOrder[0]).toBeLessThan(
+      ports[0]?.disconnect.mock.invocationCallOrder[0] ?? 0,
+    )
+  })
+
+  describe('the toolbar toggles the panel', () => {
+    /** Delivers `message` from `sender` to the panel; resolves with its answer, if any. */
+    async function ask(message: object, sender: object = { id: fakeBrowser.runtime.id }) {
+      let reply: unknown
+      await fakeBrowser.runtime.onMessage.trigger(message, sender, (r: unknown) => (reply = r))
+      await flushPromises()
+      return reply
+    }
+
+    let close: ReturnType<typeof vi.spyOn>
+
+    beforeEach(() => {
+      vi.spyOn(fakeBrowser.tabs, 'query').mockResolvedValue([{ id: 1, windowId: 7 }] as never)
+      vi.spyOn(fakeBrowser.tabs, 'connect').mockReturnValue({
+        name: 'panel',
+        postMessage: vi.fn(),
+        disconnect: vi.fn(),
+        onDisconnect: { addListener: vi.fn() },
+      } as never)
+      close = vi.spyOn(window, 'close').mockImplementation(() => undefined)
+    })
+
+    it('closes itself when its page is active on the tab the toolbar was used on', async () => {
+      overlayReply = active
+      await render()
+      expect(await ask({ type: 'panel:toggle', windowId: 7, tabId: 1 })).toEqual({ closing: true })
+      await vi.waitFor(() => expect(close).toHaveBeenCalled())
+    })
+
+    it('stays open for another tab of its window without an overlay', async () => {
+      overlayReply = active
+      await render()
+      vi.mocked(fakeBrowser.tabs.sendMessage).mockImplementation((async (id: number) => {
+        if (id !== 1) throw new Error('Could not establish connection.')
+        return active
+      }) as never)
+      expect(await ask({ type: 'panel:toggle', windowId: 7, tabId: 2 })).toEqual({ closing: false })
+      expect(close).not.toHaveBeenCalled()
+    })
+
+    it('asks the tab again instead of trusting what it showed a moment ago', async () => {
+      // The tab navigated to another page; the click comes before the panel caught up.
+      overlayReply = active
+      await render()
+      overlayReply = undefined
+      expect(await ask({ type: 'panel:toggle', windowId: 7, tabId: 1 })).toEqual({ closing: false })
+      expect(close).not.toHaveBeenCalled()
+    })
+
+    it('stays open when its page is not active', async () => {
+      await render()
+      expect(await ask({ type: 'panel:toggle', windowId: 7, tabId: 1 })).toEqual({ closing: false })
+      expect(close).not.toHaveBeenCalled()
+    })
+
+    it('leaves other windows, pages and malformed requests unanswered', async () => {
+      overlayReply = active
+      await render()
+      expect(await ask({ type: 'panel:toggle', windowId: 8, tabId: 1 })).toBeUndefined()
+      expect(
+        await ask(
+          { type: 'panel:toggle', windowId: 7, tabId: 1 },
+          { id: fakeBrowser.runtime.id, tab: { id: 1 } },
+        ),
+      ).toBeUndefined()
+      expect(
+        await ask({ type: 'panel:toggle', windowId: 7, tabId: 1 }, { id: 'other-extension' }),
+      ).toBeUndefined()
+      expect(await ask({ type: 'panel:toggle', windowId: '7', tabId: 1 })).toBeUndefined()
+      expect(close).not.toHaveBeenCalled()
+    })
   })
 
   describe('sites', () => {
@@ -586,6 +670,7 @@ describe('side panel', () => {
   it('keeps a line open to the overlay of the active tab', async () => {
     const connect = vi.spyOn(fakeBrowser.tabs, 'connect').mockReturnValue({
       name: 'panel',
+      postMessage: vi.fn(),
       disconnect: vi.fn(),
       onDisconnect: { addListener: vi.fn() },
     } as never)

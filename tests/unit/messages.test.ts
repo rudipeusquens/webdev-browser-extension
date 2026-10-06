@@ -1,5 +1,12 @@
 import { describe, expect, it } from 'vitest'
-import { isBackgroundMessage, isMessage, isOverlayMessage, isOverlayStatus } from '@/lib/messages'
+import {
+  isBackgroundMessage,
+  isMessage,
+  isOverlayMessage,
+  isOverlayStatus,
+  isPanelToggle,
+  isPanelToggleReply,
+} from '@/lib/messages'
 import { page, snapshot } from './helpers/collection'
 
 const add = {
@@ -113,5 +120,29 @@ describe('isOverlayStatus', () => {
     expect(isOverlayStatus({ ...status, mode: 'x' })).toBe(false)
     expect(isOverlayStatus({ ...status, host: 'x'.repeat(300) })).toBe(false)
     expect(isOverlayStatus(undefined)).toBe(false)
+  })
+})
+
+describe('the toolbar toggle', () => {
+  it('checks the request to an open panel', () => {
+    expect(isPanelToggle({ type: 'panel:toggle', windowId: 7, tabId: 1 })).toBe(true)
+    for (const bad of [
+      { type: 'panel:toggle', windowId: '7', tabId: 1 },
+      { type: 'panel:toggle', windowId: 7, tabId: 1.5 },
+      { type: 'panel:toggle', windowId: 7 },
+      { type: 'panel:toggle', windowId: 7, tabId: 1, extra: true },
+      { type: 'overlay:changed' },
+      null,
+    ]) {
+      expect(isPanelToggle(bad), JSON.stringify(bad)).toBe(false)
+    }
+  })
+
+  it('checks the answer of the panel', () => {
+    expect(isPanelToggleReply({ closing: true })).toBe(true)
+    expect(isPanelToggleReply({ closing: false })).toBe(true)
+    for (const bad of [{ closing: 'yes' }, { closing: true, extra: 1 }, {}, undefined]) {
+      expect(isPanelToggleReply(bad)).toBe(false)
+    }
   })
 })
