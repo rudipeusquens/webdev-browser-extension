@@ -2,6 +2,7 @@ import { flushPromises, mount, type VueWrapper } from '@vue/test-utils'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { fakeBrowser } from 'wxt/testing/fake-browser'
 import App from '@/entrypoints/sidepanel/App.vue'
+import { MISSING_KEY } from '@/lib/background/anchor-status'
 import { markBlocked } from '@/lib/background/tab-status'
 import type { Collection } from '@/lib/collection/model'
 import { addAnnotation, emptyCollection } from '@/lib/collection/ops'
@@ -197,6 +198,22 @@ describe('side panel', () => {
   it('disables the mode switch while the page is not active', async () => {
     await render()
     expect(byTestId('mode-element').hasAttribute('disabled')).toBe(true)
+  })
+
+  it('marks items that were not found and copies the prompt with them', async () => {
+    const c = twoPages()
+    await fakeBrowser.storage.session.set({ [MISSING_KEY]: ['a1'] })
+    await render(c)
+    const entries = [...document.querySelectorAll('[data-testid="item"]')]
+    const marked = entries.filter((e) => e.querySelector('[data-testid="not-found"]'))
+    expect(marked.map((e) => e.textContent)).toEqual([expect.stringContaining('First on A')])
+    byTestId('copy-prompt').click()
+    await flushPromises()
+    expect(writeText).toHaveBeenCalledWith(formatCollection(c, { missing: new Set(['a1']) }))
+
+    await fakeBrowser.storage.session.set({ [MISSING_KEY]: [] })
+    await flushPromises()
+    expect(document.querySelector('[data-testid="not-found"]')).toBeNull()
   })
 
   it('shows the target summary of an entry', async () => {

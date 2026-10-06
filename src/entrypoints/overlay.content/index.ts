@@ -73,6 +73,10 @@ export default defineContentScript({
       },
     })
     ui.mount()
+    // After the extension is reloaded or updated, this script is orphaned: it cannot reach
+    // the extension anymore. WXT's interval notices (`browser.runtime.id` is gone) and
+    // invalidates the context, which removes the overlay.
+    ctx.setInterval(() => undefined, 1000)
     globalThis.__webdevOverlay = { shadow: ui.shadow }
   },
 })

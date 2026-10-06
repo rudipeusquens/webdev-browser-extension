@@ -9,6 +9,7 @@ import {
   isComment,
   isObject,
   isPageInfo,
+  isPageUrl,
   isTarget,
   isText,
 } from './collection/validate'
@@ -26,7 +27,21 @@ export type CollectionMessage =
 /** Overlay → background: the code origins of the elements these selectors match. */
 export type OriginMessage = { type: 'origin:read'; selectors: string[] }
 
-export type BackgroundMessage = CollectionMessage | OriginMessage
+/** Overlay → background: which items of its page it found and which it did not. */
+export type AnchorMessage = {
+  type: 'anchors:report'
+  pageKey: string
+  found: string[]
+  missing: string[]
+}
+
+export type BackgroundMessage = CollectionMessage | OriginMessage | AnchorMessage
+
+/** Most ids one `anchors:report` lists in each of its lists. */
+const MAX_REPORTED = 1000
+
+const isIdList = (x: unknown): x is string[] =>
+  Array.isArray(x) && x.length <= MAX_REPORTED && x.every(isAnnotationId)
 
 /** Most selectors one `origin:read` asks for: an area's container and its elements. */
 export const MAX_ORIGIN_SELECTORS = LIMITS.areaElements + 1
@@ -75,6 +90,13 @@ export function isBackgroundMessage(x: unknown): x is BackgroundMessage {
       return hasKeys(x, ['type', 'id']) && isAnnotationId(x.id)
     case 'collection:clear':
       return hasKeys(x, ['type'])
+    case 'anchors:report':
+      return (
+        hasKeys(x, ['type', 'pageKey', 'found', 'missing']) &&
+        isPageUrl(x.pageKey) &&
+        isIdList(x.found) &&
+        isIdList(x.missing)
+      )
     case 'origin:read':
       return (
         hasKeys(x, ['type', 'selectors']) &&

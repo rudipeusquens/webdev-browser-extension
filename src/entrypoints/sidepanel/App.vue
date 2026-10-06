@@ -12,10 +12,12 @@ import ClearAllDialog from './ClearAllDialog.vue'
 import CopyFallbackDialog from './CopyFallbackDialog.vue'
 import ItemList from './ItemList.vue'
 import { useActiveTab } from './use-active-tab'
+import { useMissing } from './use-missing'
 import { useCollection } from '@/composables/use-collection'
 
 const { collection } = useCollection()
 const { tabId, status, refresh } = useActiveTab()
+const { missing } = useMissing()
 
 const count = computed(() => collection.value.items.length)
 const groups = computed(() => {
@@ -52,7 +54,7 @@ function toOverlay(message: OverlayMessage) {
 }
 
 async function copy() {
-  const text = formatCollection(collection.value)
+  const text = formatCollection(collection.value, { missing: missing.value })
   const n = count.value
   try {
     await navigator.clipboard.writeText(text)
@@ -129,6 +131,7 @@ function setMode(next: unknown) {
       <ItemList
         v-else
         :groups="groups"
+        :missing="missing"
         @remove="(id) => toBackground({ type: 'annotation:remove', id })"
         @highlight="(id) => toOverlay({ type: 'overlay:highlight', id })"
         @reveal="(id) => toOverlay({ type: 'overlay:reveal', id })"

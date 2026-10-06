@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { fakeBrowser } from 'wxt/testing/fake-browser'
 import { isBlocked, markBlocked } from '@/lib/background/tab-status'
+import { loadMissing } from '@/lib/background/anchor-status'
 import { loadCollection } from '@/lib/collection/store'
 import background from '@/entrypoints/background'
 import { vueOrigins } from '@/lib/capture/origin-bridge'
@@ -149,6 +150,52 @@ describe('background: code origins', () => {
     const slow = send(read, contentScript)
     await vi.advanceTimersByTimeAsync(1500)
     expect(await slow).toEqual({ ok: true, origins: [null, null] })
+  })
+})
+
+describe('background: items not found', () => {
+  const contentScript = { id: fakeBrowser.runtime.id, tab, frameId: 0, documentId: 'doc-1' }
+  const A = 'http://x.test/a'
+  const B = 'http://x.test/b'
+  const report = (pageKey: string, found: string[], missing: string[]) => ({
+    type: 'anchors:report',
+    pageKey,
+    found,
+    missing,
+  })
+
+  beforeEach(async () => {
+    fakeBrowser.reset()
+    background.main()
+    for (const [id, url] of [
+      ['a1', A],
+      ['a2', A],
+      ['b1', B],
+    ] as const) {
+      await send({ type: 'annotation:add', ...elementInput(id, url) }, contentScript)
+    }
+  })
+
+  afterEach(() => vi.restoreAllMocks())
+
+  it("keeps the missing items of the reporting page's own items only", async () => {
+    expect(await send(report(A, ['a1'], ['a2', 'b1', 'zz']), contentScript)).toEqual({ ok: true })
+    expect([...(await loadMissing())]).toEqual(['a2'])
+    await send(report(B, [], ['b1']), contentScript)
+    expect([...(await loadMissing())].sort()).toEqual(['a2', 'b1'])
+    await send(report(A, ['a2'], []), contentScript)
+    expect([...(await loadMissing())]).toEqual(['b1'])
+  })
+
+  it('accepts reports from pages only, and forgets everything on Clear all', async () => {
+    expect(await send(report(A, [], ['a1']), { id: fakeBrowser.runtime.id })).toMatchObject({
+      ok: false,
+    })
+    expect((await loadMissing()).size).toBe(0)
+    await send(report(A, [], ['a1']), contentScript)
+    expect((await loadMissing()).size).toBe(1)
+    await send({ type: 'collection:clear' }, { id: fakeBrowser.runtime.id })
+    expect((await loadMissing()).size).toBe(0)
   })
 })
 

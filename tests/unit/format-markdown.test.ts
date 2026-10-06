@@ -165,6 +165,30 @@ describe('formatCollection', () => {
     expect(formatCollection(c)).toBe(golden('hostile-text.md'))
   })
 
+  it('marks items that were not found on the page, under their heading', () => {
+    const c = collect(
+      {
+        url: 'http://localhost:3000/',
+        target: { kind: 'element', element: snapshot() },
+        comment: 'Gone',
+        title: 'Home',
+      },
+      {
+        url: 'http://localhost:3000/',
+        target: { kind: 'element', element: snapshot() },
+        comment: 'Here',
+        title: 'Home',
+      },
+    )
+    const text = formatCollection(c, { missing: new Set(['i0']) })
+    expect(text).toContain(
+      '### 1. Element\n\n(not found on the page anymore, data from when it was marked)\n\n> Gone\n',
+    )
+    expect(text).toContain('### 2. Element\n\n> Here\n')
+    expect(text.match(/not found on the page anymore/g)).toHaveLength(1)
+    expect(formatCollection(c)).toBe(formatCollection(c, { missing: new Set() }))
+  })
+
   it('renders a multi-line comment as one blockquote', () => {
     const out = formatCollection(collect({ ...elementLine(), comment: 'First\n\nSecond' }))
     expect(out).toContain('\n\n> First\n>\n> Second\n\n')

@@ -2,7 +2,8 @@
 import { computed, onBeforeUnmount, onMounted, ref, shallowReactive, shallowRef, watch } from 'vue'
 import { browser } from 'wxt/browser'
 import { useCollection } from '@/composables/use-collection'
-import { closestOf, deepActiveElement, tagOf } from '@/lib/capture/dom'
+import { closestOf, deepActiveElement, queryFirst, tagOf } from '@/lib/capture/dom'
+import { findText } from '@/lib/capture/find-text'
 import { snapshotArea } from '@/lib/capture/area'
 import { buildSelector } from '@/lib/capture/selector'
 import { pageInfo, snapshotElement } from '@/lib/capture/snapshot'
@@ -23,13 +24,14 @@ import {
   type OverlayStatus,
   type Reply,
 } from '@/lib/messages'
+import { createAnchorStatus } from './anchor-status'
 import CommentPopover from './CommentPopover.vue'
 import HoverBox from './HoverBox.vue'
 import { newId } from './ids'
 import { type Origins, readOrigins, sourcesOf, within, withOrigins } from './origins'
 import { pageShortcut } from './keys'
 import { forwardsWheel, isEditable, pickAt, scrollableAncestor, TargetPath } from './picker'
-import { boxOf, type LiveAnchor, pinPositions, placeItems, pruneLive } from './pins'
+import { boxOf, isLiveRange, type LiveAnchor, pinPositions, placeItems, pruneLive } from './pins'
 import type { Layer } from './top-layer'
 import { rectBetween } from './place'
 import SelectionChip from './SelectionChip.vue'
@@ -51,6 +53,8 @@ const MIN_AREA = 4
 const ORIGIN_WAIT = 2000
 /** How long the pointer rests on an element before its component is looked up. */
 const HOVER_DWELL = 150
+/** Text items are searched again at most this often while the page changes. */
+const REANCHOR_EVERY = 300
 
 interface Draft {
   key: number
@@ -89,7 +93,7 @@ const chip = shallowRef<{ range: Range; anchor: Range } | null>(null)
 const drag = shallowRef<{ from: { x: number; y: number }; to: { x: number; y: number } } | null>(
   null,
 )
-const frame = useTracking()
+const { frame, layout } = useTracking()
 const { key: page } = usePage()
 const { collection } = useCollection()
 // What was marked in this session, by item id: more precise than the stored selector.
@@ -164,11 +168,12 @@ const pageItems = computed(() =>
   collection.value.items.filter((item) => item.pageKey === page.value),
 )
 const placements = computed(() => {
-  // Again after DOM changes: an element may have been replaced.
-  void frame.value
+  // Again after DOM changes, not on every scroll: an element may have been replaced.
+  void layout.value
   return placeItems(pageItems.value, live, document)
 })
 const pins = computed(() => {
+  void frame.value
   const viewport = { width: window.innerWidth, height: window.innerHeight }
   const numbers = new Map(pageItems.value.map((item) => [item.id, item.number]))
   const onPage = pageItems.value.flatMap((item) => {
@@ -183,12 +188,53 @@ const pins = computed(() => {
   }))
 })
 const highlight = computed(() => {
+  void frame.value
   const item = pageItems.value.find((i) => i.id === highlighted.value)
   const placement = item && placements.value.get(item.id)
   return item && placement ? { rect: placement.rect(), label: `Item ${item.number}` } : null
 })
 
 watch(collection, (current) => pruneLive(live, current.items))
+
+// Text items without a selection from this session are found again by their text: at once
+// when the page's items change (mount, another page), so the pin does not jump from the
+// container to the text; while the page changes, at most every REANCHOR_EVERY ms, so a page
+// that changes all the time does not keep the overlay searching.
+let reanchorTimer: ReturnType<typeof setTimeout> | undefined
+function reanchorTexts() {
+  for (const item of pageItems.value) {
+    const { target } = item
+    if (target.kind !== 'text' || isLiveRange(live.get(item.id))) continue
+    const container = queryFirst(document, target.container.selector)
+    if (!container) continue
+    try {
+      const range = findText(container, target)
+      if (range) live.set(item.id, range)
+    } catch {
+      // A page in the middle of re-rendering: the next layout change tries again.
+    }
+  }
+}
+watch(pageItems, reanchorTexts, { immediate: true })
+watch(layout, () => {
+  reanchorTimer ??= setTimeout(() => {
+    reanchorTimer = undefined
+    reanchorTexts()
+  }, REANCHOR_EVERY)
+})
+
+// Found and missing items of this page, for the panel's mark and the prompt.
+const anchors = createAnchorStatus((report) => {
+  browser.runtime.sendMessage({ type: 'anchors:report', ...report }).catch(() => undefined)
+})
+watch(placements, (placed) => {
+  const ids = pageItems.value.map((item) => item.id)
+  anchors.update(
+    page.value,
+    ids.filter((id) => placed.has(id)),
+    ids.filter((id) => !placed.has(id)),
+  )
+})
 
 // Another page of a single-page app: its own pins; the chip and highlight belonged to the last.
 watch(page, () => {
@@ -588,6 +634,8 @@ onMounted(() => {
 
 onBeforeUnmount(() => {
   clearTimeout(hoverTimer)
+  clearTimeout(reanchorTimer)
+  anchors.stop()
   window.removeEventListener('keydown', onKeydown, true)
   for (const type of RELEASES) window.removeEventListener(type, onRelease, true)
   document.removeEventListener('selectionchange', onSelectionChange)

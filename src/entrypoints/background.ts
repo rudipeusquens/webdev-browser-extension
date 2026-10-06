@@ -2,11 +2,13 @@ import { browser } from 'wxt/browser'
 import { defineBackground } from 'wxt/utils/define-background'
 import { clearBlocked, markBlocked } from '@/lib/background/tab-status'
 import { createWriter } from '@/lib/background/writer'
+import { clearMissing, createAnchorStore } from '@/lib/background/anchor-status'
 import { readOrigins } from '@/lib/background/origins'
 import { isBackgroundMessage, type OriginReply, type Reply } from '@/lib/messages'
 
 export default defineBackground(() => {
   const write = createWriter()
+  const recordAnchors = createAnchorStore()
 
   browser.action.onClicked.addListener((tab) => {
     // Chrome accepts sidePanel.open() only synchronously inside the user gesture:
@@ -47,12 +49,26 @@ export default defineBackground(() => {
       )
       return true
     }
+    if (message.type === 'anchors:report') {
+      if (!sender.tab) {
+        sendResponse({ ok: false, error: 'Reports come from a page.' } satisfies Reply)
+        return
+      }
+      void recordAnchors(message).then(
+        () => sendResponse({ ok: true } satisfies Reply),
+        () => sendResponse({ ok: false, error: 'Could not record.' } satisfies Reply),
+      )
+      return true
+    }
     if (message.type === 'annotation:add' && !sender.tab) {
       sendResponse({ ok: false, error: 'Items are added from a page.' } satisfies Reply)
       return
     }
     // Chrome 116 ignores promises returned from this listener: answer via sendResponse.
-    void write(message).then(sendResponse)
+    void write(message).then(async (reply) => {
+      if (reply.ok && message.type === 'collection:clear') await clearMissing().catch(() => {})
+      sendResponse(reply)
+    })
     return true
   })
 })

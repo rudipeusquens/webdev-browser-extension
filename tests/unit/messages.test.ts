@@ -24,6 +24,8 @@ describe('isMessage', () => {
     { type: 'overlay:reveal', id: 'a1' },
     { type: 'overlay:changed' },
     { type: 'origin:read', selectors: ['#save'] },
+    { type: 'anchors:report', pageKey: 'http://localhost:3000/', found: ['a1'], missing: [] },
+    { type: 'anchors:report', pageKey: 'http://localhost:3000/', found: [], missing: ['a1', 'b2'] },
     { type: 'origin:read', selectors: Array.from({ length: 11 }, (_, i) => `#c${i}`) },
   ])('accepts $type', (message) => {
     expect(isMessage(message)).toBe(true)
@@ -46,6 +48,23 @@ describe('isMessage', () => {
     ['a selector over 1000', { type: 'origin:read', selectors: ['b'.repeat(1001)] }],
     ['selectors that are not a list', { type: 'origin:read', selectors: '#save' }],
     ['an extra key on origin:read', { type: 'origin:read', selectors: ['b'], frame: 1 }],
+    [
+      'a report with an invalid id',
+      { type: 'anchors:report', pageKey: 'http://x.test/', found: ['a b'], missing: [] },
+    ],
+    [
+      'a report for a page that is no URL',
+      { type: 'anchors:report', pageKey: 'chrome://settings/', found: [], missing: [] },
+    ],
+    [
+      'a report with too many ids',
+      {
+        type: 'anchors:report',
+        pageKey: 'http://x.test/',
+        found: Array.from({ length: 1001 }, (_, i) => `a${i}`),
+        missing: [],
+      },
+    ],
     ['null', null],
     ['a string', 'collection:clear'],
     ['an array', [{ type: 'collection:clear' }]],

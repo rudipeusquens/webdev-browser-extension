@@ -26,11 +26,11 @@ const onElement = (el: Element): Placement => ({ el, rect: () => boxOf(el) })
 const liveElement = (anchor: LiveAnchor | undefined) =>
   anchor instanceof Element && isConnected(anchor) ? anchor : undefined
 
-// A range whose nodes were removed collapses into their parent.
-const liveRange = (anchor: LiveAnchor | undefined) =>
+/** A selection still on the page: a range whose nodes were removed collapses into their parent. */
+export const isLiveRange = (anchor: LiveAnchor | undefined): anchor is Range =>
   anchor instanceof Range && !anchor.collapsed && anchor.startContainer.isConnected
-    ? anchor
-    : undefined
+
+const liveRange = (anchor: LiveAnchor | undefined) => (isLiveRange(anchor) ? anchor : undefined)
 
 function place(item: Annotation, anchor: LiveAnchor | undefined, doc: Document) {
   const { target } = item
