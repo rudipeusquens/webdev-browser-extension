@@ -23,6 +23,7 @@ import {
   isPanelAway,
   type Mode,
   type OverlayStatus,
+  type PanelMessage,
   type Reply,
 } from '@/lib/messages'
 import { createAnchorStatus } from './anchor-status'
@@ -94,6 +95,8 @@ interface Draft {
   edit?: { id: string; number: number; comment: string }
 }
 
+// This overlay, for the panel: a second toolbar click starts a new one on the same tab.
+const instance = newId()
 const mode = ref<Mode>('browse')
 const path = shallowRef<TargetPath | null>(null)
 const hovered = shallowRef<Element | null>(null)
@@ -324,7 +327,8 @@ watch(page, () => {
 })
 
 function notifyPanel() {
-  browser.runtime.sendMessage({ type: 'overlay:changed' }).catch(() => undefined)
+  const changed: PanelMessage = { type: 'overlay:changed', instance }
+  browser.runtime.sendMessage(changed).catch(() => undefined)
 }
 
 function showPins(visible: boolean) {
@@ -675,8 +679,6 @@ function onKeydown(e: KeyboardEvent) {
   else if (walk && action === 'down') hovered.value = walk.down()
   else if (walk && action === 'select') select(walk.current)
 }
-
-const instance = newId()
 
 const status = (): OverlayStatus => ({
   instance,

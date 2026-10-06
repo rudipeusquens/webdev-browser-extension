@@ -33,7 +33,7 @@ describe('isMessage', () => {
     { type: 'site:remember', origin: 'http://localhost:3000' },
     { type: 'site:forget', origin: 'https://example.com' },
     { type: 'tab:go', tabId: 4, pageKey: 'http://localhost:3000/settings' },
-    { type: 'overlay:changed' },
+    { type: 'overlay:changed', instance: 'one' },
     { type: 'overlay:failed' },
     { type: 'origin:read', selectors: ['#save'] },
     { type: 'anchors:report', pageKey: 'http://localhost:3000/', found: ['a1'], missing: [] },
@@ -59,6 +59,8 @@ describe('isMessage', () => {
     ['an invalid target', { ...add, target: { kind: 'element', element: { selector: 'x' } } }],
     ['an invalid page', { ...add, page: page('chrome://settings/') }],
     ['an extra key', { type: 'collection:clear', all: true }],
+    ['a change without the overlay instance', { type: 'overlay:changed' }],
+    ['a change with an invalid instance', { type: 'overlay:changed', instance: 'a b' }],
     // The error stays on the page: its text may hold page content.
     ['a failure with its error', { type: 'overlay:failed', error: 'TypeError: x' }],
     ['no selectors', { type: 'origin:read', selectors: [] }],

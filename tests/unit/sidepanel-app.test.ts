@@ -292,8 +292,8 @@ describe('side panel', () => {
     // The overlay hid them and tells the panel.
     overlayReply = { ...active, pins: false }
     await fakeBrowser.runtime.onMessage.trigger(
-      { type: 'overlay:changed' },
-      { id: fakeBrowser.runtime.id },
+      { type: 'overlay:changed', instance: 'one' },
+      { id: fakeBrowser.runtime.id, tab: { id: 1, windowId: 1 } as never, frameId: 0 },
       () => undefined,
     )
     await flushPromises()
@@ -463,8 +463,8 @@ describe('side panel', () => {
     // A second toolbar click: a new overlay on the same tab tells the panel.
     overlayReply = { ...active, instance: 'two' }
     await fakeBrowser.runtime.onMessage.trigger(
-      { type: 'overlay:changed' },
-      { id: fakeBrowser.runtime.id },
+      { type: 'overlay:changed', instance: 'two' },
+      { id: fakeBrowser.runtime.id, tab: { id: 1, windowId: 1 } as never, frameId: 0 },
       () => undefined,
     )
     await flushPromises()
@@ -501,6 +501,54 @@ describe('side panel', () => {
     wrapper = undefined
     expect(ports[0]?.disconnect).toHaveBeenCalled()
     expect(ports[1]?.disconnect).toHaveBeenCalled()
+  })
+
+  describe('lines to the overlays of its window', () => {
+    let connect: ReturnType<typeof vi.spyOn>
+
+    beforeEach(() => {
+      vi.spyOn(fakeBrowser.windows, 'getCurrent').mockResolvedValue({ id: 7 } as never)
+      connect = vi.spyOn(fakeBrowser.tabs, 'connect').mockReturnValue({
+        name: 'panel',
+        postMessage: vi.fn(),
+        disconnect: vi.fn(),
+        onDisconnect: { addListener: vi.fn() },
+      } as never)
+    })
+
+    const announce = (tab: { id: number; windowId: number }) =>
+      fakeBrowser.runtime.onMessage.trigger(
+        { type: 'overlay:changed', instance: 'three' },
+        { id: fakeBrowser.runtime.id, tab: tab as never, frameId: 0 },
+        () => undefined,
+      )
+
+    it('keeps one to an overlay that announces itself, also on a tab it does not show', async () => {
+      // So that closing the panel reaches it, however quickly the developer switched tabs.
+      await render()
+      await announce({ id: 3, windowId: 7 })
+      await flushPromises()
+      expect(connect).toHaveBeenCalledWith(3, { name: 'panel' })
+    })
+
+    it('leaves the overlays of other windows to their own panel', async () => {
+      await render()
+      await announce({ id: 3, windowId: 8 })
+      await flushPromises()
+      expect(connect).not.toHaveBeenCalledWith(3, { name: 'panel' })
+    })
+
+    it('finds the overlays already running in its window when it opens', async () => {
+      vi.mocked(fakeBrowser.tabs.query).mockImplementation((async (q: { windowId?: number }) =>
+        q.windowId === 7 ? [{ id: 1 }, { id: 3 }] : [{ id: 1 }]) as never)
+      vi.mocked(fakeBrowser.tabs.sendMessage).mockImplementation((async (id: number) => {
+        if (id !== 3) throw new Error('Could not establish connection.')
+        return { ...active, instance: 'three' }
+      }) as never)
+      await render()
+      expect(connect).toHaveBeenCalledWith(3, { name: 'panel' })
+      expect(connect).not.toHaveBeenCalledWith(1, { name: 'panel' })
+    })
   })
 
   describe('the toolbar toggles the panel', () => {

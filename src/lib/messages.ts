@@ -66,8 +66,11 @@ export type OverlayMessage =
   | { type: 'overlay:reveal'; id: string }
   | { type: 'overlay:set-pins'; visible: boolean }
 
-/** Overlay → side panel: something the panel shows has changed; ask again. */
-export type PanelMessage = { type: 'overlay:changed' }
+/**
+ * Overlay → side panel: something the panel shows has changed; ask again. It names the overlay,
+ * so the panel keeps a line to it even on a tab it does not show.
+ */
+export type PanelMessage = { type: 'overlay:changed'; instance: string }
 
 /**
  * Background → side panel: the toolbar icon or its shortcut was used on this tab. An open panel
@@ -171,7 +174,9 @@ export function isOverlayMessage(x: unknown): x is OverlayMessage {
 }
 
 export function isPanelMessage(x: unknown): x is PanelMessage {
-  return hasKeys(x, ['type']) && x.type === 'overlay:changed'
+  return (
+    hasKeys(x, ['type', 'instance']) && x.type === 'overlay:changed' && isAnnotationId(x.instance)
+  )
 }
 
 export function isPanelToggle(x: unknown): x is PanelToggle {

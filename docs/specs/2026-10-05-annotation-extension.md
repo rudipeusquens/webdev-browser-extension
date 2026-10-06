@@ -328,9 +328,10 @@ tab, they close the panel instead (the background asks the open panel, which che
 since it may have just navigated, and closes itself; this works from Chrome 116, where
 `sidePanel.close()` needs 141). On another tab they activate it there and the panel stays open. The
 context menu entry only ever opens. However the panel closes, the overlay switches to Browse: pins
-stay, the page works normally. The panel keeps a line to every overlay it showed: moving to another
-tab drops its highlight there and keeps the mode; when the panel closes, every one of them switches
-to Browse.
+stay, the page works normally. The panel keeps a line to every overlay in its window (the active
+tab's, those that announce themselves, those running when it opens, so none is missed however
+quickly the developer switches tabs): moving to another tab drops its highlight there and keeps the
+mode; when the panel closes, every one of them switches to Browse.
 
 **Modes** (switch in the panel, or keys while focus is not in a page field):
 

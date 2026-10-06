@@ -8,8 +8,8 @@ import {
   SquareDashedIcon,
   SquareMousePointerIcon,
 } from '@lucide/vue'
-import { computed, onBeforeUnmount, ref, watch } from 'vue'
-import { browser, type Browser } from 'wxt/browser'
+import { computed, ref, watch } from 'vue'
+import { browser } from 'wxt/browser'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Toggle } from '@/components/ui/toggle'
@@ -21,7 +21,6 @@ import {
   type Mode,
   MODES,
   type OverlayMessage,
-  type PanelAway,
   type Reply,
 } from '@/lib/messages'
 import { isSiteOrigin, originPattern } from '@/lib/settings'
@@ -31,6 +30,7 @@ import ItemList from './ItemList.vue'
 import SettingsView from './SettingsView.vue'
 import { useActiveTab } from './use-active-tab'
 import { useMissing } from './use-missing'
+import { useOverlayLines } from './use-overlay-lines'
 import { usePanelToggle } from './use-panel-toggle'
 import { useSettings } from './use-settings'
 import { useShortcut } from './use-shortcut'
@@ -137,51 +137,7 @@ function goTo(pageKey: string) {
   toBackground({ type: 'tab:go', tabId: tabId.value, pageKey })
 }
 
-// A line to every overlay the panel has shown, by tab. When the panel moves to another tab,
-// the overlay it showed drops what the panel highlighted there and keeps its mode; when the
-// panel closes, every line goes and each overlay switches to Browse (spec section 8).
-const lines = new Map<number, { overlay: string; port: Browser.runtime.Port }>()
-let shownTab: number | undefined
-
-function lineTo(tab: number, overlay: string) {
-  const open = lines.get(tab)
-  if (open?.overlay === overlay) return
-  // A new overlay started on the tab: the old one is gone.
-  open?.port.disconnect()
-  lines.delete(tab)
-  try {
-    const port = browser.tabs.connect(tab, { name: 'panel' })
-    // The tab navigated or closed.
-    port.onDisconnect.addListener(() => {
-      if (lines.get(tab)?.port === port) lines.delete(tab)
-    })
-    lines.set(tab, { overlay, port })
-  } catch {
-    // The overlay is gone again: the next status says so.
-  }
-}
-
-watch(
-  () =>
-    status.value.kind === 'active' && tabId.value !== undefined
-      ? { tab: tabId.value, overlay: status.value.instance }
-      : undefined,
-  (next) => {
-    if (shownTab !== undefined && shownTab !== next?.tab) {
-      try {
-        lines.get(shownTab)?.port.postMessage({ type: 'panel:away' } satisfies PanelAway)
-      } catch {
-        // That overlay is gone already.
-      }
-    }
-    shownTab = next?.tab
-    if (next) lineTo(next.tab, next.overlay)
-  },
-)
-onBeforeUnmount(() => {
-  for (const { port } of lines.values()) port.disconnect()
-  lines.clear()
-})
+useOverlayLines(tabId, status)
 
 function setPins(visible: boolean) {
   toOverlay({ type: 'overlay:set-pins', visible })
