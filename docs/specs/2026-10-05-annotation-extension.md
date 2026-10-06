@@ -332,6 +332,8 @@ shortcut Chrome actually assigned (the developer can change it in
 | Area    | `A`   | Drag a rectangle (dashed outline with its size); release selects when it is at least 4 × 4 px; `Esc` cancels the drag. The mouse wheel scrolls under the pointer as in element mode; `Ctrl`/`Cmd` + wheel zooms.            |
 
 After an annotation is saved the mode stays, so several elements can be marked in a row.
+`P` (same condition: focus not in a page field, no comment open) shows or hides the pins, like
+the panel's **Pins** toggle, which follows it.
 
 **Comment popover:** anchored next to the target. Textarea, mic button, Save. `Enter` saves
 (not during IME composition), `Shift+Enter` new line, `Esc` cancels (or cancels a running recording first), `Alt+V` toggles
@@ -351,7 +353,8 @@ missing target shows no pin; its panel entry is marked "Not found".
   start on this page…", "Not
   active on this page…"); **Always enable here** (asks Chrome for access to the page's origin,
   then the overlay loads there by itself) / **Forget this site** (also gives the access back).
-- Mode switch (Browse, Element, Area) and a **Pins** toggle that hides all pins.
+- Mode switch (Browse, Element, Area) and a **Pins** toggle that hides all pins (`P` on the
+  page).
 - List grouped by page (current page first and marked); entries show number, type icon,
   comment (two lines) and component or tag, and "Not found" when the target was missing on
   the page's last visit. Hover highlights the target on the page (the highlight goes when the

@@ -30,7 +30,7 @@ export interface ShortcutState {
   editableFocus: boolean
 }
 
-export type Shortcut = { mode: Mode } | 'up' | 'down' | 'select' | 'cancel'
+export type Shortcut = { mode: Mode } | 'pins' | 'up' | 'down' | 'select' | 'cancel'
 
 /** Keys on the page itself (spec section 8). */
 export function pageShortcut(e: Key, state: ShortcutState): Shortcut | null {
@@ -42,6 +42,7 @@ export function pageShortcut(e: Key, state: ShortcutState): Shortcut | null {
   if (state.drafting) return null
   if (e.key === 'e' || e.key === 'E') return { mode: 'element' }
   if (e.key === 'a' || e.key === 'A') return { mode: 'area' }
+  if (e.key === 'p' || e.key === 'P') return 'pins'
   if (state.mode !== 'element' || !state.hovering) return null
   if (e.key === 'ArrowUp') return 'up'
   if (e.key === 'ArrowDown') return 'down'

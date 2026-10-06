@@ -57,6 +57,22 @@ describe('pageShortcut', () => {
     expect(pageShortcut(key('Escape'), idle)).toBeNull()
   })
 
+  it('shows and hides the pins with P, in every mode', () => {
+    expect(pageShortcut(key('p'), idle)).toBe('pins')
+    expect(pageShortcut(key('P'), picking)).toBe('pins')
+    expect(pageShortcut(key('p'), { ...idle, mode: 'area' })).toBe('pins')
+  })
+
+  it('leaves P to fields, the comment and the browser', () => {
+    expect(pageShortcut(key('p'), { ...idle, editableFocus: true })).toBeNull()
+    expect(pageShortcut(key('p'), { ...idle, drafting: true })).toBeNull()
+    // Ctrl+P and Cmd+P print.
+    expect(pageShortcut(key('p', { ctrlKey: true }), idle)).toBeNull()
+    expect(pageShortcut(key('p', { metaKey: true }), idle)).toBeNull()
+    expect(pageShortcut(key('p', { altKey: true }), idle)).toBeNull()
+    expect(pageShortcut(key('p', { isTrusted: false }), idle)).toBeNull()
+  })
+
   it('switches to area mode with A', () => {
     expect(pageShortcut(key('a'), idle)).toEqual({ mode: 'area' })
     expect(pageShortcut(key('A'), picking)).toEqual({ mode: 'area' })

@@ -95,7 +95,8 @@ const path = shallowRef<TargetPath | null>(null)
 const hovered = shallowRef<Element | null>(null)
 const draft = shallowRef<Draft | null>(null)
 const highlighted = ref<string | null>(null)
-// The panel can hide the pins, until it shows them again or the overlay restarts.
+// The panel or the P key can hide the pins, until they show them again or the overlay
+// restarts.
 const pinsShown = ref(true)
 // The page's selection the Comment chip offers to comment on (browse mode), and the
 // character the chip sits under.
@@ -272,6 +273,12 @@ watch(page, () => {
 
 function notifyPanel() {
   browser.runtime.sendMessage({ type: 'overlay:changed' }).catch(() => undefined)
+}
+
+function showPins(visible: boolean) {
+  if (pinsShown.value === visible) return
+  pinsShown.value = visible
+  notifyPanel()
 }
 
 function hover(el: Element | null) {
@@ -608,6 +615,7 @@ function onKeydown(e: KeyboardEvent) {
   e.stopImmediatePropagation()
   const walk = path.value
   if (typeof action === 'object') setMode(action.mode)
+  else if (action === 'pins') showPins(!pinsShown.value)
   else if (action === 'cancel') cancel()
   else if (walk && action === 'up') hovered.value = walk.up()
   else if (walk && action === 'down') hovered.value = walk.down()
@@ -639,7 +647,7 @@ const onMessage: Parameters<typeof browser.runtime.onMessage.addListener>[0] = (
       sendResponse({ ok: true } satisfies Reply)
       return
     case 'overlay:set-pins':
-      pinsShown.value = message.visible
+      showPins(message.visible)
       sendResponse({ ok: true } satisfies Reply)
       return
     case 'overlay:highlight':
