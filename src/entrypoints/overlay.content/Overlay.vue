@@ -14,8 +14,7 @@ import {
   selectionRange,
   snapshotRange,
 } from '@/lib/capture/text'
-import type { Rect, Target } from '@/lib/collection/model'
-import { pageKey } from '@/lib/collection/page-key'
+import type { PageInfo, Rect, Target } from '@/lib/collection/model'
 import { truncate } from '@/lib/text'
 import {
   type BackgroundMessage,
@@ -35,6 +34,7 @@ import type { Layer } from './top-layer'
 import { rectBetween } from './place'
 import SelectionChip from './SelectionChip.vue'
 import TextHighlight from './TextHighlight.vue'
+import { usePage } from './use-page'
 import { useTracking } from './use-tracking'
 
 const props = defineProps<{ host: HTMLElement; layer: Layer }>()
@@ -71,6 +71,8 @@ interface Draft {
   /** A new item's code origins, asked for when it was marked (`performance.now()`). */
   origins?: Promise<Origins>
   marked?: number
+  /** The page a new item was marked on: the app may navigate while the comment is written. */
+  page?: PageInfo
   /** An existing item being edited. */
   edit?: { id: string; number: number; comment: string }
 }
@@ -88,6 +90,7 @@ const drag = shallowRef<{ from: { x: number; y: number }; to: { x: number; y: nu
   null,
 )
 const frame = useTracking()
+const { key: page } = usePage()
 const { collection } = useCollection()
 // What was marked in this session, by item id: more precise than the stored selector.
 const live = shallowReactive(new Map<string, LiveAnchor>())
@@ -158,7 +161,7 @@ const chipLine = computed(() => {
 })
 
 const pageItems = computed(() =>
-  collection.value.items.filter((item) => item.pageKey === pageKey(location.href)),
+  collection.value.items.filter((item) => item.pageKey === page.value),
 )
 const placements = computed(() => {
   // Again after DOM changes: an element may have been replaced.
@@ -186,6 +189,13 @@ const highlight = computed(() => {
 })
 
 watch(collection, (current) => pruneLive(live, current.items))
+
+// Another page of a single-page app: its own pins; the chip and highlight belonged to the last.
+watch(page, () => {
+  chip.value = null
+  highlighted.value = null
+  notifyPanel()
+})
 
 function notifyPanel() {
   browser.runtime.sendMessage({ type: 'overlay:changed' }).catch(() => undefined)
@@ -237,9 +247,16 @@ function openDraft(next: Omit<Draft, 'key' | 'busy'>): number {
   return key
 }
 
-/** Asks for the code origins of a new item's snapshots while the comment is written. */
-function originsFor(target: Target, elements: Element[]): Pick<Draft, 'origins' | 'marked'> {
-  return { origins: readOrigins(sourcesOf(target, elements)), marked: performance.now() }
+/**
+ * What a new item takes when it is marked: its page, and its code origins, asked for while
+ * the comment is written.
+ */
+function marking(target: Target, elements: Element[]): Pick<Draft, 'origins' | 'marked' | 'page'> {
+  return {
+    origins: readOrigins(sourcesOf(target, elements)),
+    marked: performance.now(),
+    page: pageInfo(window),
+  }
 }
 
 function select(el: Element | null) {
@@ -250,7 +267,7 @@ function select(el: Element | null) {
   } catch {
     return
   }
-  const asked = originsFor(target, [el])
+  const asked = marking(target, [el])
   const key = openDraft({
     kind: 'element',
     el,
@@ -293,7 +310,7 @@ function selectArea(rect: Rect) {
     target,
     live: container,
     label: labelOf(target, container, rect),
-    ...originsFor(target, [container, ...elements]),
+    ...marking(target, [container, ...elements]),
   })
 }
 
@@ -386,7 +403,7 @@ function commentOnSelection() {
     target,
     live: read,
     label: labelOf(target, el, rect()),
-    ...originsFor(target, [el]),
+    ...marking(target, [el]),
   })
 }
 
@@ -416,7 +433,7 @@ async function save(comment: string) {
     : {
         type: 'annotation:add',
         id,
-        page: pageInfo(window),
+        page: current.page ?? pageInfo(window),
         target: target as Target,
         comment,
       }
@@ -526,7 +543,7 @@ function onKeydown(e: KeyboardEvent) {
 
 const status = (): OverlayStatus => ({
   host: location.host || location.protocol.replace(':', ''),
-  pageKey: pageKey(location.href),
+  pageKey: page.value,
   mode: mode.value,
 })
 
