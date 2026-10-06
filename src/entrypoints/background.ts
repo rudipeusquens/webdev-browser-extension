@@ -307,14 +307,23 @@ export default defineBackground(() => {
           .set({ [PANEL_VIEW_KEY]: view })
           .then(() => ({ ok: true }) satisfies Reply)
       }
-      case 'collection:clear': {
+      case 'collection:clear':
         if (!isPanelSender(sender)) {
           return { ok: false, error: 'Clear all is a button of the panel.' } satisfies Reply
         }
+        return write(message.site, message)
+      case 'collection:empty-bin': {
+        if (!isPanelSender(sender)) {
+          return { ok: false, error: 'Empty bin is a button of the panel.' } satisfies Reply
+        }
         const { site } = message
+        // The "Not found" marks of what went go with it.
         return loadSite(site).then(async ({ items }) => {
           const reply = await write(site, message)
-          if (reply.ok) await forgetMissing(items.map((item) => item.id)).catch(() => undefined)
+          if (!reply.ok) return reply
+          const kept = new Set((await loadSite(site)).items.map((item) => item.id))
+          const gone = items.filter((item) => !kept.has(item.id)).map((item) => item.id)
+          await forgetMissing(gone).catch(() => undefined)
           return reply
         })
       }

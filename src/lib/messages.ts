@@ -37,7 +37,10 @@ export type CollectionMessage =
   | { type: 'annotation:reopen'; site: string; id: string }
   /** The panel copied exactly these items as a prompt: open ones become done. */
   | { type: 'collection:copied'; site: string; ids: string[] }
+  /** Open and done → deleted, every item of the site. */
   | { type: 'collection:clear'; site: string }
+  /** The deleted items of the site go for good. */
+  | { type: 'collection:empty-bin'; site: string }
 
 /** Overlay → background: the code origins of the elements these selectors match. */
 export type OriginMessage = { type: 'origin:read'; selectors: string[] }
@@ -222,6 +225,7 @@ export function isBackgroundMessage(x: unknown): x is BackgroundMessage {
         x.ids.length >= 1
       )
     case 'collection:clear':
+    case 'collection:empty-bin':
       return hasKeys(x, ['type', 'site']) && isSite(x.site)
     case 'overlay:failed':
     case 'voice:key:remove':

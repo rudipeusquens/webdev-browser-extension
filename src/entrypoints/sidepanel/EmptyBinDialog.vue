@@ -11,8 +11,8 @@ import {
 } from '@/components/ui/alert-dialog'
 import { buttonVariants } from '@/components/ui/button'
 
-/** `site`: the site's name, such as `localhost:3000`. */
-defineProps<{ items: number; pages: number; site: string }>()
+/** `pins` and `pages`: the deleted pins and their pages; `site`: such as `localhost:3000`. */
+defineProps<{ pins: number; pages: number; site: string }>()
 const open = defineModel<boolean>('open', { required: true })
 const emit = defineEmits<{ confirm: [] }>()
 
@@ -23,21 +23,21 @@ const plural = (n: number, word: string) => `${n} ${word}${n === 1 ? '' : 's'}`
   <AlertDialog v-model:open="open">
     <AlertDialogContent>
       <AlertDialogHeader>
-        <AlertDialogTitle>Clear all feedback?</AlertDialogTitle>
+        <AlertDialogTitle>Empty the bin?</AlertDialogTitle>
         <AlertDialogDescription>
-          This removes {{ plural(items, 'item') }} on {{ plural(pages, 'page') }} of {{ site }},
-          done and deleted ones too. Numbering starts again at 1. Undo brings them back until the
-          browser closes.
+          This removes {{ plural(pins, 'deleted pin') }} on {{ plural(pages, 'page') }} of
+          {{ site }} for good. Numbering starts again at 1 once nothing is left. Undo can bring them
+          back until the browser closes.
         </AlertDialogDescription>
       </AlertDialogHeader>
       <AlertDialogFooter>
-        <AlertDialogCancel data-testid="clear-cancel">Cancel</AlertDialogCancel>
+        <AlertDialogCancel data-testid="empty-bin-cancel">Cancel</AlertDialogCancel>
         <AlertDialogAction
-          data-testid="clear-confirm"
+          data-testid="empty-bin-confirm"
           :class="buttonVariants({ variant: 'destructive' })"
           @click="emit('confirm')"
         >
-          Clear all
+          Empty bin
         </AlertDialogAction>
       </AlertDialogFooter>
     </AlertDialogContent>

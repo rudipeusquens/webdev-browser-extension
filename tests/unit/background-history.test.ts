@@ -43,7 +43,7 @@ describe('steps', () => {
     ['an edit', (c) => updateComment(c, 'a1', 'Changed', 'T2')],
     ['a deletion', (c) => setStatus(c, 'b1', 'deleted', 'T2')],
     ['a copy', (c) => markCopied(c, ['a1', 'b1'], 'T2')],
-    ['Clear all', (c) => clearAll(c)],
+    ['Clear all', (c) => clearAll(c, 'T2')],
   ]
 
   it.each(changes)('put back and apply again %s exactly', (_, change) => {

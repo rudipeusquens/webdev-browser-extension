@@ -10,6 +10,7 @@ import {
   SettingsIcon,
   SquareDashedIcon,
   SquareMousePointerIcon,
+  Trash2Icon,
   Undo2Icon,
   XIcon,
 } from '@lucide/vue'
@@ -28,7 +29,7 @@ import {
   type Reply,
 } from '@/lib/messages'
 import { isSiteOrigin, originPattern } from '@/lib/settings'
-import ClearAllDialog from './ClearAllDialog.vue'
+import EmptyBinDialog from './EmptyBinDialog.vue'
 import CopyFallbackDialog from './CopyFallbackDialog.vue'
 import ForgetSiteDialog from './ForgetSiteDialog.vue'
 import ItemList from './ItemList.vue'
@@ -126,7 +127,10 @@ const groups = computed(() => {
   }))
   return [...all.filter((g) => g.current), ...all.filter((g) => !g.current)]
 })
-const pageCount = computed(() => new Set(items.value.map((item) => item.pageKey)).size)
+/** What Clear all moves to Deleted: the open and done items. */
+const clearable = computed(() => items.value.filter((item) => item.status !== 'deleted').length)
+const binned = computed(() => items.value.filter((item) => item.status === 'deleted'))
+const binPages = computed(() => new Set(binned.value.map((item) => item.pageKey)).size)
 const plural = (n: number, word: string) => `${n} ${word}${n === 1 ? '' : 's'}`
 const mode = computed(() => (status.value.kind === 'active' ? status.value.mode : undefined))
 const pinsShown = computed(() => status.value.kind !== 'active' || status.value.pins)
@@ -176,7 +180,7 @@ const startable = computed(() => {
 
 const copyStatus = ref('')
 const fallbackText = ref<string | null>(null)
-const confirmClear = ref(false)
+const confirmEmpty = ref(false)
 let copyTimer: ReturnType<typeof setTimeout> | undefined
 
 function toBackground(message: BackgroundMessage) {
@@ -186,8 +190,14 @@ function toBackground(message: BackgroundMessage) {
 /** Why the last change from the panel was refused; empty once one works. */
 const panelError = ref('')
 
-/** A change of the site's items: its refusal is shown, its success clears the last one. */
-async function change(message: BackgroundMessage, refused = (error: string) => error) {
+/**
+ * A change of the site's items: its refusal is shown, its success clears the last one. True
+ * when it was made.
+ */
+async function change(
+  message: BackgroundMessage,
+  refused = (error: string) => error,
+): Promise<boolean> {
   let reply: Reply | undefined
   try {
     reply = (await browser.runtime.sendMessage(message)) as Reply | undefined
@@ -196,6 +206,14 @@ async function change(message: BackgroundMessage, refused = (error: string) => e
   }
   if (reply?.ok) panelError.value = ''
   else panelError.value = refused(reply?.error ?? 'The extension did not answer. Try again.')
+  return reply?.ok === true
+}
+
+/** A short note above the footer's buttons, gone after a few seconds. */
+function say(text: string) {
+  copyStatus.value = text
+  clearTimeout(copyTimer)
+  copyTimer = setTimeout(() => (copyStatus.value = ''), 4000)
 }
 
 function toOverlay(message: OverlayMessage) {
@@ -215,9 +233,7 @@ async function writePrompt(ids: string[], done: string): Promise<boolean> {
     fallbackText.value = text
     return true
   }
-  copyStatus.value = done
-  clearTimeout(copyTimer)
-  copyTimer = setTimeout(() => (copyStatus.value = ''), 4000)
+  say(done)
   return true
 }
 
@@ -230,6 +246,18 @@ async function copy() {
   await change(
     { type: 'collection:copied', site: current, ids },
     (error) => `Copied, but the pins could not be marked done: ${error}`,
+  )
+}
+
+/** One open pin, from its entry: it becomes done, and Copy again copies it. */
+async function copyOne(id: string) {
+  const current = site.value
+  const item = items.value.find((i) => i.id === id)
+  if (!current || !item) return
+  await writePrompt([id], `Copied pin ${item.number}`)
+  await change(
+    { type: 'collection:copied', site: current, ids: [id] },
+    (error) => `Copied, but the pin could not be marked done: ${error}`,
   )
 }
 
@@ -276,8 +304,17 @@ function changeItem(
   if (site.value) void change({ type, site: site.value, id })
 }
 
-function clearSite() {
-  if (site.value) void change({ type: 'collection:clear', site: site.value })
+/** Clear all: the open and done pins move to Deleted, at once (Undo and Restore exist). */
+async function clearSite() {
+  const moved = clearable.value
+  if (!site.value || moved === 0) return
+  if (await change({ type: 'collection:clear', site: site.value })) {
+    say(`Moved ${plural(moved, 'pin')} to Deleted`)
+  }
+}
+
+function emptySiteBin() {
+  if (site.value) void change({ type: 'collection:empty-bin', site: site.value })
 }
 
 function goTo(pageKey: string) {
@@ -550,6 +587,7 @@ function setMode(next: unknown) {
         @remove="(id) => changeItem('annotation:remove', id)"
         @restore="(id) => changeItem('annotation:restore', id)"
         @reopen="(id) => changeItem('annotation:reopen', id)"
+        @copy="copyOne"
         @highlight="(id) => toOverlay({ type: 'overlay:highlight', id })"
         @reveal="reveal"
         @jump="jumpTo"
@@ -585,25 +623,37 @@ function setMode(next: unknown) {
         >
           <RepeatIcon /> Copy again
         </Button>
+        <!-- Once only deleted pins are left, the bin can be emptied. -->
         <Button
+          v-if="clearable || !binned.length"
           data-testid="clear-all"
           variant="outline"
-          :disabled="!items.length"
-          @click="confirmClear = true"
+          :disabled="!clearable"
+          title="Move every open and done pin to Deleted"
+          @click="clearSite"
         >
-          Clear all
+          <Trash2Icon /> Clear all
+        </Button>
+        <Button
+          v-else
+          data-testid="empty-bin"
+          variant="outline"
+          title="Remove the deleted pins for good"
+          @click="confirmEmpty = true"
+        >
+          <Trash2Icon /> Empty bin
         </Button>
       </div>
       <!-- Always there, so screen readers announce each copy. -->
       <p data-testid="copy-status" aria-live="polite" class="sr-only">{{ copyStatus }}</p>
     </footer>
 
-    <ClearAllDialog
-      v-model:open="confirmClear"
-      :items="items.length"
-      :pages="pageCount"
+    <EmptyBinDialog
+      v-model:open="confirmEmpty"
+      :pins="binned.length"
+      :pages="binPages"
       :site="site ? siteLabel(site) : ''"
-      @confirm="clearSite"
+      @confirm="emptySiteBin"
     />
     <CopyFallbackDialog :text="fallbackText" @close="fallbackText = null" />
     <ForgetSiteDialog :origin="forgetting" @confirm="forgetSite" @close="forgetting = null" />

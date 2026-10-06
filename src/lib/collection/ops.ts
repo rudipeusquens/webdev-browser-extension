@@ -106,9 +106,33 @@ export function pick(c: Collection, ids: ReadonlySet<string>): Collection {
   return { ...c, pages, items }
 }
 
-/** Every item of the site goes, and its numbers start again at 1. */
-export function clearAll(c: Collection): Collection {
-  return emptyCollection(c.site)
+/** Clear all: every open and done item of the site is deleted; Restore and Undo undo it. */
+export function clearAll(c: Collection, now: string): Collection {
+  if (c.items.every((item) => item.status === 'deleted')) return c
+  return {
+    ...c,
+    items: c.items.map((item) =>
+      item.status === 'deleted' ? item : { ...item, status: 'deleted', updatedAt: now },
+    ),
+  }
+}
+
+/**
+ * Empty bin: the deleted items go for good, with the pages left without items and their ids
+ * in the last copy. Numbers stay unique; they start again at 1 once nothing is left.
+ */
+export function emptyBin(c: Collection): Collection {
+  const kept = c.items.filter((item) => item.status !== 'deleted')
+  if (kept.length === c.items.length) return c
+  if (kept.length === 0) return emptyCollection(c.site)
+  const pages = new Set(kept.map((item) => item.pageKey))
+  const ids = new Set(kept.map((item) => item.id))
+  return {
+    ...c,
+    items: kept,
+    pages: Object.fromEntries(Object.entries(c.pages).filter(([key]) => pages.has(key))),
+    lastCopy: c.lastCopy.filter((id) => ids.has(id)),
+  }
 }
 
 /** Pages in the order of their first item, items by number. */

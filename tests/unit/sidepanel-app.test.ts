@@ -149,23 +149,63 @@ describe('side panel', () => {
     expect(field.readOnly).toBe(true)
   })
 
-  it('clears everything only after confirmation', async () => {
+  const hasBin = (id: string) => byTestId(id).querySelector('svg[class*="trash"]') !== null
+
+  it('moves every open and done pin to Deleted at once, and says so', async () => {
     overlayReply = active
-    await render(twoPages())
+    await render(markCopied(twoPages(), ['a1'], 'T'))
+    expect(hasBin('clear-all')).toBe(true)
     byTestId('clear-all').click()
     await flushPromises()
-    expect(body()).toContain('2 items on 2 pages of localhost:3000')
-    byTestId('clear-cancel').click()
-    await flushPromises()
-    expect(fakeBrowser.runtime.sendMessage).not.toHaveBeenCalled()
-    byTestId('clear-all').click()
-    await flushPromises()
-    byTestId('clear-confirm').click()
-    await flushPromises()
+    expect(document.querySelector('[role="alertdialog"]')).toBeNull()
     expect(fakeBrowser.runtime.sendMessage).toHaveBeenCalledWith({
       type: 'collection:clear',
       site: SITE,
     })
+    expect(byTestId('copy-status').textContent).toBe('Moved 2 pins to Deleted')
+  })
+
+  it('empties the bin only after confirmation, once nothing open or done is left', async () => {
+    overlayReply = active
+    const c = setStatus(setStatus(twoPages(), 'a1', 'deleted', 'T'), 'b1', 'deleted', 'T')
+    await render(c)
+    expect(document.querySelector('[data-testid="clear-all"]')).toBeNull()
+    expect(hasBin('empty-bin')).toBe(true)
+    byTestId('empty-bin').click()
+    await flushPromises()
+    expect(body()).toContain('2 deleted pins on 2 pages of localhost:3000')
+    byTestId('empty-bin-cancel').click()
+    await flushPromises()
+    expect(fakeBrowser.runtime.sendMessage).not.toHaveBeenCalled()
+    byTestId('empty-bin').click()
+    await flushPromises()
+    byTestId('empty-bin-confirm').click()
+    await flushPromises()
+    expect(fakeBrowser.runtime.sendMessage).toHaveBeenCalledWith({
+      type: 'collection:empty-bin',
+      site: SITE,
+    })
+  })
+
+  it('copies one open pin as the prompt, which then becomes done', async () => {
+    overlayReply = active
+    const c = markCopied(twoPages(), ['b1'], 'T')
+    await render(c)
+    const copyOf = (n: number) =>
+      document.querySelector<HTMLElement>(`[data-testid="item-copy"][aria-label="Copy pin ${n}"]`)
+    await fakeBrowser.storage.local.set({ view: { filter: 'all' } })
+    await flushPromises()
+    // Open entries only: done ones have Reopen there.
+    expect(copyOf(2)).toBeNull()
+    copyOf(1)?.click()
+    await flushPromises()
+    expect(writeText).toHaveBeenCalledWith(formatCollection(pick(c, new Set(['a1']))))
+    expect(fakeBrowser.runtime.sendMessage).toHaveBeenCalledWith({
+      type: 'collection:copied',
+      site: SITE,
+      ids: ['a1'],
+    })
+    expect(byTestId('copy-status').textContent).toBe('Copied pin 1')
   })
 
   it('deletes a single item', async () => {
@@ -325,14 +365,6 @@ describe('side panel', () => {
       expect(byTestId('filter-hides').textContent).toContain('2 pins are hidden by this filter')
       expect(body()).not.toContain('No feedback yet')
     })
-
-    it('asks before clearing every item of the site', async () => {
-      overlayReply = active
-      await render(mixed())
-      byTestId('clear-all').click()
-      await flushPromises()
-      expect(body()).toContain('4 items on 2 pages of localhost:3000')
-    })
   })
 
   describe('undo and redo', () => {
@@ -407,12 +439,16 @@ describe('side panel', () => {
       expect(sent()).toEqual([])
     })
 
-    it('say that Clear all can be undone', async () => {
+    it('say that Empty bin can be undone', async () => {
       overlayReply = active
-      await render(twoPages())
-      byTestId('clear-all').click()
+      await render(setStatus(twoPages(), 'a1', 'deleted', 'T'))
+      // Something is open: Clear all first.
+      expect(document.querySelector('[data-testid="empty-bin"]')).toBeNull()
+      wrapper?.unmount()
+      await render(setStatus(setStatus(twoPages(), 'a1', 'deleted', 'T'), 'b1', 'deleted', 'T'))
+      byTestId('empty-bin').click()
       await flushPromises()
-      expect(body()).toContain('Undo brings them back until the browser closes.')
+      expect(body()).toContain('Undo can bring them back until the browser closes.')
       expect(body()).not.toContain("can't be undone")
     })
   })
@@ -452,11 +488,11 @@ describe('side panel', () => {
 
     it('says why a change was refused, until the next one works', async () => {
       overlayReply = active
-      refuse('annotation:remove', 'This item no longer exists.')
+      refuse('annotation:remove', 'This pin no longer exists.')
       await render(twoPages())
       document.querySelector<HTMLElement>('[aria-label="Delete pin 1"]')?.click()
       await flushPromises()
-      expect(byTestId('panel-error').textContent).toContain('This item no longer exists.')
+      expect(byTestId('panel-error').textContent).toContain('This pin no longer exists.')
       vi.mocked(fakeBrowser.runtime.sendMessage).mockResolvedValue({ ok: true } as never)
       document.querySelector<HTMLElement>('[aria-label="Delete pin 2"]')?.click()
       await flushPromises()

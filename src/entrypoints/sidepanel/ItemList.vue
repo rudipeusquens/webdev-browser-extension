@@ -2,6 +2,7 @@
 import {
   ArchiveRestoreIcon,
   ArrowUpRightIcon,
+  CopyIcon,
   RotateCcwIcon,
   SquareDashedIcon,
   SquareMousePointerIcon,
@@ -30,6 +31,8 @@ const emit = defineEmits<{
   remove: [id: string]
   restore: [id: string]
   reopen: [id: string]
+  /** Copy this open pin as the prompt. */
+  copy: [id: string]
   highlight: [id: string | null]
   reveal: [id: string]
   go: [pageKey: string]
@@ -192,6 +195,18 @@ const ICONS = { element: SquareMousePointerIcon, text: TextSelectIcon, area: Squ
               </span>
             </span>
           </button>
+          <Button
+            v-if="item.status === 'open'"
+            data-testid="item-copy"
+            variant="ghost"
+            size="icon-sm"
+            class="mt-1 shrink-0 text-muted-foreground"
+            :aria-label="`Copy pin ${item.number}`"
+            title="Copy as prompt: it becomes done"
+            @click="emit('copy', item.id)"
+          >
+            <CopyIcon />
+          </Button>
           <Button
             v-if="item.status === 'done'"
             data-testid="item-reopen"

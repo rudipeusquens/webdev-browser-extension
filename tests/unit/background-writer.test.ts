@@ -51,6 +51,8 @@ describe('createWriter', () => {
     await write(OTHER, add('b1', 'On B', `${OTHER}/x`))
     expect((await loadSite(OTHER)).items.map((i) => [i.id, i.number])).toEqual([['b1', 1]])
     expect(await write(SITE, { type: 'collection:clear', site: SITE })).toEqual({ ok: true })
+    expect((await loadSite(SITE)).items.map((i) => i.status)).toEqual(['deleted', 'deleted'])
+    expect(await write(SITE, { type: 'collection:empty-bin', site: SITE })).toEqual({ ok: true })
     expect((await loadSite(SITE)).items).toEqual([])
     expect((await loadSite(OTHER)).items).toHaveLength(1)
     // An emptied site leaves nothing behind.
@@ -71,6 +73,9 @@ describe('createWriter', () => {
     await step({ type: 'annotation:reopen', site: SITE, id: 'a1' })
     await step({ type: 'annotation:remove', site: SITE, id: 'a1' })
     await step({ type: 'annotation:restore', site: SITE, id: 'a1' })
+    await step({ type: 'collection:copied', site: SITE, ids: ['a1'] })
+    await step({ type: 'collection:clear', site: SITE })
+    await step({ type: 'collection:empty-bin', site: SITE })
     expect(steps).toEqual([
       'Add pin 1',
       'Edit pin 1',
@@ -79,6 +84,9 @@ describe('createWriter', () => {
       'Reopen pin 1',
       'Delete pin 1',
       'Restore pin 1',
+      'Copy pin 1',
+      'Clear all',
+      'Empty bin',
     ])
   })
 
@@ -101,6 +109,11 @@ describe('createWriter', () => {
       [2, 'open'],
     ])
     await write(SITE, { type: 'collection:clear', site: SITE })
+    expect((await loadSite(SITE)).items.map((i) => [i.number, i.status])).toEqual([
+      [1, 'deleted'],
+      [2, 'deleted'],
+    ])
+    await write(SITE, { type: 'collection:empty-bin', site: SITE })
     expect((await loadSite(SITE)).items).toEqual([])
   })
 
@@ -152,7 +165,7 @@ describe('createWriter', () => {
     for (const type of ['annotation:remove', 'annotation:restore', 'annotation:reopen'] as const) {
       expect(await write(SITE, { type, site: SITE, id: 'zz' })).toEqual({
         ok: false,
-        error: 'This item no longer exists.',
+        error: 'This pin no longer exists.',
       })
     }
     expect(await stored()).toEqual(before)

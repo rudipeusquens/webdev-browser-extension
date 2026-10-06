@@ -275,16 +275,19 @@ describe('background', () => {
     const update = { type: 'annotation:update', site, id: 'a1', comment: 'Changed' }
     const remove = { type: 'annotation:remove', site, id: 'a1' }
     const clear = { type: 'collection:clear', site }
-    for (const message of [update, remove, clear]) {
+    const empty = { type: 'collection:empty-bin', site }
+    for (const message of [update, remove, clear, empty]) {
       expect(await send(message, pageSender('http://y.test/'))).toMatchObject({ ok: false })
       expect(await send(message, pageSender(`${site}/`, 1))).toMatchObject({ ok: false })
     }
     expect(await send(clear, pageSender(`${site}/`))).toMatchObject({ ok: false })
+    expect(await send(empty, pageSender(`${site}/`))).toMatchObject({ ok: false })
     expect(await send(update, panelSender)).toMatchObject({ ok: false })
     expect((await loadSite(site)).items).toHaveLength(1)
     expect(await send(update, pageSender(`${site}/other`))).toEqual({ ok: true })
-    expect(await send(remove, panelSender)).toEqual({ ok: true })
     expect(await send(clear, panelSender)).toEqual({ ok: true })
+    expect((await loadSite(site)).items.map((i) => i.status)).toEqual(['deleted'])
+    expect(await send(empty, panelSender)).toEqual({ ok: true })
     expect((await loadSite(site)).items).toEqual([])
   })
 })
@@ -395,15 +398,28 @@ describe('background: items not found', () => {
     expect([...(await loadMissing())]).toEqual(['b1'])
   })
 
-  it('accepts reports from pages only, and forgets the site on Clear all', async () => {
+  it('accepts reports from pages only, and forgets what Empty bin removed', async () => {
     expect(await send(report(A, [], ['a1']), { id: fakeBrowser.runtime.id })).toMatchObject({
       ok: false,
     })
     expect((await loadMissing()).size).toBe(0)
-    await send(report(A, [], ['a1']), contentScript)
-    expect((await loadMissing()).size).toBe(1)
+    await send(report(A, [], ['a1', 'a2']), contentScript)
+    expect((await loadMissing()).size).toBe(2)
+    // Clear all keeps the items, deleted: their marks stay.
     await send({ type: 'collection:clear', site: 'http://x.test' }, panelSender)
-    expect((await loadMissing()).size).toBe(0)
+    expect((await loadMissing()).size).toBe(2)
+    await send({ type: 'annotation:restore', site: 'http://x.test', id: 'a2' }, panelSender)
+    await send({ type: 'collection:empty-bin', site: 'http://x.test' }, panelSender)
+    expect([...(await loadMissing())]).toEqual(['a2'])
+  })
+
+  it('empties the bin for the panel only', async () => {
+    await send({ type: 'collection:clear', site: 'http://x.test' }, panelSender)
+    const empty = { type: 'collection:empty-bin', site: 'http://x.test' }
+    expect(await send(empty, contentScript)).toMatchObject({ ok: false })
+    expect((await loadSite('http://x.test')).items).toHaveLength(3)
+    expect(await send(empty, panelSender)).toEqual({ ok: true })
+    expect((await loadSite('http://x.test')).items).toHaveLength(0)
   })
 
   it('counts a report only for the site of the page that sent it', async () => {

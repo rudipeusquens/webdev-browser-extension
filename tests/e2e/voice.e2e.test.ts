@@ -155,8 +155,11 @@ describe('dictating a comment', () => {
     await panel.waitForSelector('::-p-text(Copied 1 pin)')
     const prompt = await panel.evaluate(() => navigator.clipboard.readText())
     expect(prompt).toContain(`> Fix this ${FAKE_TEXT}`)
+    // Clear all, then empty the bin: the next tests start without pins.
     await panel.click('[data-testid="clear-all"]')
-    await panel.click('[data-testid="clear-confirm"]')
+    await (await panel.waitForSelector('[data-testid="empty-bin"]'))?.click()
+    await (await panel.waitForSelector('[data-testid="empty-bin-confirm"]'))?.click()
+    await panel.waitForSelector('[data-testid="clear-all"][disabled]')
     await s.page.bringToFront()
   })
 

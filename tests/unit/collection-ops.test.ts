@@ -3,6 +3,7 @@ import type { Collection } from '@/lib/collection/model'
 import {
   addAnnotation,
   clearAll,
+  emptyBin,
   emptyCollection,
   groupByPage,
   markCopied,
@@ -151,12 +152,52 @@ describe('emptyCollection', () => {
 })
 
 describe('clearAll', () => {
-  it('resets the numbering and keeps the site', () => {
-    const cleared = clearAll(build(elementInput('a1', A), elementInput('a2', A)))
-    expect(cleared).toEqual(emptyCollection(SITE))
-    const c = addAnnotation(cleared, elementInput('x', A), T2)
-    expect(c.items[0]?.number).toBe(1)
-    expect(c.nextNumber).toBe(2)
+  it('moves every open and done item to deleted, and keeps the rest', () => {
+    let c = build(elementInput('a1', A), elementInput('a2', A), elementInput('b1', B))
+    c = markCopied(c, ['a2'], T1)
+    c = setStatus(c, 'b1', 'deleted', T1)
+    const cleared = clearAll(c, T2)
+    expect(cleared.items.map((i) => [i.id, i.status, i.updatedAt])).toEqual([
+      ['a1', 'deleted', T2],
+      ['a2', 'deleted', T2],
+      ['b1', 'deleted', T1],
+    ])
+    expect(cleared.nextNumber).toBe(c.nextNumber)
+    expect(cleared.pages).toEqual(c.pages)
+    expect(cleared.lastCopy).toEqual(['a2'])
+  })
+
+  it('returns the same collection when nothing is open or done', () => {
+    const c = setStatus(build(elementInput('a1', A)), 'a1', 'deleted', T1)
+    expect(clearAll(c, T2)).toBe(c)
+    const empty = emptyCollection(SITE)
+    expect(clearAll(empty, T2)).toBe(empty)
+  })
+})
+
+describe('emptyBin', () => {
+  it('removes the deleted items, the pages left without items and their copies', () => {
+    let c = build(elementInput('a1', A), elementInput('a2', A), elementInput('b1', B))
+    c = markCopied(c, ['a1', 'b1'], T1)
+    c = setStatus(setStatus(c, 'a2', 'deleted', T1), 'b1', 'deleted', T1)
+    const emptied = emptyBin(c)
+    expect(emptied.items.map((i) => i.id)).toEqual(['a1'])
+    expect(Object.keys(emptied.pages)).toEqual([pageKey(A)])
+    expect(emptied.lastCopy).toEqual(['a1'])
+    // Numbers stay unique: the next one goes on.
+    expect(emptied.nextNumber).toBe(4)
+  })
+
+  it('starts the numbering again once nothing is left', () => {
+    const c = clearAll(build(elementInput('a1', A), elementInput('a2', A)), T2)
+    const emptied = emptyBin(c)
+    expect(emptied).toEqual(emptyCollection(SITE))
+    expect(addAnnotation(emptied, elementInput('x', A), T2).items[0]?.number).toBe(1)
+  })
+
+  it('returns the same collection without deleted items', () => {
+    const c = build(elementInput('a1', A))
+    expect(emptyBin(c)).toBe(c)
   })
 })
 
