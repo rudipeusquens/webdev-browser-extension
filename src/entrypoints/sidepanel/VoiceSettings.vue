@@ -219,12 +219,8 @@ function grant() {
         data-testid="voice-language"
         class="h-8 text-xs"
       >
-        <NativeSelectOption
-          v-for="language in LANGUAGES"
-          :key="language.code"
-          :value="language.code"
-        >
-          {{ language.label }}
+        <NativeSelectOption v-for="option in LANGUAGES" :key="option.code" :value="option.code">
+          {{ option.label }}
         </NativeSelectOption>
       </NativeSelect>
     </div>
