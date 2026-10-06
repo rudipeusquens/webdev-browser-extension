@@ -6,6 +6,7 @@ import {
   isOverlayStatus,
   isPanelToggle,
   isPanelToggleReply,
+  isPinsPointed,
 } from '@/lib/messages'
 import { page, snapshot } from './helpers/collection'
 
@@ -188,6 +189,22 @@ describe('the toolbar toggle', () => {
     expect(isPanelToggleReply({ closing: false })).toBe(true)
     for (const bad of [{ closing: 'yes' }, { closing: true, extra: 1 }, {}, undefined]) {
       expect(isPanelToggleReply(bad)).toBe(false)
+    }
+  })
+})
+
+describe('pins:pointed', () => {
+  it('names a hovered and an open item, or none', () => {
+    expect(isPinsPointed({ type: 'pins:pointed', hovered: 'a1', open: null })).toBe(true)
+    expect(isPinsPointed({ type: 'pins:pointed', hovered: null, open: 'b-2' })).toBe(true)
+    for (const bad of [
+      { type: 'pins:pointed', hovered: 'a b', open: null },
+      { type: 'pins:pointed', hovered: 'a1' },
+      { type: 'pins:pointed', hovered: null, open: null, text: 'x' },
+      { type: 'pins:hover', hovered: null, open: null },
+      null,
+    ]) {
+      expect(isPinsPointed(bad)).toBe(false)
     }
   })
 })

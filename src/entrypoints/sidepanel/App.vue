@@ -12,7 +12,7 @@ import {
   Undo2Icon,
   XIcon,
 } from '@lucide/vue'
-import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
+import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { browser } from 'wxt/browser'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
@@ -92,7 +92,10 @@ function onKeydown(e: KeyboardEvent) {
   }
 }
 onMounted(() => window.addEventListener('keydown', onKeydown))
-onBeforeUnmount(() => window.removeEventListener('keydown', onKeydown))
+onBeforeUnmount(() => {
+  window.removeEventListener('keydown', onKeydown)
+  cancelJump()
+})
 const items = computed(() => collection.value.items)
 const openIds = computed(() =>
   items.value
@@ -234,11 +237,48 @@ function clearSite() {
 }
 
 function goTo(pageKey: string) {
+  cancelJump()
   if (tabId.value === undefined) return
   toBackground({ type: 'tab:go', tabId: tabId.value, pageKey })
 }
 
-useOverlayLines(tabId, status)
+const { pointed } = useOverlayLines(tabId, status)
+
+/** How long a jump to an item of another page waits for that page's overlay. */
+const JUMP_WAIT = 30_000
+let jump: {
+  tab: number
+  pageKey: string
+  id: string
+  timer: ReturnType<typeof setTimeout>
+} | null = null
+
+function cancelJump() {
+  if (jump) clearTimeout(jump.timer)
+  jump = null
+}
+
+/** An entry of another page: open the page in the tab, then show the item once it is ready. */
+function jumpTo(pageKey: string, id: string) {
+  cancelJump()
+  const tab = tabId.value
+  if (tab === undefined) return
+  toBackground({ type: 'tab:go', tabId: tab, pageKey })
+  jump = { tab, pageKey, id, timer: setTimeout(cancelJump, JUMP_WAIT) }
+}
+
+watch(status, (now) => {
+  if (!jump || now.kind !== 'active') return
+  if (tabId.value !== jump.tab || now.pageKey !== jump.pageKey) return
+  const { id } = jump
+  cancelJump()
+  toOverlay({ type: 'overlay:reveal', id })
+})
+
+function reveal(id: string) {
+  cancelJump()
+  toOverlay({ type: 'overlay:reveal', id })
+}
 
 function setPins(visible: boolean) {
   toOverlay({ type: 'overlay:set-pins', visible })
@@ -476,11 +516,13 @@ function setMode(next: unknown) {
         v-else
         :groups="groups"
         :missing="missing"
+        :pointed="pointed"
         @remove="(id) => change('annotation:remove', id)"
         @restore="(id) => change('annotation:restore', id)"
         @reopen="(id) => change('annotation:reopen', id)"
         @highlight="(id) => toOverlay({ type: 'overlay:highlight', id })"
-        @reveal="(id) => toOverlay({ type: 'overlay:reveal', id })"
+        @reveal="reveal"
+        @jump="jumpTo"
         @go="goTo"
       />
     </section>

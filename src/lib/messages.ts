@@ -136,6 +136,23 @@ export type PanelToggleReply = { closing: boolean }
  */
 export type PanelAway = { type: 'panel:away' }
 
+/**
+ * Overlay → side panel, on the line the panel keeps to it: the pin under the pointer and the
+ * item whose popover is open, by id only (spec section 8).
+ */
+export type PinsPointed = { type: 'pins:pointed'; hovered: string | null; open: string | null }
+
+const isIdOrNull = (x: unknown) => x === null || isAnnotationId(x)
+
+export function isPinsPointed(x: unknown): x is PinsPointed {
+  return (
+    hasKeys(x, ['type', 'hovered', 'open']) &&
+    x.type === 'pins:pointed' &&
+    isIdOrNull(x.hovered) &&
+    isIdOrNull(x.open)
+  )
+}
+
 export type Message = BackgroundMessage | OverlayMessage | PanelMessage
 
 /** The overlay's reply to `overlay:status`. */

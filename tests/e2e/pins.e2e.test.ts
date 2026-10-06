@@ -224,4 +224,17 @@ describe('pins and editing', () => {
     await waitForPins([{ number: '1', color: 'bg-blue-600' }])
     await panel.click('[data-testid="filter-open"]')
   })
+
+  it('marks the entry of a pin under the pointer, and of the item being edited', async () => {
+    await save(BUTTON, 'Wider')
+    const pin = await pinCenter()
+    await session.page.mouse.move(pin?.x ?? 0, pin?.y ?? 0)
+    await panel.waitForSelector('[data-testid="item"][data-pointed="hovered"]')
+    await session.page.mouse.click(pin?.x ?? 0, pin?.y ?? 0)
+    await panel.waitForSelector('[data-testid="item"][data-pointed="open"]')
+    await session.page.keyboard.press('Escape')
+    await waitInOverlay(session, '[data-testid="overlay-popover"]', false)
+    await session.page.mouse.move(5, 5)
+    await panel.waitForFunction(() => !document.querySelector('[data-testid="item"][data-pointed]'))
+  })
 })

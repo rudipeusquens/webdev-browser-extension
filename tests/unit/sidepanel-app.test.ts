@@ -37,6 +37,19 @@ function twoPages(): Collection {
   return c
 }
 
+/** The panel's end of a line to an overlay, with a way to receive what the overlay posts. */
+function panelPort() {
+  const listeners: ((message: unknown) => void)[] = []
+  return {
+    name: 'panel',
+    postMessage: vi.fn(),
+    disconnect: vi.fn(),
+    onDisconnect: { addListener: vi.fn() },
+    onMessage: { addListener: (fn: (message: unknown) => void) => void listeners.push(fn) },
+    receive: (message: unknown) => listeners.forEach((fn) => fn(message)),
+  }
+}
+
 /** The shortcut Chrome reports for the toolbar action. */
 const shortcutIs = (shortcut: string) =>
   vi
@@ -400,6 +413,143 @@ describe('side panel', () => {
       await flushPromises()
       expect(body()).toContain('Undo brings them back until the browser closes.')
       expect(body()).not.toContain("can't be undone")
+    })
+  })
+
+  describe('the page and the list point at each other', () => {
+    let ports: ReturnType<typeof panelPort>[]
+    let scrolled: string[]
+
+    beforeEach(() => {
+      ports = []
+      scrolled = []
+      vi.spyOn(fakeBrowser.windows, 'getCurrent').mockResolvedValue({ id: 1 } as never)
+      vi.spyOn(fakeBrowser.tabs, 'connect').mockImplementation(((tab: number) => {
+        const port = Object.assign(panelPort(), { tab })
+        ports.push(port)
+        return port
+      }) as never)
+      Element.prototype.scrollIntoView = function () {
+        scrolled.push(this.textContent ?? '')
+      }
+    })
+
+    const entry = (text: string) =>
+      [...document.querySelectorAll<HTMLElement>('[data-testid="item"]')].find((e) =>
+        e.textContent?.includes(text),
+      )
+    const pointed = () =>
+      [...document.querySelectorAll<HTMLElement>('[data-testid="item"][data-pointed]')].map((e) => [
+        e.querySelector('.line-clamp-2')?.textContent?.trim(),
+        e.dataset.pointed,
+      ])
+
+    it('marks the entry of the pin hovered or open on the page, and scrolls to it', async () => {
+      overlayReply = active
+      await render(twoPages())
+      ports[0]?.receive({ type: 'pins:pointed', hovered: 'a1', open: null })
+      await flushPromises()
+      expect(pointed()).toEqual([['First on A', 'hovered']])
+      expect(scrolled.at(-1)).toContain('First on A')
+      ports[0]?.receive({ type: 'pins:pointed', hovered: null, open: 'b1' })
+      await flushPromises()
+      expect(pointed()).toEqual([['On B <b>not bold</b>', 'open']])
+      ports[0]?.receive({ type: 'pins:pointed', hovered: 'a1', open: 'b1' })
+      await flushPromises()
+      expect(pointed()).toEqual([
+        ['On B <b>not bold</b>', 'open'],
+        ['First on A', 'hovered'],
+      ])
+      ports[0]?.receive({ type: 'pins:pointed', hovered: '<b>', open: null, more: 1 })
+      await flushPromises()
+      expect(pointed()).toHaveLength(2)
+    })
+
+    it('ignores the pins of tabs it does not show, and forgets the mark on another tab', async () => {
+      overlayReply = active
+      await render(twoPages())
+      await fakeBrowser.runtime.onMessage.trigger(
+        { type: 'overlay:changed', instance: 'other' },
+        { id: fakeBrowser.runtime.id, tab: { id: 2, windowId: 1 } as never, frameId: 0 },
+        () => undefined,
+      )
+      await flushPromises()
+      const other = ports.find((p) => (p as { tab?: number }).tab === 2)
+      other?.receive({ type: 'pins:pointed', hovered: 'a1', open: null })
+      await flushPromises()
+      expect(pointed()).toEqual([])
+      ports[0]?.receive({ type: 'pins:pointed', hovered: 'a1', open: null })
+      await flushPromises()
+      expect(pointed()).toHaveLength(1)
+      vi.mocked(fakeBrowser.tabs.query).mockResolvedValue([{ id: 2 }] as never)
+      overlayReply = { ...active, instance: 'other' }
+      await fakeBrowser.tabs.onActivated.trigger({ tabId: 2, windowId: 1 })
+      await flushPromises()
+      expect(pointed()).toEqual([])
+    })
+
+    it('goes to an entry of another page, then shows it once that page is ready', async () => {
+      overlayReply = active
+      await render(twoPages())
+      entry('First on A')?.querySelector<HTMLElement>('button')?.click()
+      await flushPromises()
+      expect(fakeBrowser.runtime.sendMessage).toHaveBeenCalledWith({
+        type: 'tab:go',
+        tabId: 1,
+        pageKey: A,
+      })
+      const reveal = () =>
+        vi
+          .mocked(fakeBrowser.tabs.sendMessage)
+          .mock.calls.filter(([, m]) => (m as { type: string }).type === 'overlay:reveal')
+      expect(reveal()).toEqual([])
+      overlayReply = { ...active, pageKey: A, instance: 'two' }
+      await fakeBrowser.runtime.onMessage.trigger(
+        { type: 'overlay:changed', instance: 'two' },
+        { id: fakeBrowser.runtime.id, tab: { id: 1, windowId: 1 } as never, frameId: 0 },
+        () => undefined,
+      )
+      await flushPromises()
+      expect(reveal()).toEqual([[1, { type: 'overlay:reveal', id: 'a1' }]])
+      // Once only.
+      await fakeBrowser.tabs.onActivated.trigger({ tabId: 1, windowId: 1 })
+      await flushPromises()
+      expect(reveal()).toHaveLength(1)
+    })
+
+    it('gives the jump up when something else is clicked, or after 30 seconds', async () => {
+      overlayReply = active
+      await render(twoPages())
+      const reveals = () =>
+        vi
+          .mocked(fakeBrowser.tabs.sendMessage)
+          .mock.calls.filter(([, m]) => (m as { type: string }).type === 'overlay:reveal')
+          .map(([, m]) => (m as { id: string }).id)
+      entry('First on A')?.querySelector<HTMLElement>('button')?.click()
+      await flushPromises()
+      entry('On B')?.querySelector<HTMLElement>('button')?.click()
+      await flushPromises()
+      expect(reveals()).toEqual(['b1'])
+      overlayReply = { ...active, pageKey: A, instance: 'two' }
+      await fakeBrowser.tabs.onActivated.trigger({ tabId: 1, windowId: 1 })
+      await flushPromises()
+      expect(reveals()).toEqual(['b1'])
+
+      vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout', 'Date'] })
+      try {
+        overlayReply = active
+        await fakeBrowser.tabs.onActivated.trigger({ tabId: 1, windowId: 1 })
+        await flushPromises()
+        entry('First on A')?.querySelector<HTMLElement>('button')?.click()
+        await flushPromises()
+        await vi.advanceTimersByTimeAsync(30_000)
+        overlayReply = { ...active, pageKey: A, instance: 'three' }
+        await fakeBrowser.tabs.onActivated.trigger({ tabId: 1, windowId: 1 })
+        await flushPromises()
+        expect(reveals()).toEqual(['b1'])
+      } finally {
+        vi.useRealTimers()
+      }
     })
   })
 
@@ -832,12 +982,7 @@ describe('side panel', () => {
     const ports: { postMessage: ReturnType<typeof vi.fn>; disconnect: ReturnType<typeof vi.fn> }[] =
       []
     const connect = vi.spyOn(fakeBrowser.tabs, 'connect').mockImplementation((() => {
-      const port = {
-        name: 'panel',
-        postMessage: vi.fn(),
-        disconnect: vi.fn(),
-        onDisconnect: { addListener: vi.fn() },
-      }
+      const port = panelPort()
       ports.push(port)
       return port
     }) as never)
@@ -861,12 +1006,7 @@ describe('side panel', () => {
     const ports: { postMessage: ReturnType<typeof vi.fn>; disconnect: ReturnType<typeof vi.fn> }[] =
       []
     const connect = vi.spyOn(fakeBrowser.tabs, 'connect').mockImplementation((() => {
-      const port = {
-        name: 'panel',
-        postMessage: vi.fn(),
-        disconnect: vi.fn(),
-        onDisconnect: { addListener: vi.fn() },
-      }
+      const port = panelPort()
       ports.push(port)
       return port
     }) as never)
@@ -892,12 +1032,9 @@ describe('side panel', () => {
 
     beforeEach(() => {
       vi.spyOn(fakeBrowser.windows, 'getCurrent').mockResolvedValue({ id: 7 } as never)
-      connect = vi.spyOn(fakeBrowser.tabs, 'connect').mockReturnValue({
-        name: 'panel',
-        postMessage: vi.fn(),
-        disconnect: vi.fn(),
-        onDisconnect: { addListener: vi.fn() },
-      } as never)
+      connect = vi
+        .spyOn(fakeBrowser.tabs, 'connect')
+        .mockImplementation((() => panelPort()) as never)
     })
 
     const announce = (tab: { id: number; windowId: number }) =>

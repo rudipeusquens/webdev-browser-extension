@@ -73,6 +73,43 @@ describe('the panel and the pages of the collection', () => {
     )
   })
 
+  it('jumps from an entry to its item on another page: opens it, scrolls, opens its popover', async () => {
+    await session.page.goto(`${server.origin}/plain/`)
+    panel = await clickAction(session)
+    await panel.evaluate(() => chrome.storage.local.clear())
+    await overlayMounted(session)
+    await mark('button[type="submit"]', 'Make the button wider', 1)
+    await session.page.goto(`${server.origin}/plain/text.html`)
+    panel = await clickAction(session)
+    await overlayMounted(session)
+    await session.page.waitForFunction(() => document.readyState === 'complete')
+
+    const entry = await panel.waitForSelector(
+      '[data-testid="item"] ::-p-text(Make the button wider)',
+    )
+    await entry?.click()
+    await session.page.waitForFunction(
+      (url) => location.href === url,
+      { timeout: 10_000 },
+      `${server.origin}/plain/`,
+    )
+    await overlayMounted(session)
+    for (let i = 0; i < 50 && !(await inOverlay(POPOVER)); i++) await sleep(100)
+    expect(await inOverlay(POPOVER)).toBe(true)
+    const realm = await contentRealm(session)
+    expect(
+      await realm.evaluate(
+        () =>
+          globalThis.__webdevOverlay?.shadow?.querySelector<HTMLTextAreaElement>(
+            '[data-testid="overlay-comment"]',
+          )?.value,
+      ),
+    ).toBe('Make the button wider')
+    // The panel marks the open item's entry.
+    await panel.waitForSelector('[data-testid="item"][data-pointed="open"]')
+    await session.page.keyboard.press('Escape')
+  })
+
   it('drops the highlight when the panel closes', async () => {
     await session.page.goto(`${server.origin}/plain/`)
     panel = await clickAction(session)

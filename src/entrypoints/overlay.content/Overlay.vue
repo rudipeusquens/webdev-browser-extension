@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed, onBeforeUnmount, onMounted, ref, shallowReactive, shallowRef, watch } from 'vue'
-import { browser } from 'wxt/browser'
+import { browser, type Browser } from 'wxt/browser'
 import { useSiteCollection } from '@/composables/use-site-collection'
 import { closestOf, deepActiveElement, queryFirst, tagOf } from '@/lib/capture/dom'
 import { findText } from '@/lib/capture/find-text'
@@ -27,6 +27,7 @@ import {
   type Mode,
   type OverlayStatus,
   type PanelMessage,
+  type PinsPointed,
   type Reply,
 } from '@/lib/messages'
 import { createAnchorStatus } from './anchor-status'
@@ -72,6 +73,8 @@ const ORIGIN_WAIT = 2000
 const HOVER_DWELL = 150
 /** Text items are searched again at most this often while the page changes. */
 const REANCHOR_EVERY = 300
+/** How long a reveal waits for its item to be placed: the page may still be loading. */
+const REVEAL_WAIT = 3000
 
 interface Draft {
   key: number
@@ -532,6 +535,28 @@ function reveal(id: string): boolean {
   return openEdit(id)
 }
 
+// A reveal that came before its item was placed (the panel jumped to this page): it happens
+// once the item is placed, or not at all after REVEAL_WAIT.
+let wanted: string | null = null
+let wantedTimer: ReturnType<typeof setTimeout> | undefined
+
+function revealSoon(id: string): boolean {
+  clearTimeout(wantedTimer)
+  wanted = null
+  if (reveal(id)) return true
+  wanted = id
+  wantedTimer = setTimeout(() => (wanted = null), REVEAL_WAIT)
+  return false
+}
+
+watch(placements, (placed) => {
+  if (!wanted || !placed.has(wanted) || draft.value) return
+  const id = wanted
+  wanted = null
+  clearTimeout(wantedTimer)
+  reveal(id)
+})
+
 /**
  * Offers the chip for the page's selection after the user let go of the mouse or a key: a
  * selection the page makes by script gets none. The check waits a frame, until the
@@ -778,9 +803,9 @@ const onMessage: Parameters<typeof browser.runtime.onMessage.addListener>[0] = (
       return
     case 'overlay:reveal':
       sendResponse(
-        (reveal(message.id)
+        (revealSoon(message.id)
           ? { ok: true }
-          : { ok: false, error: 'Not found on this page.' }) satisfies Reply,
+          : { ok: false, error: 'Not found on this page yet.' }) satisfies Reply,
       )
       return
   }
@@ -791,15 +816,38 @@ const onMessage: Parameters<typeof browser.runtime.onMessage.addListener>[0] = (
  * highlight goes; when it closes, the line goes and the page is left to work normally (spec
  * section 8).
  */
+const panels = new Set<Browser.runtime.Port>()
+
+/** What the pins point at, by id only: the panel marks the entries (spec section 8). */
+function pointedNow(): PinsPointed {
+  return { type: 'pins:pointed', hovered: hoveredPin.value, open: draft.value?.edit?.id ?? null }
+}
+
+function tellPanels(message: PinsPointed) {
+  for (const port of panels) {
+    try {
+      port.postMessage(message)
+    } catch {
+      panels.delete(port)
+    }
+  }
+}
+
+watch([hoveredPin, () => draft.value?.edit?.id ?? null], () => tellPanels(pointedNow()))
+
 const onConnect: Parameters<typeof browser.runtime.onConnect.addListener>[0] = (port) => {
   if (port.name !== 'panel' || port.sender?.id !== browser.runtime.id) return
+  panels.add(port)
   port.onMessage.addListener((message) => {
     if (isPanelAway(message)) highlighted.value = null
   })
   port.onDisconnect.addListener(() => {
+    panels.delete(port)
     highlighted.value = null
     setMode('browse')
   })
+  const now = pointedNow()
+  if (now.hovered || now.open) tellPanels(now)
 }
 
 const RELEASES = ['pointerup', 'mouseup', 'keyup'] as const
@@ -816,6 +864,7 @@ onMounted(() => {
 
 onBeforeUnmount(() => {
   stopView()
+  clearTimeout(wantedTimer)
   textMarks.stop()
   clearTimeout(hoverTimer)
   clearTimeout(reanchorTimer)
