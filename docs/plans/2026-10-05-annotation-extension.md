@@ -2883,6 +2883,9 @@ in CI; manual smoke in a real Chrome.
 
 **Goal:** Dictate comments via OpenRouter with bring-your-own key.
 
+Milestone 4 added the settings model (`src/lib/settings.ts`, remembered sites; the background
+writes it) and the panel's settings view (`SettingsView.vue`); the voice settings extend both.
+
 **Files:** `lib/voice/openrouter.ts` (`transcribe(audio: Blob, opts): Promise<string>`,
 `checkKey(key): Promise<boolean>`, error mapping), `entrypoints/offscreen/` (recorder),
 `entrypoints/mic-permission/`, background voice coordinator, popover mic button and states,
