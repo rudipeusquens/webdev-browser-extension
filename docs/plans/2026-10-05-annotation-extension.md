@@ -3656,6 +3656,212 @@ string | null }> }` for the tab the panel shows.
 - [ ] **Step 2: run the whole suite** (`pnpm check`, `pnpm build`, `pnpm test:e2e`,
       `pnpm manifest:check`); **Step 3: commit** "Test the review loop and update the docs".
 
+## Milestone 6b: Review polish
+
+**Goal:** Smooth the review workflow after trying it on real projects: pins as the one name,
+one pin copied on its own, Clear all into Deleted with a bin to empty, the site as a status pill
+in the middle of the title row, starting the overlay from the panel where Chrome allows it, two
+options in Settings, markings in the status color, and native scrolling in element and area
+mode.
+
+**Planned on 2026-10-06** after milestone 6 was tried in a real browser. Tasks 48–54; the
+implementation follows in the same pull request. Steps are test-first.
+
+**Facts this milestone relies on (2026-10-06, Chrome for Testing 154):**
+
+- A click in the side panel does not grant `activeTab`: `scripting.executeScript` on a tab the
+  extension has no access to fails ("Cannot access contents of the page"), and `tabs.query`
+  leaves out that tab's `url`. The panel learns a tab's URL only where it may run already (an
+  `activeTab` grant that outlived its overlay, e.g. after a reload or a same-origin navigation,
+  or a granted origin).
+- A wheel turn over a fixed element scrolls the viewport: the glass needs to scroll by script
+  only what lies inside a scroll container. `scrollBy()` follows the page's
+  `scroll-behavior: smooth`, and a smooth scroll started while another runs starts from where
+  that one is, so quick turns lose distance; `behavior: 'instant'` does not.
+- `contextMenus` entries persist across restarts until removed.
+
+**Decisions:**
+
+- **Pin is the name** of an item everywhere the developer reads it: the chip on a selection,
+  the popover's title (**New pin**, **Pin 3**), the panel's texts, tooltips, labels and undo
+  steps. The text of a pin stays its comment. Code names (`Annotation`, `CommentPopover`) stay.
+- **Copy one pin:** an open entry has a copy button where a done entry has Reopen. It copies
+  that pin as the prompt and sends `collection:copied` with its id: it becomes done and is
+  what Copy again copies.
+- **Clear all moves to Deleted:** `collection:clear` marks every open and done pin of the site
+  deleted (no dialog: Undo and Restore bring them back). When only deleted pins are left, the
+  button becomes **Empty bin**, which removes them for good after a confirmation
+  (`collection:empty-bin`, undoable until the browser closes); numbering starts again at 1 once
+  nothing is left. Both carry the bin icon.
+- **The title row** is a three-column grid: the view's title on the left, the site pill in the
+  middle (a dot and the site: green active, grey not active, red refused or failed; "Not
+  active" when Chrome does not tell the panel the page), Undo, Redo and the gear on the right.
+  The count badge goes; the filter shows the counts. Hovering or focusing the pill opens a
+  small popover with its one action: **Forget this site** (remembered; asks in a dialog first),
+  **Always enable here** (active, not remembered), **Annotate this page** (not active, page
+  known). States without an action get no popover; the pill's tooltip names the full origin.
+- **Annotate this page from the panel:** `tab:start { tabId }`, from the panel only, injects
+  the overlay as the toolbar does; Chrome refuses where it gives no access, and the panel says
+  so. The empty Edit view shows the button in its middle when the page is known, else how to
+  start the overlay (toolbar icon, shortcut, and the context menu only while it is enabled).
+- **Settings:** a General section with two switches stored in `settings` (written by the
+  background on `settings:set { key, value }`, from the panel only, in the same queue as the
+  remembered sites): **Show page titles** (off: page headings show the path only) and
+  **Annotate this page in the context menu** (off: the background removes the entry; on: it
+  adds it). Sections get more space between them. Settings › Sites asks before forgetting too.
+- **Page headings:** **This page** first, then the path; the path of another page on the web
+  is the Go to link (ghost button style, arrow), no separate button. More space between groups.
+- **Layout:** the mode switch and Pins fill the row (equal widths, 8 px between Area and Pins);
+  empty states sit in the middle of the list area; no key hints on the Edit view; the copy
+  status and errors sit above the footer's buttons, so the footer's padding is the same on
+  every side; scrollbars thin, in the border color.
+- **Status color for every marking of a saved pin:** the panel's hover highlight and the
+  marking of the pin being edited take its status color (blue, green, red); a new pin's stays
+  blue.
+- **Wheel in element and area mode:** over the document the browser scrolls by itself; inside
+  a scroll container under the pointer, the glass scrolls the nearest one that can still move
+  that way, at once and by the full distance. No option: slower scrolling was a bug.
+
+**Known limits:** a page the extension has no access to cannot be started from the panel and
+its site cannot be named (Chrome); the panel's switches are the same for every site.
+
+**Review focus for this milestone** (each line has a test in the owning task):
+
+1. A page or another extension context sending `tab:start`, `settings:set` or
+   `collection:empty-bin`: refused, nothing written or injected (Tasks 49–51).
+2. Settings stored by milestone 6 (no options): read with both options off; a malformed option
+   leaves the remembered sites intact (Task 49).
+3. Clear all, then Undo; Empty bin, then Undo; Copy again after Clear all; Empty bin while
+   open pins exist cannot be reached (Task 51).
+4. A status change while the filter shows the pin: pin, outline, text shading, panel highlight
+   and popover marking change color without a reload (Task 52).
+5. Wheel over the document with `scroll-behavior: smooth`, over a container at its end, and
+   with Ctrl held (Task 53).
+
+### Task 48: Pins by name, and the panel's layout
+
+**Files:**
+
+- Modify: `src/entrypoints/sidepanel/{App,ItemList,SettingsView}.vue`,
+  `src/entrypoints/overlay.content/{SelectionChip,CommentPopover,Overlay}.vue`,
+  `src/lib/background/writer.ts` (step labels), `src/assets/tailwind.css` (scrollbars)
+- Test: `tests/unit/{sidepanel-app,comment-popover,background-writer}.test.ts`,
+  `tests/e2e/panel-layout.e2e.test.ts` and the E2E tests that name items
+
+- [ ] **Step 1: Write the failing tests:** the chip says Pin; the popover says New pin or Pin 3
+      and its buttons say "pin"; the panel says "Copied 2 pins", "Delete pin 1", "2 pins are
+      hidden by this filter"; undo steps read "Delete pin 1", "Mark 2 pins done"; the Edit view
+      has no key hints; the empty states are centered in the list area; E2E at 400 px: the four
+      mode buttons span the row, Area and Pins are 8 px apart, the footer's bottom padding
+      equals its side padding, groups are at least 16 px apart.
+- [ ] **Step 2–4:** watch them fail, implement, run `pnpm test:unit` and the touched E2E files;
+      **Step 5: commit** "Call them pins, and tidy the panel".
+
+### Task 49: Settings options, page headings
+
+**Files:**
+
+- Create: `src/entrypoints/sidepanel/GeneralSettings.vue`, `src/components/ui/switch/*`
+  (shadcn-vue CLI)
+- Modify: `src/lib/settings.ts`, `src/lib/background/sites.ts` (the settings queue),
+  `src/lib/messages.ts`, `src/entrypoints/background.ts`, `src/entrypoints/sidepanel/
+{SettingsView,ItemList,App}.vue`
+- Test: `tests/unit/{settings,background,messages,sidepanel-app}.test.ts`,
+  `tests/e2e/panel-layout.e2e.test.ts`
+
+**Interfaces:** `Settings { rememberedOrigins: string[]; pageTitles: boolean; contextMenu:
+boolean }`; `{ type: 'settings:set'; key: 'pageTitles' | 'contextMenu'; value: boolean }` →
+`Reply`.
+
+- [ ] **Step 1: Write the failing tests:** old settings read with both off; a non-boolean option
+      falls back to off without dropping the sites; `settings:set` from a page is refused; it
+      keeps the remembered sites and runs in their queue; the context menu entry exists only
+      while the option is on (startup, install, change); headings show the path only, the title
+      too with the option on; **This page** comes before the path; another page's path is the
+      Go to button and there is no `go-to` button; page-derived titles still render as text.
+- [ ] **Step 2–4;** **Step 5: commit** "Add page titles and the context menu as options".
+
+### Task 50: The site pill, Annotate this page from the panel
+
+**Files:**
+
+- Create: `src/entrypoints/sidepanel/{SitePill,ForgetSiteDialog}.vue`
+- Modify: `src/entrypoints/sidepanel/{App,SiteList}.vue`,
+  `src/entrypoints/sidepanel/use-active-tab.ts` (`url` of a known idle tab),
+  `src/lib/messages.ts`, `src/entrypoints/background.ts`
+- Test: `tests/unit/{sidepanel-app,background,messages}.test.ts`,
+  `tests/e2e/{remembered,reactivate}.e2e.test.ts`
+
+**Interfaces:** `TabStatus` idle and failed carry `url?: string`;
+`{ type: 'tab:start'; tabId: number }` → `Reply`.
+
+- [ ] **Step 1: Write the failing tests:** the pill sits between title and Undo, centered, with
+      a green, grey or red dot and the site; hovering or focusing opens its action; Forget asks
+      first and forgets only on confirm (also in Settings › Sites); Always enable here asks
+      Chrome first; a known idle page offers Annotate this page in the pill and in the middle of
+      the view, which sends `tab:start`; an unknown page shows "Not active" and how to start;
+      `tab:start` from a page is refused; a refused start is shown. E2E: reload a page, start
+      the overlay again from the panel without the toolbar.
+- [ ] **Step 2–4;** **Step 5: commit** "Show the site as a pill and start the overlay from the
+      panel".
+
+### Task 51: Copy one pin, Clear all into Deleted, Empty bin
+
+**Files:**
+
+- Create: `src/entrypoints/sidepanel/EmptyBinDialog.vue` (replaces `ClearAllDialog.vue`)
+- Modify: `src/lib/collection/ops.ts` (`clearAll`, `emptyBin`), `src/lib/messages.ts`,
+  `src/lib/background/writer.ts`, `src/entrypoints/background.ts`,
+  `src/entrypoints/sidepanel/{App,ItemList}.vue`
+- Test: `tests/unit/{collection-ops,background-writer,background,messages,sidepanel-app}.test.ts`,
+  `tests/e2e/review-loop.e2e.test.ts`
+
+**Interfaces:** `clearAll(c, now): Collection` (open and done → deleted);
+`emptyBin(c): Collection` (deleted pins removed, pages without pins dropped, `lastCopy`
+filtered, numbering reset when empty); `{ type: 'collection:empty-bin'; site: string }`.
+
+- [ ] **Step 1: Write the failing tests:** ops; writer labels "Clear all" and "Empty bin";
+      undo after each; `collection:empty-bin` from a page refused, missing marks of removed pins
+      forgotten; the panel's copy button on open entries copies one pin and sends its id, Copy
+      again copies it again; Clear all needs no dialog and says how many moved; Empty bin shows
+      only when nothing open or done is left, asks first.
+- [ ] **Step 2–4;** **Step 5: commit** "Copy one pin, and clear into Deleted".
+
+### Task 52: Markings in the status color
+
+**Files:**
+
+- Modify: `src/entrypoints/overlay.content/{HoverBox,TextHighlight,Overlay}.vue`,
+  `src/lib/status.ts`
+- Test: `tests/unit/overlay-boxes.test.ts` (new), `tests/e2e/pin-outlines.e2e.test.ts`
+
+- [ ] **Step 1: Write the failing tests:** the panel's highlight and the popover's marking of a
+      done pin are green, of a deleted one red, of an open one and a new one blue; E2E with All:
+      Copy as prompt turns pin, outline and text shading green and Reopen blue, without a
+      reload.
+- [ ] **Step 2–4;** **Step 5: commit** "Mark pins in their status color everywhere".
+
+### Task 53: Native scrolling in element and area mode
+
+**Files:**
+
+- Create: `tests/fixtures/sites/plain/smooth.html`
+- Modify: `src/entrypoints/overlay.content/{picker.ts,Overlay.vue}`
+- Test: `tests/unit/picker.test.ts`, `tests/e2e/element-mode.e2e.test.ts`
+
+- [ ] **Step 1: Write the failing tests:** `scrollableAncestor` skips a container that cannot
+      move further that way; E2E on a page with `scroll-behavior: smooth`: four quick wheel
+      turns scroll the document as far in element mode as in browse mode, and a smooth inner
+      container by the full distance; a container at its end lets the page scroll.
+- [ ] **Step 2–4;** **Step 5: commit** "Scroll as fast in element mode as without it".
+
+### Task 54: The loop end to end, docs
+
+- Modify: `tests/e2e/review-loop.e2e.test.ts`, the spec (sections 5, 8, 10, 11), `AGENTS.md`
+- [ ] **Step 1:** the review loop copies one pin, clears into Deleted, empties the bin;
+      **Step 2:** whole suite (`pnpm check`, `pnpm build`, `pnpm test:e2e`,
+      `pnpm manifest:check`); **Step 3: commit** "Test the polished loop and update the docs".
+
 ## Milestone 7: Hardening and release readiness
 
 **Goal:** Independent security review, smoke checklist, user documentation.
