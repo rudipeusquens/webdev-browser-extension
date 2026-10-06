@@ -100,8 +100,11 @@ describe('isOverlayStatus', () => {
       pageKey: 'http://localhost:3000/',
       mode: 'browse',
       pins: true,
+      instance: 'f00d',
     }
     expect(isOverlayStatus(status)).toBe(true)
+    expect(isOverlayStatus({ ...status, instance: '' })).toBe(false)
+    expect(isOverlayStatus({ ...status, instance: 'x y' })).toBe(false)
     expect(isOverlayStatus({ ...status, pins: 'yes' })).toBe(false)
     expect(isOverlayStatus({ ...status, mode: 'x' })).toBe(false)
     expect(isOverlayStatus({ ...status, host: 'x'.repeat(300) })).toBe(false)

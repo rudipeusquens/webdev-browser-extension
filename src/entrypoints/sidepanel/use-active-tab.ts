@@ -7,7 +7,7 @@ import { BLOCKED_PREFIX, isBlocked } from '@/lib/background/tab-status'
 import { isOverlayStatus, isPanelMessage, type Mode } from '@/lib/messages'
 
 export type TabStatus =
-  | { kind: 'active'; host: string; pageKey: string; mode: Mode; pins: boolean }
+  | { kind: 'active'; host: string; pageKey: string; mode: Mode; pins: boolean; instance: string }
   | { kind: 'blocked' }
   | { kind: 'idle' }
 

@@ -10,7 +10,8 @@ export interface Settings {
 }
 
 export const SETTINGS_KEY = 'settings'
-const MAX_SITES = 100
+/** Most remembered sites: one registered script lists them all. */
+export const MAX_SITES = 100
 
 export const defaultSettings = (): Settings => ({ rememberedOrigins: [] })
 

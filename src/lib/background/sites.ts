@@ -5,7 +5,7 @@
 
 import { browser } from 'wxt/browser'
 import type { Reply } from '../messages'
-import { loadSettings, originPattern, type Settings, SETTINGS_KEY } from '../settings'
+import { loadSettings, MAX_SITES, originPattern, type Settings, SETTINGS_KEY } from '../settings'
 
 const SCRIPT_ID = 'overlay'
 export const OVERLAY_SCRIPT = 'content-scripts/overlay.js'
@@ -49,11 +49,20 @@ export function createSites() {
     /** Remembers `origin` once Chrome grants access to it. */
     remember: (origin: string): Promise<Reply> =>
       inOrder(async () => {
+        const settings = await loadSettings()
+        const { rememberedOrigins } = settings
+        if (!rememberedOrigins.includes(origin) && rememberedOrigins.length >= MAX_SITES) {
+          // The panel asked Chrome for access first: give it back.
+          await browser.permissions.remove({ origins: [originPattern(origin)] }).catch(() => false)
+          return {
+            ok: false,
+            error: `You can remember up to ${MAX_SITES} sites. Forget one first.`,
+          }
+        }
         if (!(await granted(origin))) {
           return { ok: false, error: 'Chrome did not grant access to this site.' }
         }
-        const settings = await loadSettings()
-        await save(settings, [...settings.rememberedOrigins, origin])
+        await save(settings, [...rememberedOrigins, origin])
         return { ok: true }
       }),
 

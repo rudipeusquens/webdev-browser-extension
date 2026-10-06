@@ -2679,7 +2679,7 @@ page change and 300 ms after DOM changes settle; a range found goes into the liv
 overlay reports found and missing ids of the current page; the background keeps the set of
 missing ids of items that exist (removed on found, cleared by **Clear all**). The panel marks
 missing entries "Not found" (title "Not found when this page was last open") and the copied
-prompt adds `(not found on the page anymore, data from when it was marked)` under their
+prompt adds `(not found when the page was last open; data from when it was marked)` under their
 heading. The overlay checks every second whether the extension is still there and removes
 itself when it is not.
 

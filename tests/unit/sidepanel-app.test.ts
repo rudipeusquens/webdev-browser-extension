@@ -15,7 +15,13 @@ import { fakeSites } from './helpers/fake-sites'
 
 const A = 'http://localhost:3000/a'
 const B = 'http://localhost:3000/b'
-const active: OverlayStatus = { host: 'localhost:3000', pageKey: B, mode: 'browse', pins: true }
+const active: OverlayStatus = {
+  host: 'localhost:3000',
+  pageKey: B,
+  mode: 'browse',
+  pins: true,
+  instance: 'one',
+}
 
 function twoPages(): Collection {
   let c = addAnnotation(emptyCollection(), elementInput('a1', A, 'First on A'), 'T')
@@ -229,6 +235,166 @@ describe('side panel', () => {
       type: 'overlay:set-pins',
       visible: true,
     })
+  })
+
+  describe('sites', () => {
+    const ORIGIN = 'http://localhost:3000'
+    let fake: ReturnType<typeof fakeSites>
+
+    beforeEach(() => {
+      fake = fakeSites()
+    })
+
+    it('offers Always enable here on an active page and asks Chrome before anything else', async () => {
+      overlayReply = active
+      await render()
+      const calls: string[] = []
+      vi.mocked(fakeBrowser.permissions.request).mockImplementation((async () => {
+        calls.push('request')
+        return true
+      }) as never)
+      vi.mocked(fakeBrowser.runtime.sendMessage).mockImplementation((async (m: {
+        type: string
+      }) => {
+        calls.push(m.type)
+        return { ok: true }
+      }) as never)
+      byTestId('remember-site').click()
+      expect(calls).toEqual(['request'])
+      expect(fakeBrowser.permissions.request).toHaveBeenCalledWith({ origins: [`${ORIGIN}/*`] })
+      await flushPromises()
+      expect(fakeBrowser.runtime.sendMessage).toHaveBeenCalledWith({
+        type: 'site:remember',
+        origin: ORIGIN,
+      })
+    })
+
+    it('does not remember the site when Chrome is not granted access', async () => {
+      overlayReply = active
+      await render()
+      vi.mocked(fakeBrowser.permissions.request).mockResolvedValue(false as never)
+      byTestId('remember-site').click()
+      await flushPromises()
+      expect(fakeBrowser.runtime.sendMessage).not.toHaveBeenCalledWith(
+        expect.objectContaining({ type: 'site:remember' }),
+      )
+    })
+
+    it('says why a site could not be remembered', async () => {
+      overlayReply = active
+      await render()
+      vi.mocked(fakeBrowser.runtime.sendMessage).mockResolvedValue({
+        ok: false,
+        error: 'You can remember up to 100 sites. Forget one first.',
+      } as never)
+      byTestId('remember-site').click()
+      await flushPromises()
+      expect(byTestId('site-error').textContent).toContain('up to 100 sites')
+    })
+
+    it('offers Forget this site on a remembered site', async () => {
+      await fakeBrowser.storage.local.set({ [SETTINGS_KEY]: { rememberedOrigins: [ORIGIN] } })
+      overlayReply = active
+      await render()
+      expect(document.querySelector('[data-testid="remember-site"]')).toBeNull()
+      byTestId('forget-site').click()
+      await flushPromises()
+      expect(fakeBrowser.runtime.sendMessage).toHaveBeenCalledWith({
+        type: 'site:forget',
+        origin: ORIGIN,
+      })
+    })
+
+    it('offers nothing for an inactive tab or a file page', async () => {
+      await render()
+      expect(document.querySelector('[data-testid="remember-site"]')).toBeNull()
+      wrapper?.unmount()
+      overlayReply = { ...active, host: 'file', pageKey: 'file:///srv/app/index.html' }
+      await render()
+      expect(document.querySelector('[data-testid="remember-site"]')).toBeNull()
+      expect(fake.state.granted.size).toBe(0)
+    })
+
+    it('lists remembered sites in the settings and forgets one', async () => {
+      await fakeBrowser.storage.local.set({
+        [SETTINGS_KEY]: { rememberedOrigins: [ORIGIN, 'https://staging.example.com'] },
+      })
+      await render()
+      byTestId('open-settings').click()
+      await flushPromises()
+      const sites = [...document.querySelectorAll('[data-testid="site"]')].map(
+        (el) => el.textContent,
+      )
+      expect(sites).toEqual([
+        expect.stringContaining(ORIGIN),
+        expect.stringContaining('https://staging.example.com'),
+      ])
+      document
+        .querySelector<HTMLElement>('[data-testid="site"] [data-testid="remove-site"]')
+        ?.click()
+      await flushPromises()
+      expect(fakeBrowser.runtime.sendMessage).toHaveBeenCalledWith({
+        type: 'site:forget',
+        origin: ORIGIN,
+      })
+      byTestId('close-settings').click()
+      await flushPromises()
+      expect(document.querySelector('[data-testid="site"]')).toBeNull()
+    })
+
+    it('says when no site is remembered', async () => {
+      await render()
+      byTestId('open-settings').click()
+      await flushPromises()
+      expect(body()).toContain('No remembered sites yet')
+    })
+  })
+
+  it('offers Go to for the other pages and opens them in the active tab', async () => {
+    overlayReply = active
+    await render(twoPages())
+    const groups = [...document.querySelectorAll('[data-testid="page-group"]')]
+    expect(groups[0]?.querySelector('[data-testid="go-to"]')).toBeNull()
+    groups[1]?.querySelector<HTMLElement>('[data-testid="go-to"]')?.click()
+    await flushPromises()
+    expect(fakeBrowser.runtime.sendMessage).toHaveBeenCalledWith({
+      type: 'tab:go',
+      tabId: 1,
+      pageKey: A,
+    })
+  })
+
+  it('offers no Go to for pages that are not on the web', async () => {
+    let c = twoPages()
+    c = addAnnotation(c, elementInput('f1', 'file:///srv/app/index.html', 'Local'), 'T')
+    overlayReply = active
+    await render(c)
+    const local = [...document.querySelectorAll('[data-testid="page-group"]')].find((g) =>
+      g.textContent?.includes('Local'),
+    )
+    expect(local?.querySelector('[data-testid="go-to"]')).toBeNull()
+  })
+
+  it('keeps a line open to the overlay of the active tab, and to a new one on the same tab', async () => {
+    const ports: { disconnect: ReturnType<typeof vi.fn> }[] = []
+    const connect = vi.spyOn(fakeBrowser.tabs, 'connect').mockImplementation((() => {
+      const port = { name: 'panel', disconnect: vi.fn(), onDisconnect: { addListener: vi.fn() } }
+      ports.push(port)
+      return port
+    }) as never)
+    overlayReply = active
+    await render()
+    expect(connect).toHaveBeenCalledWith(1, { name: 'panel' })
+    // A second toolbar click: a new overlay on the same tab tells the panel.
+    overlayReply = { ...active, instance: 'two' }
+    await fakeBrowser.runtime.onMessage.trigger(
+      { type: 'overlay:changed' },
+      { id: fakeBrowser.runtime.id },
+      () => undefined,
+    )
+    await flushPromises()
+    expect(connect).toHaveBeenCalledTimes(2)
+    expect(ports[0]?.disconnect).toHaveBeenCalled()
   })
 
   describe('sites', () => {

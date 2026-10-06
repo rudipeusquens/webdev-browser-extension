@@ -83,4 +83,26 @@ describe('the panel and the pages of the collection', () => {
     }
     expect(await inOverlay('[data-testid="overlay-highlight"]')).toBe(false)
   })
+
+  it('drops the highlight when the panel closes after a second toolbar click', async () => {
+    await session.page.goto(`${server.origin}/plain/`)
+    panel = await clickAction(session)
+    await panel.evaluate(() => chrome.storage.local.clear())
+    await overlayMounted(session)
+    await mark('h1', 'Highlight me again', 1)
+    // The overlay starts again on the same tab while the panel stays open.
+    panel = await clickAction(session)
+    await overlayMounted(session)
+    await sleep(500)
+    await panel.hover('[data-testid="item"]')
+    for (let i = 0; i < 30 && !(await inOverlay('[data-testid="overlay-highlight"]')); i++) {
+      await sleep(100)
+    }
+    expect(await inOverlay('[data-testid="overlay-highlight"]')).toBe(true)
+    await panel.close()
+    for (let i = 0; i < 30 && (await inOverlay('[data-testid="overlay-highlight"]')); i++) {
+      await sleep(100)
+    }
+    expect(await inOverlay('[data-testid="overlay-highlight"]')).toBe(false)
+  })
 })

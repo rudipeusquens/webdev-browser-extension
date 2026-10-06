@@ -133,7 +133,7 @@ describe('a three-page session on a Vue app', () => {
     expect(clipboard).toBe(
       formatCollection((await storedCollection(panel)) as unknown as Collection),
     )
-    expect(clipboard).not.toContain('not found on the page anymore')
+    expect(clipboard).not.toContain('not found when the page was last open')
     const home = clipboard.indexOf(`## ${app.origin}/\n`)
     const settings = clipboard.indexOf(`## ${app.origin}/settings\n`)
     const about = clipboard.indexOf(`## ${app.origin}/about\n`)

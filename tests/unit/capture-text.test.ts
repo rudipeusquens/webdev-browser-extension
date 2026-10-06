@@ -7,7 +7,7 @@ import {
   selectionRange,
   snapshotRange,
 } from '@/lib/capture/text'
-import { join, readForward, TextReader } from '@/lib/capture/reader'
+import { join, readBackward, readForward, TextReader } from '@/lib/capture/reader'
 import { chromeLikeVisibility } from './helpers/chrome-visibility'
 
 const $ = (selector: string) => {
@@ -343,6 +343,22 @@ describe('sameRange', () => {
 })
 
 describe('readForward', () => {
+  it('stops inside one huge text node once it has read its limit', () => {
+    document.body.innerHTML = `<pre>${'log line\n'.repeat(300_000)}</pre>`
+    const pre = $('pre')
+    const read = readForward(new TextReader(window), pre, pre, 0, () => ({ stop: false }), 100)
+    expect(join(read.pieces).length).toBeLessThanOrEqual(101)
+    expect(read.cut).toBe(true)
+  })
+
+  it('stops inside one huge text node also when reading backwards', () => {
+    document.body.innerHTML = `<pre>${'log line\n'.repeat(300_000)}</pre>`
+    const text = $('pre').firstChild as Text
+    const read = readBackward(new TextReader(window), $('pre'), text, text.length, 40)
+    expect(join(read.pieces).length).toBeLessThan(1000)
+    expect(read.cut).toBe(true)
+  })
+
   it('reads nothing from a boundary at the end of its root', () => {
     document.body.innerHTML = '<h3>Heading</h3><p>Neighbour paragraph</p>'
     const h3 = $('h3')

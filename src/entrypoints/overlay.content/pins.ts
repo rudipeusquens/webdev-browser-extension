@@ -107,23 +107,33 @@ const GAP = 2
 const CLIPPING = /hidden|scroll|auto|clip|overlay/
 
 /**
- * The ancestors of `el` that clip its overflow, innermost first: scroll containers and
- * `overflow: hidden` boxes. A fixed element ends the walk (it is placed against the
- * viewport); `body` and `html` do too (their overflow is the viewport's).
+ * The boxes that clip `el`, innermost first: scroll containers and `overflow: hidden`
+ * ancestors. An absolutely positioned box escapes ancestors up to its containing block (the
+ * nearest positioned or transformed one); a fixed element ends the walk (it is placed against
+ * the viewport), and so do `body` and `html` (their overflow is the viewport's). `withSelf`
+ * adds `el` itself, for a target inside its content (text) rather than `el`'s own box.
  */
-export function clippersOf(el: Element): Element[] {
+export function clippersOf(el: Element, withSelf = false): Element[] {
   const doc = ownerDocumentOf(el)
   const view = doc.defaultView
   const clippers: Element[] = []
+  // Above an absolutely positioned box, until its containing block.
+  let escaping = false
   let node: Element | null = el
   for (let depth = 0; node && view && depth < MAX_DEPTH; depth++) {
     const style = view.getComputedStyle(node)
+    const positioned =
+      (style.position !== '' && style.position !== 'static') ||
+      (style.transform !== '' && style.transform !== 'none')
     // The shorthand too: happy-dom (unit tests) does not expand it.
     const overflow = `${style.overflow} ${style.overflowX} ${style.overflowY}`
-    if (node !== el && CLIPPING.test(overflow)) {
+    const own = node === el
+    if ((!own || withSelf) && CLIPPING.test(overflow) && (!escaping || positioned)) {
       clippers.push(node)
     }
     if (style.position === 'fixed') break
+    if (style.position === 'absolute') escaping = true
+    else if (positioned) escaping = false
     node = parentOf(node)
     if (node === doc.body || node === doc.documentElement) break
   }

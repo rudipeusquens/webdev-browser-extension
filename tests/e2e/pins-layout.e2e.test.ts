@@ -1,7 +1,15 @@
 import type { Page } from 'puppeteer'
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest'
 import { clickAction, contentRealm, launch, type Session, startFixtureServer } from './harness'
-import { markElement, overlayMounted, sleep, waitForItems, waitInOverlay } from './overlay-helpers'
+import {
+  clickInOverlay,
+  dragSelect,
+  markElement,
+  overlayMounted,
+  sleep,
+  waitForItems,
+  waitInOverlay,
+} from './overlay-helpers'
 
 const PIN = '[data-testid="overlay-pin"]'
 const POPOVER = '[data-testid="overlay-popover"]'
@@ -73,6 +81,25 @@ describe('pins in scroll containers and on sticky elements', () => {
     await session.page.$eval('#list', (el) => (el.scrollTop = 60))
     const at = await pin()
     expect(at?.y).toBeGreaterThanOrEqual(box + 4 - 0.5)
+  })
+
+  it('hides the pin of text scrolled out of the box that holds it', async () => {
+    await dragSelect(session.page, '#textbox', 'Line one')
+    await clickInOverlay(session, '[data-testid="overlay-chip"]')
+    await waitInOverlay(session, POPOVER)
+    await session.page.keyboard.type('Text in a scroll box')
+    await session.page.keyboard.press('Enter')
+    await waitInOverlay(session, POPOVER, false)
+    await waitForItems(panel, 1)
+    expect(await pin()).not.toBeNull()
+    await session.page.$eval('#textbox', (el) => (el.scrollTop = 200))
+    expect(await pin()).toBeNull()
+  })
+
+  it('shows the pin of a positioned badge outside a clipping box it escapes', async () => {
+    await mark('#badge', 1)
+    const badge = await top('#badge')
+    expect((await pin())?.y).toBeCloseTo(badge - 10, 0)
   })
 
   it('keeps the pin of a sticky header at the header while the page scrolls', async () => {

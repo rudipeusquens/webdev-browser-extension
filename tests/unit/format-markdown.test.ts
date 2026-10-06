@@ -182,10 +182,10 @@ describe('formatCollection', () => {
     )
     const text = formatCollection(c, { missing: new Set(['i0']) })
     expect(text).toContain(
-      '### 1. Element\n\n(not found on the page anymore, data from when it was marked)\n\n> Gone\n',
+      '### 1. Element\n\n(not found when the page was last open; data from when it was marked)\n\n> Gone\n',
     )
     expect(text).toContain('### 2. Element\n\n> Here\n')
-    expect(text.match(/not found on the page anymore/g)).toHaveLength(1)
+    expect(text.match(/not found when the page was last open/g)).toHaveLength(1)
     expect(formatCollection(c)).toBe(formatCollection(c, { missing: new Set() }))
   })
 

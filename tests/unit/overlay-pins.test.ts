@@ -184,6 +184,29 @@ describe('clippers and visible bounds', () => {
     expect(clippersOf($('#head'))).toEqual([])
   })
 
+  it("include the element itself for text inside it, which scrolls with the element's content", () => {
+    document.body.innerHTML = '<pre id="log" style="overflow: auto">Line one</pre>'
+    expect(clippersOf($('#log'))).toEqual([])
+    expect(clippersOf($('#log'), true)).toEqual([$('#log')])
+  })
+
+  it('leave out boxes an absolutely positioned target escapes', () => {
+    document.body.innerHTML =
+      '<div id="card" style="position: relative">' +
+      '<div id="wrap" style="overflow: hidden"><span id="badge" style="position: absolute">New</span>' +
+      '<span id="flow">In flow</span></div></div>'
+    expect(clippersOf($('#badge'))).toEqual([])
+    expect(clippersOf($('#flow'))).toEqual([$('#wrap')])
+  })
+
+  it('keep the box an absolutely positioned target is placed in', () => {
+    document.body.innerHTML =
+      '<div id="outer" style="overflow: hidden"><div id="box" style="overflow: auto; position: relative">' +
+      '<div id="mid" style="overflow: hidden"><span id="badge" style="position: absolute">New</span></div>' +
+      '</div></div>'
+    expect(clippersOf($('#badge'))).toEqual([$('#box'), $('#outer')])
+  })
+
   it('are empty when a clipping ancestor is off-screen', () => {
     document.body.innerHTML = '<div id="box" style="overflow: auto"><p id="row">Row</p></div>'
     boxes.set($('#box'), { x: 100, y: 900, width: 200, height: 80 })

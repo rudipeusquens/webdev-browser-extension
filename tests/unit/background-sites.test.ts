@@ -81,6 +81,24 @@ describe('createSites', () => {
     expect(fake.state.scripts.get('overlay')?.matches).toEqual([`${B}/*`])
   })
 
+  it('refuses the 101st site and keeps the 100 it has', async () => {
+    const many = Array.from(
+      { length: 100 },
+      (_, i) => `http://site${String(i).padStart(3, '0')}.test`,
+    )
+    fake = fakeSites([...many, 'http://one-more.test'].map((o) => `${o}/*`))
+    const sites = createSites()
+    for (const origin of many) await sites.remember(origin)
+    expect(await sites.remember('http://one-more.test')).toMatchObject({
+      ok: false,
+      error: expect.stringContaining('100'),
+    })
+    expect(await sites.remember(many[0] as string)).toEqual({ ok: true })
+    expect((await loadSettings()).rememberedOrigins).toHaveLength(100)
+    await sites.forget(many[1] as string)
+    expect((await loadSettings()).rememberedOrigins).toHaveLength(99)
+  })
+
   it('runs one change at a time', async () => {
     const sites = createSites()
     await Promise.all([sites.remember(A), sites.remember(B), sites.forget(A)])

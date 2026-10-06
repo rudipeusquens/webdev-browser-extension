@@ -26,6 +26,29 @@
         margin: 0;
         height: 40px;
       }
+      #textbox {
+        margin: 20px 0 0 40px;
+        width: 300px;
+        height: 60px;
+        overflow: auto;
+        border: 1px solid #ccc;
+      }
+      /* The badge's containing block is the card: the clipping box in between does not clip it. */
+      #card {
+        position: relative;
+        margin: 20px 0 0 40px;
+        height: 100px;
+      }
+      #clip {
+        overflow: hidden;
+        width: 200px;
+        height: 30px;
+      }
+      #badge {
+        position: absolute;
+        top: 60px;
+        left: 10px;
+      }
       .tall {
         height: 3000px;
       }
@@ -42,6 +65,13 @@
       <p id="row-6">Row 6</p>
       <p id="row-7">Row 7</p>
       <p id="row-8">Row 8</p>
+    </div>
+    <div id="textbox">
+      Line one<br />Line two<br />Line three<br />Line four<br />Line five<br />Line six<br />Line
+      seven<br />Line eight<br />Line nine<br />Line ten
+    </div>
+    <div id="card">
+      <div id="clip"><span id="badge">Badge</span></div>
     </div>
     <div class="tall"></div>
   </body>

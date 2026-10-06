@@ -188,7 +188,9 @@ describe('re-anchoring after a reload', () => {
         }),
       ),
     })
-    expect(prompt).toContain('(not found on the page anymore, data from when it was marked)')
+    expect(prompt).toContain(
+      '(not found when the page was last open; data from when it was marked)',
+    )
     await session.page.evaluate(() => {
       document.body.prepend((window as unknown as { parked: HTMLElement }).parked)
     })
@@ -238,6 +240,50 @@ describe('re-anchoring on a page that changes all the time (review focus 2)', ()
       () => (window as unknown as { longFrames: number }).longFrames,
     )
     expect(longFrames).toBeLessThanOrEqual(3)
+  })
+})
+
+describe('re-anchoring text that is gone, inside one huge text node (review focus 2)', () => {
+  let server: Awaited<ReturnType<typeof startFixtureServer>>
+  let session: Session
+
+  beforeAll(async () => {
+    server = await startFixtureServer()
+    session = await launch()
+  })
+
+  afterAll(async () => {
+    await session?.browser.close()
+    await server?.close()
+  })
+
+  it('keeps searching cheap while the page keeps changing', async () => {
+    await session.page.goto(`${server.origin}/plain/busy.html`)
+    const panel = await clickAction(session)
+    await panel.evaluate(() => chrome.storage.local.clear())
+    await overlayMounted(session)
+    await dragSelect(session.page, '#log', 'First entry')
+    await clickInOverlay(session, '[data-testid="overlay-chip"]')
+    await comment(session, 'Log text')
+    await waitForItems(panel, 1)
+    // The selected words go away; the log stays megabytes long.
+    await session.page.evaluate(() => {
+      const log = document.getElementById('log') as HTMLElement
+      log.textContent = (log.textContent ?? '').replace('First entry', 'Opening line')
+    })
+    await sleep(500)
+    await session.page.evaluate(() => {
+      const w = window as unknown as { longFrames: number }
+      w.longFrames = 0
+      new PerformanceObserver((list) => {
+        w.longFrames += list.getEntries().filter((e) => e.duration > 50).length
+      }).observe({ type: 'long-animation-frame' })
+    })
+    await sleep(3000)
+    const longFrames = await session.page.evaluate(
+      () => (window as unknown as { longFrames: number }).longFrames,
+    )
+    expect(longFrames).toBeLessThanOrEqual(2)
   })
 })
 

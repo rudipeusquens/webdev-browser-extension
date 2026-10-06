@@ -187,7 +187,10 @@ const placements = computed(() => {
 // placements, measured on every frame.
 const clippers = computed(() => {
   const found = new Map<string, Element[]>()
-  for (const [id, placement] of placements.value) found.set(id, clippersOf(placement.el))
+  for (const [id, placement] of placements.value) {
+    // A selection lies in its element's content: that element's own scrolling clips it.
+    found.set(id, clippersOf(placement.el, !!placement.range))
+  }
   return found
 })
 const pins = computed(() => {
@@ -611,7 +614,10 @@ function onKeydown(e: KeyboardEvent) {
   else if (walk && action === 'select') select(walk.current)
 }
 
+const instance = newId()
+
 const status = (): OverlayStatus => ({
+  instance,
   host: location.host || location.protocol.replace(':', ''),
   pageKey: page.value,
   pins: pinsShown.value,

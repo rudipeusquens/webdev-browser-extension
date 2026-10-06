@@ -16,7 +16,13 @@ import { Toggle } from '@/components/ui/toggle'
 import { ToggleGroup, ToggleGroupItem } from '@/components/ui/toggle-group'
 import { groupByPage } from '@/lib/collection/ops'
 import { formatCollection } from '@/lib/format/markdown'
-import { type BackgroundMessage, type Mode, MODES, type OverlayMessage } from '@/lib/messages'
+import {
+  type BackgroundMessage,
+  type Mode,
+  MODES,
+  type OverlayMessage,
+  type Reply,
+} from '@/lib/messages'
 import { isSiteOrigin, originPattern } from '@/lib/settings'
 import ClearAllDialog from './ClearAllDialog.vue'
 import CopyFallbackDialog from './CopyFallbackDialog.vue'
@@ -95,14 +101,20 @@ async function copy() {
   copyTimer = setTimeout(() => (copyStatus.value = ''), 4000)
 }
 
+const siteError = ref('')
+
 /** Always enable here: Chrome asks for access inside the click, then the site is remembered. */
 function rememberSite() {
   const origin = siteOrigin.value
   if (!origin) return
+  siteError.value = ''
   browser.permissions
     .request({ origins: [originPattern(origin)] })
-    .then((granted) => {
-      if (granted) toBackground({ type: 'site:remember', origin })
+    .then(async (granted) => {
+      if (!granted) return
+      const message: BackgroundMessage = { type: 'site:remember', origin }
+      const reply = (await browser.runtime.sendMessage(message)) as Reply | undefined
+      if (reply && !reply.ok) siteError.value = reply.error
     })
     .catch(() => undefined)
 }
@@ -120,13 +132,17 @@ function goTo(pageKey: string) {
 // active, the overlay sees it go and drops what the panel had highlighted.
 let port: Browser.runtime.Port | undefined
 watch(
-  () => (status.value.kind === 'active' ? tabId.value : undefined),
-  (id) => {
+  () =>
+    status.value.kind === 'active' && tabId.value !== undefined
+      ? { tab: tabId.value, overlay: status.value.instance }
+      : undefined,
+  (next, previous) => {
+    if (next?.tab === previous?.tab && next?.overlay === previous?.overlay) return
     port?.disconnect()
     port = undefined
-    if (id === undefined) return
+    if (!next) return
     try {
-      port = browser.tabs.connect(id, { name: 'panel' })
+      port = browser.tabs.connect(next.tab, { name: 'panel' })
     } catch {
       // The overlay is gone again: the next status says so.
     }
@@ -197,6 +213,9 @@ function setMode(next: unknown) {
         >
           Forget this site
         </Button>
+      </p>
+      <p v-if="siteError" data-testid="site-error" role="alert" class="text-xs text-destructive">
+        {{ siteError }}
       </p>
       <div class="flex flex-wrap items-center gap-x-3 gap-y-2">
         <ToggleGroup

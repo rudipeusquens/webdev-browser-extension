@@ -306,8 +306,10 @@ Title: Shop · Viewport: 1440×900 · Color scheme: light
   heading or a list item, or inject HTML. Inline Markdown inside quoted text (emphasis, code
   spans) may still render in a Markdown viewer; the agent reads the raw text, where it stays
   page data.
-- An item whose element was not found on the last visit gets the line
-  `(not found on the page anymore, data from when it was marked)` under its heading.
+- An item whose target was not found when its page was last open gets the line
+  `(not found when the page was last open; data from when it was marked)` under its heading.
+  The target may be gone, or only not shown at that moment (a closed dialog, another tab of a
+  tabbed view, another hash route of the same page): the line says what was seen, not why.
 - Styles: only properties from the curated list, in that order.
 
 ## 8. Interaction and UI
@@ -391,6 +393,8 @@ select-parent), ClickUp and Air comment pins with a side list.
 | Client-side navigation                                                         | Overlay detects URL changes (Navigation API) and switches page group and pins. An item whose comment is open while the app navigates belongs to the page where it was marked.                                                                                                                    |
 | HMR or DOM replacement                                                         | Placements are looked up again after DOM changes (once per frame); text items are found again by their text and context (at most every 300 ms). Missing for 1.5 s → "Not found" in the panel and the prompt, snapshot kept.                                                                      |
 | Reload of a page that is not remembered                                        | The overlay is gone with the page; a toolbar click starts it again, **Always enable here** makes it load by itself. Pins come back where their targets are.                                                                                                                                      |
+| Remembered site, tabs already open                                             | **Always enable here** applies from the next load of a page of that site; other tabs that are open already get the overlay with a toolbar click or a reload.                                                                                                                                     |
+| Text item after a reload                                                       | Its selection is searched only inside the container it was captured in, within the first 20,000 characters of that container; text not found there puts the pin at the container.                                                                                                                |
 | Aggressive page CSS, huge z-index, strict CSP                                  | Closed shadow root, inline stylesheet, rem→px, top z-index; covered by an E2E fixture.                                                                                                                                                                                                           |
 | Modal dialogs, page popovers, fullscreen                                       | The overlay host is a manual popover in the top layer; while a modal dialog is open it lives inside that dialog (outside, everything is inert) and re-raises itself above later popovers.                                                                                                        |
 | Modal dialogs inside web components (open or closed shadow roots)              | Found when they take the focus; the overlay moves into them like into document-level dialogs.                                                                                                                                                                                                    |

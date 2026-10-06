@@ -11,6 +11,9 @@ import { clean } from '../text'
 
 type Entry = CodeOrigin['chain'][number]
 
+/** The longest component chain the bridge reports (origin-bridge.ts). */
+const MAX_CHAIN = 32
+
 const cleaned = (x: unknown, max: number): string | undefined => {
   if (typeof x !== 'string') return undefined
   // Longer than any value that could pass: no need to clean it first.
@@ -32,7 +35,9 @@ function entryOf(raw: unknown): Entry | null | undefined {
  * innermost five, outermost first. Undefined for anything malformed or without a file.
  */
 export function parseVueOrigin(raw: unknown): CodeOrigin | undefined {
+  // The bridge sends at most this many; its own cap runs on builtins the page can patch.
   if (!hasKeys(raw, ['chain']) || !Array.isArray(raw.chain)) return undefined
+  if (raw.chain.length > MAX_CHAIN) return undefined
   const chain: Entry[] = []
   for (const item of raw.chain as unknown[]) {
     const entry = entryOf(item)

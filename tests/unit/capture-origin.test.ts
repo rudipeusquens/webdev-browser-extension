@@ -65,6 +65,16 @@ describe('parseVueOrigin', () => {
     }
   })
 
+  it('rejects a chain longer than the bridge can send, before reading it', () => {
+    // The bridge's own caps run on the page's builtins, which the page can patch.
+    const chain = Array.from({ length: 33 }, (_, i) => component(`C${i}`))
+    expect(parseVueOrigin({ chain })).toBeUndefined()
+    const huge = {
+      chain: new Proxy([], { get: (t, k) => (k === 'length' ? 1e7 : Reflect.get(t, k)) }),
+    }
+    expect(parseVueOrigin(huge)).toBeUndefined()
+  })
+
   it('drops a name that is not a string or too long, and an entry whose path is too long', () => {
     const origin = parseVueOrigin({
       chain: [

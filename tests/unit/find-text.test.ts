@@ -72,6 +72,15 @@ describe('findText', () => {
     expect(findText($('p'), text('contact you'))).toBeNull()
   })
 
+  it('searches only the start of one huge text node', () => {
+    const filler = 'log line '.repeat(400_000)
+    document.body.innerHTML = `<pre>early needle ${filler} late needle</pre>`
+    expect(findText($('pre'), text('early needle'))?.toString()).toBe('early needle')
+    const started = performance.now()
+    expect(findText($('pre'), text('late needle'))).toBeNull()
+    expect(performance.now() - started).toBeLessThan(500)
+  })
+
   it('stays within its budget on a huge container', () => {
     document.body.innerHTML = `<p>${'<i>filler</i>'.repeat(20000)}<b>needle</b></p>`
     const started = performance.now()

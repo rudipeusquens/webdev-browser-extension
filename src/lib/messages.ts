@@ -75,6 +75,8 @@ export interface OverlayStatus {
   mode: Mode
   /** Whether the pins are shown. */
   pins: boolean
+  /** Random id of this overlay: a second toolbar click starts a new one on the same tab. */
+  instance: string
 }
 
 export type Reply = { ok: true } | { ok: false; error: string }
@@ -160,7 +162,8 @@ export function isMessage(x: unknown): x is Message {
 
 export function isOverlayStatus(x: unknown): x is OverlayStatus {
   return (
-    hasKeys(x, ['host', 'pageKey', 'mode', 'pins']) &&
+    hasKeys(x, ['host', 'pageKey', 'mode', 'pins', 'instance']) &&
+    isAnnotationId(x.instance) &&
     isText(x.host, 255, 1) &&
     isText(x.pageKey, 8192, 1) &&
     isMode(x.mode) &&
