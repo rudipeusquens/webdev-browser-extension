@@ -169,6 +169,36 @@ describe('background', () => {
     expect((await loadSite('http://x.test')).items).toHaveLength(0)
   })
 
+  it('takes copies and reopens from the panel only, restores from the page or the panel', async () => {
+    const site = 'http://x.test'
+    const status = async () => (await loadSite(site)).items[0]?.status
+    await send(
+      { type: 'annotation:add', ...elementInput('a1', `${site}/`) },
+      pageSender(`${site}/`),
+    )
+    const copied = { type: 'collection:copied', site, ids: ['a1'] }
+    const reopen = { type: 'annotation:reopen', site, id: 'a1' }
+    const restore = { type: 'annotation:restore', site, id: 'a1' }
+    expect(await send(copied, pageSender(`${site}/`))).toMatchObject({ ok: false })
+    expect(await send(copied, { id: fakeBrowser.runtime.id })).toMatchObject({ ok: false })
+    expect(await status()).toBe('open')
+    expect(await send(copied, panelSender)).toEqual({ ok: true })
+    expect(await status()).toBe('done')
+    expect(await send(reopen, pageSender(`${site}/`))).toMatchObject({ ok: false })
+    expect(await status()).toBe('done')
+    expect(await send(reopen, panelSender)).toEqual({ ok: true })
+    expect(await status()).toBe('open')
+    await send({ type: 'annotation:remove', site, id: 'a1' }, pageSender(`${site}/`))
+    expect(await status()).toBe('deleted')
+    expect(await send(restore, pageSender('http://y.test/'))).toMatchObject({ ok: false })
+    expect(await status()).toBe('deleted')
+    expect(await send(restore, pageSender(`${site}/other`))).toEqual({ ok: true })
+    expect(await status()).toBe('open')
+    await send({ type: 'annotation:remove', site, id: 'a1' }, panelSender)
+    expect(await send(restore, panelSender)).toEqual({ ok: true })
+    expect(await status()).toBe('open')
+  })
+
   it('refuses items for another site than the page that sends them', async () => {
     const message = { type: 'annotation:add', ...elementInput('a1', 'http://x.test/') }
     for (const sender of [

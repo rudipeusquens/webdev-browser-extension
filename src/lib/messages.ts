@@ -10,6 +10,7 @@ import {
   hasKeys,
   isAnnotationId,
   isComment,
+  isIdList as isIdSet,
   isObject,
   isPageInfo,
   isPageUrl,
@@ -27,7 +28,14 @@ export const MODES: readonly Mode[] = ['browse', 'element', 'area']
 export type CollectionMessage =
   | { type: 'annotation:add'; id: string; page: PageInfo; target: Target; comment: string }
   | { type: 'annotation:update'; site: string; id: string; comment: string }
+  /** Marks the item deleted; only "Clear all" removes items. */
   | { type: 'annotation:remove'; site: string; id: string }
+  /** Deleted → open. */
+  | { type: 'annotation:restore'; site: string; id: string }
+  /** Done → open. */
+  | { type: 'annotation:reopen'; site: string; id: string }
+  /** The panel copied exactly these items as a prompt: open ones become done. */
+  | { type: 'collection:copied'; site: string; ids: string[] }
   | { type: 'collection:clear'; site: string }
 
 /** Overlay → background: the code origins of the elements these selectors match. */
@@ -168,7 +176,16 @@ export function isBackgroundMessage(x: unknown): x is BackgroundMessage {
         isComment(x.comment)
       )
     case 'annotation:remove':
+    case 'annotation:restore':
+    case 'annotation:reopen':
       return hasKeys(x, ['type', 'site', 'id']) && isSite(x.site) && isAnnotationId(x.id)
+    case 'collection:copied':
+      return (
+        hasKeys(x, ['type', 'site', 'ids']) &&
+        isSite(x.site) &&
+        isIdSet(x.ids, LIMITS.copied) &&
+        x.ids.length >= 1
+      )
     case 'collection:clear':
       return hasKeys(x, ['type', 'site']) && isSite(x.site)
     case 'overlay:failed':

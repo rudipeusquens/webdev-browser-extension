@@ -198,11 +198,18 @@ export default defineBackground(() => {
         }
         return write(message.site, message)
       case 'annotation:remove':
+      case 'annotation:restore':
         if (pageSite(sender) !== message.site && !isPanelSender(sender)) {
           return {
             ok: false,
-            error: 'Items are deleted on their site or in the panel.',
+            error: 'Items are deleted and restored on their site or in the panel.',
           } satisfies Reply
+        }
+        return write(message.site, message)
+      case 'annotation:reopen':
+      case 'collection:copied':
+        if (!isPanelSender(sender)) {
+          return { ok: false, error: 'This is a button of the panel.' } satisfies Reply
         }
         return write(message.site, message)
       case 'overlay:failed': {

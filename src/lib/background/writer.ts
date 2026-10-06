@@ -5,27 +5,39 @@
 import { browser } from 'wxt/browser'
 import { splitLegacy } from '../collection/migrate'
 import type { Collection } from '../collection/model'
-import { addAnnotation, clearAll, removeAnnotation, updateComment } from '../collection/ops'
+import { addAnnotation, clearAll, markCopied, setStatus, updateComment } from '../collection/ops'
 import { collectionKey, LEGACY_KEY, loadSite } from '../collection/store'
 import { isLegacyCollection } from '../collection/validate'
 import type { CollectionMessage, Reply } from '../messages'
 
+const GONE = 'This item no longer exists.'
+
+/**
+ * The collection after `msg`: the same one when nothing changes (an item in that state
+ * already), a reason when the message cannot apply.
+ */
 function apply(c: Collection, msg: CollectionMessage, now: string): Collection | string {
+  const exists = (id: string) => c.items.some((item) => item.id === id)
+  const status = (id: string) => c.items.find((item) => item.id === id)?.status
   switch (msg.type) {
     case 'annotation:add': {
       const { id, page, target } = msg
-      if (c.items.some((item) => item.id === id)) return 'This item already exists.'
+      if (exists(id)) return 'This item already exists.'
       const next = addAnnotation(c, { id, page, target, comment: msg.comment.trim() }, now)
       return next === c ? 'This page belongs to another site.' : next
     }
-    case 'annotation:update': {
-      const next = updateComment(c, msg.id, msg.comment.trim(), now)
-      return next === c ? 'This item no longer exists.' : next
-    }
-    case 'annotation:remove': {
-      const next = removeAnnotation(c, msg.id)
-      return next === c ? 'This item no longer exists.' : next
-    }
+    case 'annotation:update':
+      return exists(msg.id) ? updateComment(c, msg.id, msg.comment.trim(), now) : GONE
+    case 'annotation:remove':
+      return exists(msg.id) ? setStatus(c, msg.id, 'deleted', now) : GONE
+    case 'annotation:restore':
+      if (!exists(msg.id)) return GONE
+      return status(msg.id) === 'deleted' ? setStatus(c, msg.id, 'open', now) : c
+    case 'annotation:reopen':
+      if (!exists(msg.id)) return GONE
+      return status(msg.id) === 'done' ? setStatus(c, msg.id, 'open', now) : c
+    case 'collection:copied':
+      return markCopied(c, msg.ids, now)
     case 'collection:clear':
       return clearAll(c)
   }
@@ -57,9 +69,10 @@ export function createWriter(now = () => new Date().toISOString()) {
     /** Applies `msg` to the collection of `site`. */
     write(site: string, msg: CollectionMessage): Promise<Reply> {
       return inOrder(async (): Promise<Reply> => {
-        const next = apply(await loadSite(site), msg, now())
+        const current = await loadSite(site)
+        const next = apply(current, msg, now())
         if (typeof next === 'string') return { ok: false, error: next }
-        await save(next)
+        if (next !== current) await save(next)
         return { ok: true }
       }).catch((): Reply => ({ ok: false, error: 'Could not save.' }))
     },

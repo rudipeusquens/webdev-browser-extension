@@ -62,7 +62,7 @@ describe('createWriter', () => {
     expect(await stored()).toEqual({})
   })
 
-  it('updates, removes and clears', async () => {
+  it('updates, deletes and clears', async () => {
     const { write } = createWriter(() => 'T')
     await write(SITE, add('a1'))
     await write(SITE, add('a2'))
@@ -70,9 +70,50 @@ describe('createWriter', () => {
     expect(await write(SITE, update)).toEqual({ ok: true })
     expect((await loadSite(SITE)).items[1]).toMatchObject({ number: 2, comment: 'New' })
     await write(SITE, { type: 'annotation:remove', site: SITE, id: 'a1' })
-    expect((await loadSite(SITE)).items.map((i) => i.number)).toEqual([2])
+    expect((await loadSite(SITE)).items.map((i) => [i.number, i.status])).toEqual([
+      [1, 'deleted'],
+      [2, 'open'],
+    ])
     await write(SITE, { type: 'collection:clear', site: SITE })
     expect((await loadSite(SITE)).items).toEqual([])
+  })
+
+  it('moves items between open, done and deleted', async () => {
+    const { write } = createWriter(() => 'T')
+    for (const id of ['a1', 'a2', 'a3']) await write(SITE, add(id))
+    const statuses = async () => (await loadSite(SITE)).items.map((i) => i.status)
+    const copied: CollectionMessage = { type: 'collection:copied', site: SITE, ids: ['a1', 'a2'] }
+    expect(await write(SITE, copied)).toEqual({ ok: true })
+    expect(await statuses()).toEqual(['done', 'done', 'open'])
+    expect((await loadSite(SITE)).lastCopy).toEqual(['a1', 'a2'])
+    await write(SITE, { type: 'annotation:reopen', site: SITE, id: 'a2' })
+    await write(SITE, { type: 'annotation:remove', site: SITE, id: 'a3' })
+    expect(await statuses()).toEqual(['done', 'open', 'deleted'])
+    await write(SITE, { type: 'annotation:restore', site: SITE, id: 'a3' })
+    expect(await statuses()).toEqual(['done', 'open', 'open'])
+    const edited = { type: 'annotation:update', site: SITE, id: 'a1', comment: 'Again' } as const
+    await write(SITE, edited)
+    expect(await statuses()).toEqual(['open', 'open', 'open'])
+  })
+
+  it('answers ok without writing when an item is in that state already', async () => {
+    const { write } = createWriter(() => 'T')
+    await write(SITE, add('a1', 'Same'))
+    const before = await stored()
+    for (const message of [
+      { type: 'annotation:restore', site: SITE, id: 'a1' },
+      { type: 'annotation:reopen', site: SITE, id: 'a1' },
+      { type: 'annotation:update', site: SITE, id: 'a1', comment: ' Same ' },
+    ] as const) {
+      expect(await write(SITE, message)).toEqual({ ok: true })
+    }
+    await write(SITE, { type: 'annotation:remove', site: SITE, id: 'a1' })
+    const deleted = await stored()
+    expect(deleted).not.toEqual(before)
+    expect(await write(SITE, { type: 'annotation:remove', site: SITE, id: 'a1' })).toEqual({
+      ok: true,
+    })
+    expect(await stored()).toEqual(deleted)
   })
 
   it('refuses a duplicate id and unknown items without writing', async () => {
@@ -82,9 +123,12 @@ describe('createWriter', () => {
     expect(await write(SITE, add('a1'))).toMatchObject({ ok: false })
     const update = { type: 'annotation:update', site: SITE, id: 'zz', comment: 'x' } as const
     expect(await write(SITE, update)).toMatchObject({ ok: false })
-    expect(await write(SITE, { type: 'annotation:remove', site: SITE, id: 'zz' })).toMatchObject({
-      ok: false,
-    })
+    for (const type of ['annotation:remove', 'annotation:restore', 'annotation:reopen'] as const) {
+      expect(await write(SITE, { type, site: SITE, id: 'zz' })).toEqual({
+        ok: false,
+        error: 'This item no longer exists.',
+      })
+    }
     expect(await stored()).toEqual(before)
   })
 

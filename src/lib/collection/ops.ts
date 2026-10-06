@@ -1,7 +1,7 @@
 // Pure operations on a collection. They never mutate their input; an operation that changes
 // nothing returns the collection it was given.
 
-import type { Annotation, Collection, PageInfo, Target } from './model'
+import type { Annotation, Collection, PageInfo, Status, Target } from './model'
 import { pageKey } from './page-key'
 import { siteOf } from './site'
 
@@ -53,21 +53,48 @@ export function addAnnotation(c: Collection, input: NewAnnotation, now: string):
   }
 }
 
+/**
+ * A new comment; a done item whose comment changes is open again (spec section 5). The same
+ * collection for an unknown id or the same text.
+ */
 export function updateComment(c: Collection, id: string, comment: string, now: string): Collection {
-  if (!c.items.some((item) => item.id === id)) return c
+  const found = c.items.find((item) => item.id === id)
+  if (!found || found.comment === comment) return c
+  const status = found.status === 'done' ? 'open' : found.status
   return {
     ...c,
-    items: c.items.map((item) => (item.id === id ? { ...item, comment, updatedAt: now } : item)),
+    items: c.items.map((item) =>
+      item === found ? { ...item, comment, status, updatedAt: now } : item,
+    ),
   }
 }
 
-export function removeAnnotation(c: Collection, id: string): Collection {
-  const removed = c.items.find((item) => item.id === id)
-  if (!removed) return c
-  const items = c.items.filter((item) => item !== removed)
-  const pages = { ...c.pages }
-  if (!items.some((item) => item.pageKey === removed.pageKey)) delete pages[removed.pageKey]
-  return { ...c, pages, items }
+/** The item's new status; the same collection for an unknown id or the status it has. */
+export function setStatus(c: Collection, id: string, status: Status, now: string): Collection {
+  const found = c.items.find((item) => item.id === id)
+  if (!found || found.status === status) return c
+  return {
+    ...c,
+    items: c.items.map((item) => (item === found ? { ...item, status, updatedAt: now } : item)),
+  }
+}
+
+/**
+ * "Copy as prompt" copied `ids`: those still open are done, and `lastCopy` holds the ids that
+ * still exist, for "Copy again". Items added meanwhile stay open; deleted ones stay deleted.
+ */
+export function markCopied(c: Collection, ids: readonly string[], now: string): Collection {
+  const copied = new Set(ids)
+  const lastCopy = ids.filter((id) => c.items.some((item) => item.id === id))
+  const opens = c.items.filter((item) => copied.has(item.id) && item.status === 'open')
+  if (opens.length === 0 && lastCopy.join() === c.lastCopy.join()) return c
+  return {
+    ...c,
+    lastCopy,
+    items: c.items.map((item) =>
+      opens.includes(item) ? { ...item, status: 'done', updatedAt: now } : item,
+    ),
+  }
 }
 
 /** Every item of the site goes, and its numbers start again at 1. */
