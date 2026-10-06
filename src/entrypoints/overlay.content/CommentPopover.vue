@@ -1,11 +1,17 @@
 <script setup lang="ts">
-import { XIcon } from '@lucide/vue'
+import { LoaderCircleIcon, XIcon } from '@lucide/vue'
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, useTemplateRef } from 'vue'
+import { browser } from 'wxt/browser'
 import { Button } from '@/components/ui/button'
-import type { Rect } from '@/lib/collection/model'
+import { LIMITS, type Rect } from '@/lib/collection/model'
+import type { BackgroundMessage } from '@/lib/messages'
+import { voiceErrorText } from '@/lib/voice/protocol'
 import { CommentGuard } from './comment-guard'
 import { popoverKey } from './keys'
 import { placeNear } from './place'
+import { insertTranscript } from './transcript'
+import { useVoice } from './use-voice'
+import VoiceButton from './VoiceButton.vue'
 
 const props = defineProps<{
   /** The target in viewport coordinates. */
@@ -30,7 +36,33 @@ const card = useTemplateRef<HTMLElement>('card')
 const field = useTemplateRef<HTMLTextAreaElement>('field')
 const size = ref({ width: 288, height: 180 })
 
-const canSave = computed(() => text.value.trim() !== '' && !props.busy)
+const voice = useVoice()
+/** What the last dictation needs to say besides its text. */
+const notice = ref('')
+
+// Save waits for a running dictation: its text would otherwise be lost.
+const canSave = computed(() => text.value.trim() !== '' && !props.busy && !voice.busy.value)
+const clock = computed(() => {
+  const s = voice.seconds.value
+  return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`
+})
+/** What screen readers hear: changes of the dictation, not every second of its clock. */
+const spoken = computed(() => {
+  const now = voice.state.value.state
+  if (now === 'recording') return 'Recording. Alt+V stops it.'
+  if (now === 'transcribing') return 'Transcribing.'
+  return ''
+})
+const failure = computed(() => {
+  const now = voice.state.value
+  if (now.state !== 'failed') return null
+  return {
+    text: voiceErrorText(now.error, now.detail),
+    retry: now.retry,
+    grant: now.error === 'mic-not-granted' || now.error === 'mic-blocked',
+    settings: now.error === 'no-key' || now.error === 'invalid-key',
+  }
+})
 const position = computed(() => {
   void props.frame
   const { x, y } = placeNear(props.rect, size.value, {
@@ -53,6 +85,47 @@ function onInput(e: Event) {
   else restore(el)
 }
 
+/** The dictated text goes in at the caret; the field keeps what was typed meanwhile. */
+voice.onText((transcript, atLimit) => {
+  const el = field.value
+  if (!el) return
+  const { value, caret, cut } = insertTranscript(
+    guard.verified,
+    el.selectionStart,
+    el.selectionEnd,
+    transcript,
+  )
+  el.value = value
+  guard.accept(value)
+  text.value = value
+  el.focus({ preventScroll: true })
+  el.setSelectionRange(caret, caret)
+  notice.value = [
+    atLimit ? 'Recording stopped after 2 minutes.' : '',
+    cut
+      ? `Part of it did not fit: a comment holds ${LIMITS.comment.toLocaleString('en')} characters.`
+      : '',
+  ]
+    .filter(Boolean)
+    .join(' ')
+})
+
+function dictate() {
+  if (voice.state.value.state !== 'recording') notice.value = ''
+  voice.toggle()
+}
+
+/** Retry goes away once clicked: the focus goes to the field, not to the page. */
+function retry() {
+  voice.retry()
+  field.value?.focus({ preventScroll: true })
+}
+
+// Sent inside the trusted click: the background may open the panel only within it.
+function ask(message: BackgroundMessage) {
+  browser.runtime.sendMessage(message).catch(() => undefined)
+}
+
 function save() {
   const el = field.value
   if (el && !guard.matches(el.value)) restore(el)
@@ -61,9 +134,13 @@ function save() {
 
 function onKeydown(e: KeyboardEvent) {
   const action = popoverKey(e)
-  if (!action) return
+  // Enter saves from the field; on a focused button it presses that button.
+  if (!action || (action === 'save' && e.target !== field.value)) return
   e.preventDefault()
   if (action === 'save') save()
+  else if (action === 'voice') dictate()
+  // Escape ends a running dictation first, then the comment.
+  else if (voice.busy.value) voice.cancel()
   else emit('cancel')
 }
 
@@ -132,18 +209,85 @@ onBeforeUnmount(() => resizes.disconnect())
       {{ warning }}
     </p>
     <p v-if="error" class="text-xs text-destructive" role="alert">{{ error }}</p>
-    <div class="flex items-center justify-between gap-2">
-      <p class="text-xs whitespace-nowrap text-muted-foreground" title="Shift+Enter adds a line">
-        Enter to save
-      </p>
+    <div
+      v-if="failure"
+      data-testid="overlay-voice-message"
+      class="flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-destructive"
+      role="alert"
+    >
+      <span class="min-w-0 flex-1 basis-40">{{ failure.text }}</span>
       <Button
-        data-testid="overlay-save"
-        size="sm"
-        :disabled="!canSave"
-        @click="onButton($event, save)"
+        v-if="failure.grant"
+        data-testid="overlay-voice-grant"
+        variant="outline"
+        size="xs"
+        @click="onButton($event, () => ask({ type: 'voice:grant' }))"
       >
-        Save
+        Grant
       </Button>
+      <Button
+        v-if="failure.settings"
+        data-testid="overlay-voice-settings"
+        variant="outline"
+        size="xs"
+        @click="onButton($event, () => ask({ type: 'voice:settings' }))"
+      >
+        Open settings
+      </Button>
+      <Button
+        v-if="failure.retry"
+        data-testid="overlay-voice-retry"
+        variant="outline"
+        size="xs"
+        @click="onButton($event, retry)"
+      >
+        Retry
+      </Button>
+    </div>
+    <p
+      v-if="notice"
+      data-testid="overlay-voice-notice"
+      class="text-xs text-muted-foreground"
+      role="status"
+    >
+      {{ notice }}
+    </p>
+    <div class="flex items-center justify-between gap-2">
+      <p
+        data-testid="overlay-voice-status"
+        class="flex min-w-0 items-center gap-1.5 text-xs whitespace-nowrap text-muted-foreground"
+        :title="voice.busy.value ? undefined : 'Shift+Enter adds a line'"
+      >
+        <template v-if="voice.state.value.state === 'recording'">
+          <span class="size-2 shrink-0 animate-pulse rounded-full bg-red-600" aria-hidden="true" />
+          <span class="font-medium text-foreground tabular-nums">{{ clock }}</span>
+          <span class="truncate">· Alt+V to stop</span>
+        </template>
+        <template v-else-if="voice.state.value.state === 'transcribing'">
+          <LoaderCircleIcon class="size-3 shrink-0 animate-spin" aria-hidden="true" />
+          Transcribing…
+        </template>
+        <template v-else-if="voice.state.value.state === 'starting'">
+          Starting the microphone…
+        </template>
+        <template v-else>Enter to save</template>
+      </p>
+      <span class="sr-only" role="status" aria-live="polite">{{ spoken }}</span>
+      <div class="flex shrink-0 items-center gap-1.5">
+        <VoiceButton
+          data-testid="overlay-mic"
+          :state="voice.state.value.state"
+          @click="onButton($event, dictate)"
+        />
+        <Button
+          data-testid="overlay-save"
+          size="sm"
+          :disabled="!canSave"
+          @click="onButton($event, save)"
+        >
+          Save
+        </Button>
+      </div>
     </div>
   </div>
 </template>

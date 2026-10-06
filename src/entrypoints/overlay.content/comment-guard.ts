@@ -53,6 +53,13 @@ export class CommentGuard {
     return true
   }
 
+  /** The overlay's own edit, such as a dictated text: it becomes the verified text. */
+  accept(value: string): void {
+    this.pending = []
+    clearTimeout(this.timer)
+    this.verified = value
+  }
+
   matches(value: string): boolean {
     return value === this.verified
   }

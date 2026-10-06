@@ -1,10 +1,16 @@
-import { cp, mkdtemp, readFile, realpath, rm, writeFile } from 'node:fs/promises'
+import { cp, mkdtemp, readdir, readFile, realpath, rm, writeFile } from 'node:fs/promises'
 import { createServer } from 'node:http'
 import type { AddressInfo } from 'node:net'
 import { tmpdir } from 'node:os'
 import { extname, join, normalize, resolve } from 'node:path'
 import vue from '@vitejs/plugin-vue'
-import puppeteer, { type Browser, type Page, type Realm, type WebWorker } from 'puppeteer'
+import puppeteer, {
+  type Browser,
+  type CDPSession,
+  type Page,
+  type Realm,
+  type WebWorker,
+} from 'puppeteer'
 import { createServer as createViteServer } from 'vite'
 
 export const EXTENSION_DIR = resolve(process.env.E2E_EXTENSION_DIR ?? '.output/chrome-mv3')
@@ -80,31 +86,72 @@ export interface Session {
   page: Page
 }
 
+export type MicrophoneSetting = 'granted' | 'prompt' | 'denied'
+
+export interface LaunchOptions {
+  /**
+   * A copy of the build whose manifest grants these origins when it is installed: Chrome's
+   * prompt for "Always enable here" cannot be automated, and with the access granted already,
+   * `permissions.request` answers without one.
+   */
+  hostPermissions?: string[]
+  /** Origin of a fake OpenRouter: a copy of the build sends dictation there. */
+  openrouter?: string
+  /** Chrome's fake microphone, with this permission for the extension. */
+  microphone?: MicrophoneSetting
+  /** More Chrome arguments, such as an audio file for the fake microphone. */
+  args?: string[]
+}
+
+const OPENROUTER = 'https://openrouter.ai'
+
+/** Every JavaScript file of the build, relative to `dir`. */
+async function scripts(dir: string): Promise<string[]> {
+  const files = await readdir(dir, { recursive: true })
+  return files.filter((file) => file.endsWith('.js'))
+}
+
 /**
- * A copy of the build whose manifest grants `origins` when it is installed: Chrome's prompt
- * for "Always enable here" cannot be automated, and with the access granted already,
- * `permissions.request` answers without one. The shipped build stays as it is.
+ * A copy of the build for a test; the shipped build stays as it is. With `openrouter`, every
+ * `https://openrouter.ai` in its scripts points at the fake instead, and the copy fails when
+ * there is none: a test must never reach the real API.
  */
-async function buildWithHostPermissions(origins: string[]): Promise<string> {
+async function buildCopy(options: LaunchOptions): Promise<string> {
   const dir = await mkdtemp(join(tmpdir(), 'webdev-extension-'))
   await cp(EXTENSION_DIR, dir, { recursive: true })
-  const path = join(dir, 'manifest.json')
-  const manifest = JSON.parse(await readFile(path, 'utf8')) as Record<string, unknown>
-  manifest.host_permissions = origins
-  await writeFile(path, JSON.stringify(manifest))
+  if (options.hostPermissions) {
+    const path = join(dir, 'manifest.json')
+    const manifest = JSON.parse(await readFile(path, 'utf8')) as Record<string, unknown>
+    manifest.host_permissions = options.hostPermissions
+    await writeFile(path, JSON.stringify(manifest))
+  }
+  if (options.openrouter) {
+    let rewritten = 0
+    for (const file of await scripts(dir)) {
+      const path = join(dir, file)
+      const code = await readFile(path, 'utf8')
+      if (!code.includes(OPENROUTER)) continue
+      await writeFile(path, code.split(OPENROUTER).join(options.openrouter))
+      rewritten++
+    }
+    if (rewritten === 0) throw new Error(`no ${OPENROUTER} in the build to point at the fake`)
+  }
   return dir
 }
 
-export async function launch(options: { hostPermissions?: string[] } = {}): Promise<Session> {
+export async function launch(options: LaunchOptions = {}): Promise<Session> {
   // --no-sandbox: CI runners restrict user namespaces; the pages are our own fixtures.
   const browser = await puppeteer.launch({
     headless: true,
     enableExtensions: true,
-    args: ['--no-sandbox'],
+    args: [
+      '--no-sandbox',
+      ...(options.microphone ? ['--use-fake-device-for-media-stream'] : []),
+      ...(options.args ?? []),
+    ],
   })
-  const dir = options.hostPermissions
-    ? await buildWithHostPermissions(options.hostPermissions)
-    : EXTENSION_DIR
+  const dir =
+    options.hostPermissions || options.openrouter ? await buildCopy(options) : EXTENSION_DIR
   if (dir !== EXTENSION_DIR) {
     browser.once('disconnected', () => void rm(dir, { recursive: true, force: true }))
   }
@@ -115,7 +162,31 @@ export async function launch(options: { hostPermissions?: string[] } = {}): Prom
       t.url() === `chrome-extension://${extensionId}/background.js`,
   )
   const page = await browser.newPage()
-  return { browser, extensionId, page }
+  const session = { browser, extensionId, page }
+  if (options.microphone) await setMicrophone(session, options.microphone)
+  return session
+}
+
+/** One DevTools session per browser: Chrome drops its permission overrides when it ends. */
+const permissionSessions = new WeakMap<Browser, Promise<CDPSession>>()
+
+/**
+ * The extension's microphone permission, as Chrome's prompt would set it: the prompt itself
+ * cannot be automated.
+ */
+export async function setMicrophone(s: Session, setting: MicrophoneSetting): Promise<void> {
+  let cdp = permissionSessions.get(s.browser)
+  if (!cdp) {
+    cdp = s.browser.target().createCDPSession()
+    permissionSessions.set(s.browser, cdp)
+  }
+  await (
+    await cdp
+  ).send('Browser.setPermission', {
+    permission: { name: 'microphone' },
+    setting,
+    origin: `chrome-extension://${s.extensionId}`,
+  })
 }
 
 /** The extension's service worker. */

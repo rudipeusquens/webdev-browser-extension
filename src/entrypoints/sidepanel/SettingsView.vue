@@ -1,13 +1,14 @@
 <script setup lang="ts">
 import { ArrowLeftIcon, Trash2Icon } from '@lucide/vue'
 import { Button } from '@/components/ui/button'
+import VoiceSettings from './VoiceSettings.vue'
 
 defineProps<{ origins: string[] }>()
 const emit = defineEmits<{ forget: [origin: string]; close: [] }>()
 </script>
 
 <template>
-  <section class="flex-1 space-y-4 overflow-y-auto p-4">
+  <section class="flex-1 space-y-6 overflow-y-auto p-4">
     <div class="flex items-center gap-2">
       <Button
         data-testid="close-settings"
@@ -21,7 +22,9 @@ const emit = defineEmits<{ forget: [origin: string]; close: [] }>()
       <h2 class="font-semibold">Settings</h2>
     </div>
 
-    <div class="space-y-2">
+    <VoiceSettings />
+
+    <div data-testid="site-settings" class="space-y-2">
       <h3 class="text-xs font-medium text-muted-foreground">Sites</h3>
       <p class="text-xs text-muted-foreground">
         Pages of these sites load the overlay by themselves.

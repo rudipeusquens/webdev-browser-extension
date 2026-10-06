@@ -14,15 +14,24 @@ type Key = Pick<
   | 'isComposing'
   | 'keyCode'
   | 'repeat'
+  | 'code'
 >
 
-/** Inside the comment field: `Enter` saves (not while composing), `Escape` cancels. */
-export function popoverKey(e: Key): 'save' | 'cancel' | null {
+/**
+ * Inside the comment popover: `Enter` saves (not while composing), `Escape` cancels, `Alt+V`
+ * starts and stops dictation.
+ */
+export function popoverKey(e: Key): 'save' | 'cancel' | 'voice' | null {
   // keyCode 229: some IMEs report composing keys this way only. Escape and Enter belong to
   // the input method while it composes.
   if (!e.isTrusted || e.isComposing || e.keyCode === 229) return null
   if (e.key === 'Escape') return 'cancel'
   if (e.key === 'Enter' && !e.shiftKey) return 'save'
+  // By the key's place: on macOS, Option+V types a character instead of `v`. Held down, it
+  // would start and stop at the key repeat rate.
+  if (e.code === 'KeyV' && e.altKey && !e.ctrlKey && !e.metaKey && !e.shiftKey) {
+    return e.repeat ? null : 'voice'
+  }
   return null
 }
 

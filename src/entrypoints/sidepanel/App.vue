@@ -29,6 +29,7 @@ import CopyFallbackDialog from './CopyFallbackDialog.vue'
 import ItemList from './ItemList.vue'
 import SettingsView from './SettingsView.vue'
 import { useActiveTab } from './use-active-tab'
+import { usePanelView } from './use-panel-view'
 import { useMissing } from './use-missing'
 import { useOverlayLines } from './use-overlay-lines'
 import { usePanelToggle } from './use-panel-toggle'
@@ -43,6 +44,8 @@ const { missing } = useMissing()
 const { settings } = useSettings()
 const { shortcut } = useShortcut()
 const showSettings = ref(false)
+// Open settings in a comment popover opens them here.
+usePanelView(windowId, () => (showSettings.value = true))
 
 const count = computed(() => collection.value.items.length)
 const groups = computed(() => {

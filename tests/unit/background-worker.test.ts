@@ -1,6 +1,7 @@
 // @vitest-environment node
 import { describe, expect, it } from 'vitest'
 import { fakeContextMenus } from './helpers/fake-context-menus'
+import { fakePorts } from './helpers/fake-ports'
 import { fakeSites } from './helpers/fake-sites'
 
 // The background runs in a service worker: no DOM. A module it imports that touches
@@ -10,6 +11,7 @@ describe('the background in a service worker', () => {
     expect(typeof globalThis.Element).toBe('undefined')
     fakeSites()
     fakeContextMenus()
+    fakePorts()
     const { default: background } = await import('@/entrypoints/background')
     expect(() => background.main()).not.toThrow()
   })

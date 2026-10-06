@@ -27,6 +27,39 @@ export default defineConfig(
   },
   // shadcn-vue components use single-word names (Button, Popover).
   { rules: { 'vue/multi-word-component-names': 'off' } },
+  // The overlay runs next to hostile pages and never touches the OpenRouter key (spec
+  // section 9): no key module, no key name.
+  {
+    files: ['src/entrypoints/overlay.content/**/*.{ts,vue}'],
+    rules: {
+      'no-restricted-imports': [
+        'error',
+        {
+          patterns: [
+            {
+              regex: 'voice/key(\\.ts)?$',
+              message: 'The overlay never reads the OpenRouter key.',
+            },
+          ],
+        },
+      ],
+      'no-restricted-syntax': [
+        'error',
+        {
+          selector: 'Identifier[name=/openrouterKey/i]',
+          message: 'The overlay never reads the OpenRouter key.',
+        },
+        {
+          selector: 'Literal[value=/openrouterKey/i]',
+          message: 'The overlay never reads the OpenRouter key.',
+        },
+        {
+          selector: 'TemplateElement[value.raw=/openrouterKey/i]',
+          message: 'The overlay never reads the OpenRouter key.',
+        },
+      ],
+    },
+  },
   // Copied shadcn-vue components declare optional props without defaults on purpose.
   {
     files: ['src/components/ui/**/*.vue'],

@@ -64,16 +64,16 @@ and **shadcn-vue**. Manifest V3, minimum Chrome version **116** (`chrome.sidePan
 
 ### Components
 
-| Unit                    | Runs in                               | Responsibility                                                                                                                                                                                                                                                                                                                              |
-| ----------------------- | ------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| **Background**          | service worker                        | Single writer of the collection and settings in `chrome.storage.local`; handles the action click, the keyboard command and the page's context menu entry (opens the side panel, injects the overlay); remembered sites (`chrome.permissions` + `chrome.scripting.registerContentScripts`); coordinates voice recording and calls OpenRouter |
-| **Overlay**             | content script, closed shadow root    | Modes, hover highlight, area drag, selection chip, comment popover with mic button, numbered pins; builds snapshots; re-anchors pins                                                                                                                                                                                                        |
-| **Origin bridge**       | page main world, injected per request | Reads Vue component chains (properties invisible to the isolated world) and returns them as the result of `chrome.scripting.executeScript`                                                                                                                                                                                                  |
-| **Side panel**          | extension page                        | Collection list, mode switch, copy, clear, settings (sites, voice)                                                                                                                                                                                                                                                                          |
-| **Recorder**            | offscreen document (`USER_MEDIA`)     | Records microphone audio with `MediaRecorder` (`audio/webm;codecs=opus`); created on demand, closed after each recording                                                                                                                                                                                                                    |
-| **Mic permission page** | extension page in a tab               | One-time `getUserMedia` call so Chrome grants the microphone to the extension origin (side panel and offscreen documents cannot show the prompt)                                                                                                                                                                                            |
-| **Formatter**           | pure module                           | Collection → Markdown; no browser APIs                                                                                                                                                                                                                                                                                                      |
-| **Capture library**     | pure modules                          | Selector generation, style extraction, truncation, area element selection; DOM in, plain data out                                                                                                                                                                                                                                           |
+| Unit                    | Runs in                               | Responsibility                                                                                                                                                                                                                                                                                                                                                                                                                             |
+| ----------------------- | ------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| **Background**          | service worker                        | Single writer of the collection and settings in `chrome.storage.local`; handles the action click, the keyboard command and the page's context menu entry (opens the side panel, injects the overlay); remembered sites (`chrome.permissions` + `chrome.scripting.registerContentScripts`); coordinates dictation (reads the API key and voice settings, opens and closes the recorder, relays its states to the popover) and tests the key |
+| **Overlay**             | content script, closed shadow root    | Modes, hover highlight, area drag, selection chip, comment popover with mic button, numbered pins; builds snapshots; re-anchors pins                                                                                                                                                                                                                                                                                                       |
+| **Origin bridge**       | page main world, injected per request | Reads Vue component chains (properties invisible to the isolated world) and returns them as the result of `chrome.scripting.executeScript`                                                                                                                                                                                                                                                                                                 |
+| **Side panel**          | extension page                        | Collection list, mode switch, copy, clear, settings (sites, voice)                                                                                                                                                                                                                                                                                                                                                                         |
+| **Recorder**            | offscreen document (`USER_MEDIA`)     | Records microphone audio with `MediaRecorder` (`audio/webm;codecs=opus`, 32 kbit/s) and sends it to OpenRouter; keeps it for **Retry**; one document per dictation                                                                                                                                                                                                                                                                         |
+| **Mic permission page** | extension page in a tab               | One-time `getUserMedia` call so Chrome grants the microphone to the extension origin (side panel and offscreen documents cannot show the prompt)                                                                                                                                                                                                                                                                                           |
+| **Formatter**           | pure module                           | Collection → Markdown; no browser APIs                                                                                                                                                                                                                                                                                                                                                                                                     |
+| **Capture library**     | pure modules                          | Selector generation, style extraction, truncation, area element selection; DOM in, plain data out                                                                                                                                                                                                                                                                                                                                          |
 
 ### Data flow: annotating
 
@@ -90,12 +90,23 @@ and **shadcn-vue**. Manifest V3, minimum Chrome version **116** (`chrome.sidePan
 
 ### Data flow: dictating
 
-1. Mic button in the popover (trusted click only) → overlay → background.
-2. Background checks key and microphone permission, creates the offscreen recorder, starts
-   recording; the popover shows a timer.
-3. Stop (mic button or `Alt+V`) → recorder returns the audio → background sends it to
-   OpenRouter → transcript back to the overlay → inserted at the caret in the comment field.
-4. `Esc` while recording cancels: nothing is sent.
+1. Mic button in the popover or `Alt+V` (trusted events only) → the popover opens a port
+   named `voice` to the background (one per popover) and sends `start`.
+2. Background reads the API key (none: the popover says so) and the voice settings, creates
+   the offscreen recorder and sends it `start` with key, model and language over the
+   recorder's own port. The recorder checks the microphone permission, records, and the
+   popover shows a timer.
+3. Stop (mic button or `Alt+V`; at the latest after 120 s) → the recorder releases the
+   microphone and sends the audio to OpenRouter itself: a service worker is stopped when a
+   `fetch` takes longer than 30 s, a document is not. States (`recording`, `transcribing`,
+   `done` with the text, `failed`) flow back through the background to the popover, which
+   inserts the text at the caret in the comment field. The recorder's heartbeat every 10 s
+   keeps the service worker alive meanwhile.
+4. `Esc` while recording or transcribing cancels: nothing is sent, or the answer is dropped.
+   Closing the popover, a navigation or a new overlay closes the port, which ends the
+   dictation and closes the recorder. A dictation started in another popover ends this one.
+5. A failure after recording keeps the audio in the recorder: **Retry** sends it again with
+   the key and settings read anew.
 
 ### Permissions
 
@@ -176,10 +187,17 @@ type AreaTarget = {
 
 interface Settings {
   rememberedOrigins: string[] // mirrors granted optional host permissions
-  openrouterKey?: string
-  sttModel: string // default "openai/gpt-4o-mini-transcribe"
-  sttLanguage: 'auto' | string // ISO-639-1
 }
+
+// Own storage keys, so a malformed value never resets another setting.
+interface VoiceSettings {
+  // storage key "voice"
+  model: string // default "openai/gpt-4o-mini-transcribe"
+  language: 'auto' | string // ISO-639-1
+}
+// Not in chrome.storage: IndexedDB of the extension origin, database
+// "webdev-browser-extension", store "secrets", record "openrouterKey".
+type OpenRouterKey = string
 ```
 
 Anchor status (found or missing) is not part of the collection: each overlay reports which
@@ -345,9 +363,12 @@ After an annotation is saved the mode stays, so several elements can be marked i
 `P` (same condition: focus not in a page field, no comment open) shows or hides the pins, like
 the panel's **Pins** toggle, which follows it.
 
-**Comment popover:** anchored next to the target. Textarea, mic button, Save. `Enter` saves
-(not during IME composition), `Shift+Enter` new line, `Esc` cancels (or cancels a running recording first), `Alt+V` toggles
-recording.
+**Comment popover:** anchored next to the target. Textarea; below it the hint or the
+dictation status (`● 0:12`, "Transcribing…") on the left, the mic button next to **Save** on
+the right; a dictation message with its action (**Retry**, **Grant**, **Open settings**)
+above them. `Enter` saves (not during IME composition), `Shift+Enter` new line, `Esc`
+cancels (or first cancels a running recording or transcription), `Alt+V` starts and stops
+recording. Save waits while a recording or transcription runs; the field stays editable.
 
 **Pins:** numbered markers at the top-right of each target on the current page; they follow
 scroll, resize and layout changes and stay inside the scroll containers and clipping boxes
@@ -381,8 +402,11 @@ hide them with the numbers.
 - Footer: **Copy as prompt** (toast "Copied 3 items"), **Clear all** (confirmation dialog).
   Copying does not clear.
 - Empty state: "No feedback yet: pick an element, drag an area, or select text."
-- **Settings** (gear): remembered sites with remove; voice (milestone 5): API key (masked,
-  Save, Test, Remove), model, language, microphone access status with **Grant**.
+- **Settings** (gear): remembered sites with remove; voice: API key (a password field and
+  **Save**; once saved only masked, `sk-or-v1-…` and the last four characters, with **Test**
+  and **Remove**), model (the list below or a custom id), language, microphone access
+  (Allowed / Not allowed yet with **Grant** / Blocked, with how to allow it). **Open
+  settings** in the popover opens the panel there.
 
 Visual references: v0 and Lovable element selection (outline, tag chip, inline comment field,
 select-parent), ClickUp and Air comment pins with a side list.
@@ -392,25 +416,35 @@ select-parent), ClickUp and Air comment pins with a side list.
 - **Provider:** OpenRouter, `POST https://openrouter.ai/api/v1/audio/transcriptions`, JSON body
   `{ model, input_audio: { data: <base64>, format: "webm" }, language?, provider: { data_collection: "deny" } }`,
   header `Authorization: Bearer <key>`. Response `{ text, usage }`.
-- **Key:** bring your own; entered in settings, stored in `chrome.storage.local`, never synced,
-  never sent anywhere but the `Authorization` header to `openrouter.ai`, never shown in full
-  after saving, never written to logs or the clipboard. Only the background and the settings
-  view read it. `storage.local` is technically readable by content scripts, so the overlay code
-  must never access the key; an ESLint `no-restricted-syntax` rule for the overlay entrypoint
-  enforces that. **Test** calls `GET https://openrouter.ai/api/v1/key` (no cost) and shows
+- **Key:** bring your own; entered in settings, stored in the extension origin's IndexedDB,
+  never synced, never sent anywhere but the `Authorization` header to `openrouter.ai`, never
+  shown in full after saving, never written to logs or the clipboard. Not in
+  `chrome.storage`: content scripts can read `storage.local` and receive its change events,
+  but they cannot open the extension's IndexedDB. The background writes it (from the panel's
+  requests) and tells open panels that it changed, never what it is; the settings view reads
+  it to show it masked; the recorder gets it for one dictation over its own port. An ESLint
+  `no-restricted-syntax` / `no-restricted-imports` rule keeps the overlay entrypoint away
+  from it (no `openrouterKey`, no import of the key module). **Test** calls `GET https://openrouter.ai/api/v1/key` (no cost) and shows
   valid/invalid.
 - **Model:** default `openai/gpt-4o-mini-transcribe`; the settings offer a short list
   (`openai/gpt-4o-mini-transcribe`, `openai/gpt-4o-transcribe`,
   `openai/whisper-large-v3-turbo`, `mistralai/voxtral-mini-transcribe`) plus a custom model id.
-  The voice spike (section 13) compares them on German and English test audio and may change
-  the default; the result is recorded in this spec.
+  The voice spike (section 13) compared them on German and English test audio: all four
+  transcribe it almost word for word, so the default stays.
 - **Language:** `auto` (omit the field) by default, or an ISO-639-1 code.
 - **Limits:** recordings stop automatically after 120 seconds with a notice; client timeout
   65 seconds per request.
 - **Insertion:** the transcript is inserted at the caret (with a separating space when needed)
   and the textarea gets focus again, so the developer can edit before saving.
-- **Retry:** after a failed request the audio stays in memory until the popover closes, so
-  **Retry** does not require speaking again.
+- **Retry:** after a failed request the audio stays in the recorder until the popover
+  closes, so **Retry** does not require speaking again; it reads the key and the settings
+  again, so a fixed key works at once.
+- **Messages:** 401 "Invalid API key", 402 "Out of credits", 429 "Rate limited, try again",
+  400/404/422 "Transcription failed: " and OpenRouter's own message (one line, at most 200
+  characters, text only), 5xx "Transcription failed", no answer within 65 s "Transcription
+  timed out", no network "Could not reach OpenRouter", empty text "No speech detected". A
+  recording that ends without the developer's stop (device unplugged, permission revoked) is
+  not sent: "The microphone stopped. Retry sends what was recorded."
 
 ## 10. Error handling and edge cases
 
@@ -436,9 +470,12 @@ select-parent), ClickUp and Air comment pins with a side list.
 | Clipboard write fails                                                                                                                                   | Dialog with the text selected for manual copying.                                                                                                                                                                                                                                                |
 | Site access revoked in `chrome://extensions`                                                                                                            | `chrome.permissions.onRemoved` drops the site from the settings and the registered overlay script; the panel follows. Access granted there for other sites does not load the overlay by itself.                                                                                                  |
 | Storage                                                                                                                                                 | Text only; far below the 10 MB `storage.local` quota.                                                                                                                                                                                                                                            |
-| Voice: no key                                                                                                                                           | Mic button explains "Add an OpenRouter API key in settings" and opens settings.                                                                                                                                                                                                                  |
-| Voice: microphone not granted or no device                                                                                                              | Hint with **Grant** (opens the permission page) or "No microphone found".                                                                                                                                                                                                                        |
-| Voice: 401 / 402 / 429 / 5xx / timeout / offline                                                                                                        | Inline message ("Invalid API key", "Out of credits", "Rate limited, try again", "Transcription failed") with **Retry**.                                                                                                                                                                          |
+| Voice: no key                                                                                                                                           | The popover says "Add an OpenRouter API key in settings." with **Open settings**, which opens the panel on its settings.                                                                                                                                                                         |
+| Voice: microphone not granted or no device                                                                                                              | "Allow the microphone first." with **Grant** (opens the permission page), "The microphone is blocked for this extension." with **Grant** (the page says how to allow it), or "No microphone found."                                                                                              |
+| Voice: 401 / 402 / 429 / 5xx / timeout / offline                                                                                                        | Inline message (section 9) with **Retry**, which sends the kept audio again.                                                                                                                                                                                                                     |
+| Voice: popover closed, page navigated or overlay replaced while recording or transcribing                                                               | The port closes: the recording is dropped or the request aborted, the recorder closes and releases the microphone; nothing is inserted.                                                                                                                                                          |
+| Voice: a second popover starts dictating                                                                                                                | The first dictation ends; its popover says "Recording stopped: another one started."                                                                                                                                                                                                             |
+| Voice: service worker stopped mid-dictation (it should not be: the recorder's heartbeat keeps it)                                                       | The popover says "Recording stopped unexpectedly."; the recorder sees its port close and drops everything.                                                                                                                                                                                       |
 | Voice: empty transcript                                                                                                                                 | "No speech detected."                                                                                                                                                                                                                                                                            |
 
 ## 11. Security
@@ -480,6 +517,15 @@ select-parent), ClickUp and Air comment pins with a side list.
   validates every message shape.
 - **API key:** see section 9. The OpenRouter key pattern (`sk-or-v1-…`) is added to the secret
   scanners of this repository.
+- **Dictation:** the popover starts a recording only on a trusted click or key. The background
+  accepts the popover's `voice` port only from the top frame of a tab and the recorder's port
+  only from `offscreen.html`; the panel's voice and key messages only from the panel's URL;
+  `voice:grant` and `voice:settings` only from the top frame of a tab. OpenRouter's error
+  text is shown as text only, cut to one line. Requests go only to `openrouter.ai`; test
+  builds rewrite that origin in a copy of the build, and the launch fails when nothing was
+  rewritten. Known limit: a compromised renderer, which the threat model leaves out, could open
+  the popover's port without a click and dictate with the developer's key; it still never
+  gets the key.
 - **No remote code:** everything is bundled; no `eval`, no remotely loaded scripts.
 
 ## 12. Testing
@@ -558,6 +604,29 @@ Each spike answers one question before code depends on it; the answer goes into 
    changes re-raise it (`tests/e2e/top-layer.e2e.test.ts`).
 4. **Voice:** microphone grant flow via the permission page + offscreen recording; OpenRouter
    accepts `webm` and `provider.data_collection`; model comparison for the default.
+   **Answered (2026-10-06, Chrome for Testing 154, live API):** the transcription endpoint
+   takes the JSON body of section 9 with `webm` and `data_collection: "deny"` and answers in
+   about a second; silence gives an empty `text`, a wrong key 401, an unknown model 400 with
+   a readable message. Both endpoints allow CORS from any origin. An offscreen document gets
+   the microphone only after the extension's origin was granted it in a tab (until then
+   `NotAllowedError`, without a device `NotFoundError`), then records
+   `audio/webm;codecs=opus`. `sidePanel.open()` works while the background handles a message
+   a content script sent from a trusted click. Model comparison through the extension
+   (`pnpm test:live`: Chrome's fake microphone plays the synthetic clips of
+   `tests/fixtures/audio/`, 7 s each, the recorder sends Chrome's own WebM; language `auto`,
+   two runs; cost from the direct API calls of the spike):
+
+   | Model                               | English words | German words | After stop | Cost per clip |
+   | ----------------------------------- | ------------- | ------------ | ---------- | ------------- |
+   | `openai/gpt-4o-mini-transcribe`     | 100 %         | 100 %        | 1.0 s      | $0.0002       |
+   | `openai/gpt-4o-transcribe`          | 100 %         | 100 %        | 1.1–1.3 s  | $0.0005       |
+   | `openai/whisper-large-v3-turbo`     | 100 %         | 100 %        | 4.4–7.5 s  | $0.00002      |
+   | `mistralai/voxtral-mini-transcribe` | 100 %         | 92 % ¹       | 0.5–0.6 s  | $0.00035      |
+
+   ¹ "Anmeldebutton" for "Anmelde-Button". Clean synthetic speech does not separate the
+   models; the default stays `openai/gpt-4o-mini-transcribe` (accurate, about a second after
+   stop, cheap). Real voices, accents and noise may rank them differently; the settings offer
+   all four and any other OpenRouter model id.
 
 **Facts milestone 4 relies on (2026-10-06, Chrome for Testing 154):** `activeTab` survives a
 reload and a same-origin navigation of the tab and ends with a cross-origin one or a reload of
@@ -583,11 +652,13 @@ src/lib/
   capture/                # selector, styles, snapshot, area, origin parsing
   collection/             # model and pure operations
   format/                 # Markdown formatter
-  voice/                  # OpenRouter client
+  voice/                  # OpenRouter client, recorder, settings, key, protocol
+  background/             # writer, sites, dictation coordinator, voice settings
   messages.ts             # typed messages between contexts
 src/components/ui/        # shadcn-vue (copied, not a dependency)
 tests/
   unit/ e2e/ fixtures/
+  live/                   # local only: dictation against the real API (pnpm test:live)
 ```
 
 ## 15. Delivery order

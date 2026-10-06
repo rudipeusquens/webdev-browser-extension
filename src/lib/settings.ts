@@ -1,5 +1,6 @@
 // The extension's settings (spec section 5), in `chrome.storage.local`; only the background
-// writes them. Milestone 5 adds the voice settings.
+// writes them. The voice settings and the API key have storage keys of their own
+// (src/lib/voice/settings.ts, src/lib/voice/key.ts).
 
 import { browser } from 'wxt/browser'
 import { hasKeys, isText } from './collection/validate'

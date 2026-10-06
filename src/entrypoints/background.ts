@@ -5,6 +5,8 @@ import { goTo } from '@/lib/background/go-to'
 import { readOrigins } from '@/lib/background/origins'
 import { createSites, OVERLAY_SCRIPT } from '@/lib/background/sites'
 import { clearBlocked, clearFailed, markBlocked, markFailed } from '@/lib/background/tab-status'
+import { createVoice } from '@/lib/background/voice'
+import { isPanelSender, setVoice } from '@/lib/background/voice-settings'
 import { createWriter } from '@/lib/background/writer'
 import { loadCollection } from '@/lib/collection/store'
 import {
@@ -12,7 +14,9 @@ import {
   isBackgroundMessage,
   isPanelToggleReply,
   type OriginReply,
+  PANEL_VIEW_KEY,
   type PanelToggle,
+  type PanelView,
   type Reply,
 } from '@/lib/messages'
 import { isSiteOrigin, originPattern } from '@/lib/settings'
@@ -24,6 +28,7 @@ export default defineBackground(() => {
   const write = createWriter()
   const recordAnchors = createAnchorStore()
   const sites = createSites()
+  const voice = createVoice()
 
   const inject = (tabId: number) =>
     browser.scripting.executeScript({ target: { tabId }, files: [`/${OVERLAY_SCRIPT}`] })
@@ -78,6 +83,7 @@ export default defineBackground(() => {
   }
 
   browser.action.onClicked.addListener(toggle)
+  browser.runtime.onConnect.addListener(voice.onConnect)
   browser.contextMenus.onClicked.addListener((info, tab) => {
     if (info.menuItemId === MENU_ENTRY && tab) activate(tab)
   })
@@ -183,6 +189,37 @@ export default defineBackground(() => {
           return { ok: false, error: 'Only an overlay reports its start.' } satisfies Reply
         }
         return markFailed(tabId).then(() => ({ ok: true }) satisfies Reply)
+      }
+      case 'voice:set':
+      case 'voice:key:save':
+      case 'voice:key:remove':
+      case 'voice:key:test':
+        if (!isPanelSender(sender)) {
+          return { ok: false, error: 'Voice is set up in the panel.' } satisfies Reply
+        }
+        return setVoice(message)
+      case 'voice:grant':
+      case 'voice:settings': {
+        const { tab } = sender
+        if (tab?.id === undefined || sender.frameId !== 0) {
+          return { ok: false, error: 'Only a comment popover asks for this.' } satisfies Reply
+        }
+        if (message.type === 'voice:grant') {
+          return browser.tabs
+            .create({
+              url: browser.runtime.getURL('/mic-permission.html'),
+              windowId: tab.windowId,
+              index: tab.index + 1,
+              openerTabId: tab.id,
+            })
+            .then(() => ({ ok: true }) satisfies Reply)
+        }
+        // Inside the click's gesture: nothing may be awaited before this call.
+        browser.sidePanel.open({ windowId: tab.windowId }).catch(() => undefined)
+        const view: PanelView = { windowId: tab.windowId, view: 'settings', at: Date.now() }
+        return browser.storage.session
+          .set({ [PANEL_VIEW_KEY]: view })
+          .then(() => ({ ok: true }) satisfies Reply)
       }
       case 'collection:clear':
         return write(message).then(async (reply) => {

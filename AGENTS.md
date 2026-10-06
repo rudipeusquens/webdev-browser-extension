@@ -9,9 +9,10 @@ A Chrome extension (desktop) for web development work. On any page you can highl
 or add comments; the extension bundles everything into a format you can hand to an AI agent
 that has access to the code.
 
-**Status:** milestones 1–4 of `docs/plans/2026-10-05-annotation-extension.md` are done
+**Status:** milestones 1–5 of `docs/plans/2026-10-05-annotation-extension.md` are done
 (scaffold, test harness, spikes; element marking end to end; text and area marking; across
-pages, re-anchoring, remembered sites, code origin). Next: milestone 5 (voice input). The spec
+pages, re-anchoring, remembered sites, code origin; voice input). Next: milestone 6
+(hardening and release readiness). The spec
 is `docs/specs/2026-10-05-annotation-extension.md` — read both before working on a feature.
 
 ## This repository is public
@@ -53,6 +54,9 @@ pnpm build               # production build in .output/chrome-mv3/
 pnpm compile             # type-check (vue-tsc)
 pnpm test:unit           # Vitest only
 pnpm test:e2e            # real extension in Chrome for Testing — run `pnpm build` first
+pnpm test:live           # local only: dictation against the real OpenRouter API, with
+                         # OPENROUTER_API_KEY_TEST from .env — never in CI
+pnpm voice:fixtures      # local only: regenerates the synthetic audio in tests/fixtures/audio
 pnpm manifest:check      # built manifest has exactly the allowed permissions
 pnpm check               # everything CI runs, except build, E2E and gitleaks
 ```

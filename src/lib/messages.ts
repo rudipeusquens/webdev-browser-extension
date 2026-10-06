@@ -4,6 +4,7 @@
 import type { CodeOrigin, PageInfo, Target } from './collection/model'
 import { LIMITS } from './collection/model'
 import { isSiteOrigin } from './settings'
+import { isApiKey, isLanguage, isModelId } from './voice/settings'
 import {
   hasKeys,
   isAnnotationId,
@@ -46,8 +47,35 @@ export type GoToMessage = { type: 'tab:go'; tabId: number; pageKey: string }
 /** Overlay → background: it could not start; the error itself stays in the page's console. */
 export type FailedMessage = { type: 'overlay:failed' }
 
+/** Side panel → background: the voice settings and the OpenRouter key (spec section 9). */
+export type VoiceSettingsMessage =
+  | { type: 'voice:set'; model: string; language: string }
+  | { type: 'voice:key:save'; key: string }
+  | { type: 'voice:key:remove' }
+  | { type: 'voice:key:test' }
+
+/**
+ * Overlay → background, from a trusted click in the comment popover: open the microphone page
+ * (Grant), or the panel on its settings (Open settings).
+ */
+export type VoiceRequestMessage = { type: 'voice:grant' } | { type: 'voice:settings' }
+
+/**
+ * `storage.session` entry the background writes for **Open settings**: the panel of that window
+ * opens its settings, also when it opens only now.
+ */
+export const PANEL_VIEW_KEY = 'panelView'
+export type PanelView = { windowId: number; view: 'settings'; at: number }
+
 export type BackgroundMessage =
-  CollectionMessage | OriginMessage | AnchorMessage | SiteMessage | GoToMessage | FailedMessage
+  | CollectionMessage
+  | OriginMessage
+  | AnchorMessage
+  | SiteMessage
+  | GoToMessage
+  | FailedMessage
+  | VoiceSettingsMessage
+  | VoiceRequestMessage
 
 /** Most ids one `anchors:report` lists in each of its lists. */
 const MAX_REPORTED = 1000
@@ -101,6 +129,16 @@ export interface OverlayStatus {
 
 export type Reply = { ok: true } | { ok: false; error: string }
 
+/** Background → side panels: the key was saved or removed; read it again (never its value). */
+export type KeyChanged = { type: 'voice:key:changed' }
+
+export function isKeyChanged(x: unknown): x is KeyChanged {
+  return hasKeys(x, ['type']) && x.type === 'voice:key:changed'
+}
+
+/** The background's reply to `voice:key:test`. */
+export type KeyTestReply = { ok: true; valid: boolean } | { ok: false; error: string }
+
 /** The background's reply to `origin:read`, one entry per selector. */
 export type OriginReply =
   { ok: true; origins: (CodeOrigin | null)[] } | { ok: false; error: string }
@@ -124,7 +162,17 @@ export function isBackgroundMessage(x: unknown): x is BackgroundMessage {
       return hasKeys(x, ['type', 'id']) && isAnnotationId(x.id)
     case 'collection:clear':
     case 'overlay:failed':
+    case 'voice:key:remove':
+    case 'voice:key:test':
+    case 'voice:grant':
+    case 'voice:settings':
       return hasKeys(x, ['type'])
+    case 'voice:set':
+      return (
+        hasKeys(x, ['type', 'model', 'language']) && isModelId(x.model) && isLanguage(x.language)
+      )
+    case 'voice:key:save':
+      return hasKeys(x, ['type', 'key']) && isApiKey(x.key)
     case 'tab:go':
       return (
         hasKeys(x, ['type', 'tabId', 'pageKey']) &&
@@ -208,5 +256,15 @@ export function isOverlayStatus(x: unknown): x is OverlayStatus {
     isText(x.pageKey, 8192, 1) &&
     isMode(x.mode) &&
     typeof x.pins === 'boolean'
+  )
+}
+
+export function isPanelView(x: unknown): x is PanelView {
+  return (
+    hasKeys(x, ['windowId', 'view', 'at']) &&
+    Number.isInteger(x.windowId) &&
+    x.view === 'settings' &&
+    typeof x.at === 'number' &&
+    Number.isFinite(x.at)
   )
 }
