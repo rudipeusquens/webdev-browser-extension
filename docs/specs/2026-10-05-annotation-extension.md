@@ -20,6 +20,10 @@ selector and text) and understands what should change.
   reported by the dev server resolve for the agent.
 - A session spans several pages: the developer clicks through the app, collects a handful of
   remarks, then pastes them into the agent in one go.
+- It is a loop: copy, let the agent work, check the result, mark the next round. Items already
+  handed over must not be copied again, but a paste that went wrong must be easy to repeat.
+- Several projects run side by side (`localhost:3000`, `localhost:5173`, a staging site): each
+  site has its own feedback.
 - The dev server reloads the page often (HMR, full reloads, client-side routing).
 
 ## 3. Scope
@@ -28,8 +32,10 @@ selector and text) and understands what should change.
 
 - Three ways to mark: **element** (click), **text** (select), **area** (drag a rectangle)
 - Comments typed or **dictated** (speech-to-text via OpenRouter, bring your own key)
-- One collection across pages, surviving reloads, HMR, navigation and browser restarts
-- Copy the collection as Markdown to the clipboard
+- One collection per site (scheme, host and port), across its pages, surviving reloads, HMR,
+  navigation and browser restarts
+- Copy the site's open items as Markdown to the clipboard; copied items become **done**, deleted
+  ones stay visible on request; undo and redo for every change
 - Code origin for **Vue 3** (dev mode) and **Astro** (dev mode) pages
 - English UI and English output (comments stay in whatever language they were written or spoken)
 
@@ -39,7 +45,7 @@ selector and text) and understands what should change.
 - Page-level comments without a target
 - Marking inside iframes or inside shadow roots of web components (the host element is marked)
 - Direct hand-off to the agent (local server, MCP); the clipboard is the only output channel
-- Editable prompt preamble, multiple named collections, export to file
+- Editable prompt preamble, named collections within a site, export to file
 - React, Svelte or other framework origins
 
 ## 4. Principles
@@ -64,16 +70,16 @@ and **shadcn-vue**. Manifest V3, minimum Chrome version **116** (`chrome.sidePan
 
 ### Components
 
-| Unit                    | Runs in                               | Responsibility                                                                                                                                                                                                                                                                                                                                                                                                                             |
-| ----------------------- | ------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| **Background**          | service worker                        | Single writer of the collection and settings in `chrome.storage.local`; handles the action click, the keyboard command and the page's context menu entry (opens the side panel, injects the overlay); remembered sites (`chrome.permissions` + `chrome.scripting.registerContentScripts`); coordinates dictation (reads the API key and voice settings, opens and closes the recorder, relays its states to the popover) and tests the key |
-| **Overlay**             | content script, closed shadow root    | Modes, hover highlight, area drag, selection chip, comment popover with mic button, numbered pins; builds snapshots; re-anchors pins                                                                                                                                                                                                                                                                                                       |
-| **Origin bridge**       | page main world, injected per request | Reads Vue component chains (properties invisible to the isolated world) and returns them as the result of `chrome.scripting.executeScript`                                                                                                                                                                                                                                                                                                 |
-| **Side panel**          | extension page                        | Collection list, mode switch, copy, clear, settings (sites, voice)                                                                                                                                                                                                                                                                                                                                                                         |
-| **Recorder**            | offscreen document (`USER_MEDIA`)     | Records microphone audio with `MediaRecorder` (`audio/webm;codecs=opus`, 32 kbit/s) and sends it to OpenRouter; keeps it for **Retry**; one document per dictation                                                                                                                                                                                                                                                                         |
-| **Mic permission page** | extension page in a tab               | One-time `getUserMedia` call so Chrome grants the microphone to the extension origin (side panel and offscreen documents cannot show the prompt)                                                                                                                                                                                                                                                                                           |
-| **Formatter**           | pure module                           | Collection → Markdown; no browser APIs                                                                                                                                                                                                                                                                                                                                                                                                     |
-| **Capture library**     | pure modules                          | Selector generation, style extraction, truncation, area element selection; DOM in, plain data out                                                                                                                                                                                                                                                                                                                                          |
+| Unit                    | Runs in                               | Responsibility                                                                                                                                                                                                                                                                                                                                                                                                                                                                                         |
+| ----------------------- | ------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| **Background**          | service worker                        | Single writer of the sites' collections and settings in `chrome.storage.local` and of the undo history in `chrome.storage.session`; handles the action click, the keyboard command and the page's context menu entry (opens the side panel, injects the overlay); remembered sites (`chrome.permissions` + `chrome.scripting.registerContentScripts`); coordinates dictation (reads the API key and voice settings, opens and closes the recorder, relays its states to the popover) and tests the key |
+| **Overlay**             | content script, closed shadow root    | Modes, hover highlight, area drag, selection chip, comment popover with mic button, numbered pins; builds snapshots; re-anchors pins                                                                                                                                                                                                                                                                                                                                                                   |
+| **Origin bridge**       | page main world, injected per request | Reads Vue component chains (properties invisible to the isolated world) and returns them as the result of `chrome.scripting.executeScript`                                                                                                                                                                                                                                                                                                                                                             |
+| **Side panel**          | extension page                        | **Edit**: the active site's list with its filter, mode switch, copy, copy again, clear, undo and redo; **Settings**: voice, sites, keyboard shortcuts                                                                                                                                                                                                                                                                                                                                                  |
+| **Recorder**            | offscreen document (`USER_MEDIA`)     | Records microphone audio with `MediaRecorder` (`audio/webm;codecs=opus`, 32 kbit/s) and sends it to OpenRouter; keeps it for **Retry**; one document per dictation                                                                                                                                                                                                                                                                                                                                     |
+| **Mic permission page** | extension page in a tab               | One-time `getUserMedia` call so Chrome grants the microphone to the extension origin (side panel and offscreen documents cannot show the prompt)                                                                                                                                                                                                                                                                                                                                                       |
+| **Formatter**           | pure module                           | Collection → Markdown; no browser APIs                                                                                                                                                                                                                                                                                                                                                                                                                                                                 |
+| **Capture library**     | pure modules                          | Selector generation, style extraction, truncation, area element selection; DOM in, plain data out                                                                                                                                                                                                                                                                                                                                                                                                      |
 
 ### Data flow: annotating
 
@@ -84,9 +90,12 @@ and **shadcn-vue**. Manifest V3, minimum Chrome version **116** (`chrome.sidePan
    and asks the background to run the origin bridge for the snapshot's elements while the
    comment is written.
 3. On save, the overlay adds the code origins (waiting at most 2 s after marking) and sends
-   the annotation to the background, which assigns the number and writes the collection.
-4. The side panel and every overlay update through `chrome.storage.onChanged`.
-5. **Copy as prompt** → formatter → `navigator.clipboard.writeText` in the side panel.
+   the annotation to the background, which checks that it comes from a page of the same site,
+   assigns the site's next number, writes the site's collection and records the step for undo.
+4. The side panel and every overlay of that site update through `chrome.storage.onChanged`.
+5. **Copy as prompt** → formatter (the open items of the active site) →
+   `navigator.clipboard.writeText` in the side panel → the panel tells the background which
+   items it copied, and the background marks exactly those done (one undo step).
 
 ### Data flow: dictating
 
@@ -128,14 +137,24 @@ No host permission for `openrouter.ai`: its API answers CORS preflights with
 `chrome.storage.local` only (never `sync`). All writes go through the background, one at a
 time, so parallel saves from several tabs never lose an item. Runtime state that must not
 outlive the browser session (tabs that refused the overlay, items not found when their page was
-last open) lives in `chrome.storage.session`, which content scripts cannot read.
+last open, the undo history) lives in `chrome.storage.session`, which content scripts cannot
+read.
+
+**One collection per site.** A site is a page's scheme, host and port (`URL.origin`) for `http:`
+and `https:` pages, and `file://` for local files. Each site's collection is stored under its own
+key, `collection:<site>` (for example `collection:http://localhost:3000`), so a write touches one
+site only and numbers count per site. The collection of milestones 2–5 (one key `collection`,
+version 1, no statuses) is split by site when the background starts after the update: every item
+keeps its number, becomes **open**, and each site continues at the old `nextNumber`.
 
 ```ts
 interface Collection {
-  version: 1
-  nextNumber: number // numbers are stable; gaps after deletion; reset by "Clear all"
+  version: 2
+  site: string // "http://localhost:3000", "file://"; every page of the collection belongs to it
+  nextNumber: number // numbers are stable per site; reset by "Clear all"
   pages: Record<string, PageInfo> // key: URL without hash
   items: Annotation[]
+  lastCopy: string[] // ids the last "Copy as prompt" copied, for "Copy again"
 }
 
 interface PageInfo {
@@ -152,6 +171,7 @@ interface Annotation {
   comment: string
   createdAt: string
   updatedAt: string
+  status: 'open' | 'done' | 'deleted' // done: copied as prompt; deleted: kept until "Clear all"
   target: ElementTarget | TextTarget | AreaTarget
 }
 
@@ -195,10 +215,47 @@ interface VoiceSettings {
   model: string // default "openai/gpt-4o-mini-transcribe"
   language: 'auto' | string // ISO-639-1
 }
+// Which items the panel and the pins show; storage key "view", one choice for every site.
+interface View {
+  filter: 'open' | 'all' | 'with-deleted' // all: open and done; default "open"
+}
 // Not in chrome.storage: IndexedDB of the extension origin, database
 // "webdev-browser-extension", store "secrets", record "openrouterKey".
 type OpenRouterKey = string
+
+// chrome.storage.session, written by the background only.
+interface History {
+  // key "history:<site>"; at most 50 steps each way
+  undo: Step[]
+  redo: Step[]
+}
+interface Step {
+  label: string // "Delete item 3", "Mark 4 items done", "Clear all"
+  // What the step changed, before and after: items and pages by key (absent = none), and
+  // the collection's nextNumber and lastCopy.
+  items: { id: string; before?: Annotation; after?: Annotation }[]
+  pages: { key: string; before?: PageInfo; after?: PageInfo }[]
+  nextNumber: [number, number]
+  lastCopy: [string[], string[]]
+}
+// key "historyLabels:<site>": what the panel's Undo and Redo name, without the steps.
+interface HistoryLabels {
+  undo?: string
+  redo?: string
+}
 ```
+
+**Statuses.** An item is **open** when it is created. **Copy as prompt** makes the copied items
+**done**. **Delete** makes an item **deleted**; it stays in the collection until **Clear all**
+(of its site) removes everything. **Reopen** (done → open) and **Restore** (deleted → open)
+bring an item back; saving a changed comment on a done item reopens it as well.
+
+**Undo and redo.** Every change of a site's collection is one step in that site's history: a new
+item, a changed comment, Delete, Reopen, Restore, Copy as prompt (all items it marked done) and
+Clear all. Undo puts back what the step changed; Redo applies it again; a new change clears the
+redo steps. Undo refuses (and drops the history) when an item it would put back has changed
+since, which only happens if the history and the collection got out of step. The history lasts
+for the browser session.
 
 Anchor status (found or missing) is not part of the collection: each overlay reports which
 items of its page it found, an item counts as missing after 1.5 s without a place on the page
@@ -263,7 +320,9 @@ its options), cookies, storage, network data, anything from other tabs.
 
 ## 7. Clipboard format
 
-Markdown, English. Global, stable numbering shared by pins, panel and output. The comment comes
+Markdown, English. Stable numbering per site, shared by pins, panel and output. A prompt holds
+the open items of one site (**Copy as prompt**) or the items of that site's last copy that were
+not deleted since (**Copy again**). The comment comes
 first, then the location, code origin before selectors. Lines without data are omitted (never
 "unknown").
 
@@ -363,12 +422,16 @@ After an annotation is saved the mode stays, so several elements can be marked i
 `P` (same condition: focus not in a page field, no comment open) shows or hides the pins, like
 the panel's **Pins** toggle, which follows it.
 
-**Comment popover:** anchored next to the target. Textarea; below it the hint or the
-dictation status (`● 0:12`, "Transcribing…") on the left, the mic button next to **Save** on
-the right; a dictation message with its action (**Retry**, **Grant**, **Open settings**)
-above them. `Enter` saves (not during IME composition), `Shift+Enter` new line, `Esc`
-cancels (or first cancels a running recording or transcription), `Alt+V` starts and stops
-recording. Save waits while a recording or transcription runs; the field stays editable.
+**Comment popover:** anchored next to the target. Its header names the item ("Comment" or
+"Item 3") and the target (`button · 160×48`, a quoted text); a long target is cut with an
+ellipsis in the target's own color. Textarea; below it on the left **Delete** for an existing
+item (**Restore** for a deleted one), or the dictation status while dictating (`● 0:12`,
+"Transcribing…"); the mic button next to **Save** on the right; a dictation message with its
+action (**Retry**, **Grant**, **Open settings**) above them. `Enter` saves (not during IME
+composition), `Shift+Enter` new line, `Esc` cancels (or first cancels a running recording or
+transcription), `Alt+V` starts and stops recording. Save waits while a recording or
+transcription runs; the field stays editable. **Delete** marks the item deleted and closes the
+popover; **Restore** makes it open again. Saving a changed comment on a done item reopens it.
 
 **Pins:** numbered markers at the top-right of each target on the current page; they follow
 scroll, resize and layout changes and stay inside the scroll containers and clipping boxes
@@ -384,29 +447,51 @@ only). The line is left off on a
 side where a scroll container or the viewport cuts the target, so a cut target does not look
 smaller than it is. Hovering a pin draws its marking stronger; the item being edited shows the
 popover's marking instead. Markings never take the pointer, and the **Pins** toggle and `P`
-hide them with the numbers.
+hide them with the numbers. Pins and markings follow the panel's filter (open items only, open
+and done, or all including deleted) and take the item's status color: open blue, done green,
+deleted red. Hovering a pin marks its entry in the panel's list and scrolls it into view;
+while a pin's popover is open, its entry stays marked.
 
-**Side panel** (shadcn-vue, follows the system color scheme)
+**Side panel** (shadcn-vue, follows the system color scheme) has two views.
 
-- Header: count; tab status ("Active on localhost:3000", "Can't run on this page", "Couldn't
-  start on this page…", "Not
-  active on this page…"); **Always enable here** (asks Chrome for access to the page's origin,
-  then the overlay loads there by itself) / **Forget this site** (also gives the access back).
-- Mode switch (Browse, Element, Area) and a **Pins** toggle that hides all pins (`P` on the
-  page).
-- List grouped by page (current page first and marked); entries show number, type icon,
-  comment (two lines) and component or tag, and "Not found" when the target was missing on
-  the page's last visit. Hover highlights the target on the page (the highlight goes when the
-  panel closes); click scrolls to it and opens its popover; Delete; other pages on the web:
-  **Go to** (opens the page in the tab and starts the overlay there).
-- Footer: **Copy as prompt** (toast "Copied 3 items"), **Clear all** (confirmation dialog).
-  Copying does not clear.
-- Empty state: "No feedback yet: pick an element, drag an area, or select text."
-- **Settings** (gear): remembered sites with remove; voice: API key (a password field and
-  **Save**; once saved only masked, `sk-or-v1-…` and the last four characters, with **Test**
-  and **Remove**), model (the list below or a custom id), language, microphone access
-  (Allowed / Not allowed yet with **Grant** / Blocked, with how to allow it). **Open
-  settings** in the popover opens the panel there.
+- **Edit** (the default), top to bottom:
+  - Title row: **Edit**, the active site (`localhost:3000`, the full origin as tooltip) and its
+    number of open items; **Undo** and **Redo**, whose tooltips name the step (`Ctrl+Z` and
+    `Ctrl+Shift+Z` or `Ctrl+Y` in the panel, `⌘Z` and `⇧⌘Z` on macOS; the page's own keys are
+    never taken); the gear opens Settings.
+  - Buttons: mode switch (Browse, Element, Area), **Pins** toggle that hides all pins (`P` on
+    the page), and the filter **Open · All · + Deleted** with counts. The filter is one choice
+    for the list and the pins of every tab, kept across restarts.
+  - Texts: tab status ("Active on localhost:3000", "Can't run on this page", "Couldn't start on
+    this page…", "Not active on this page…"); **Always enable here** (asks Chrome for access to
+    the page's origin, then the overlay loads there by itself) / **Forget this site** (also
+    gives the access back); the page keys.
+  - List of the active site only, grouped by page (current page first and marked; the heading
+    shows the page's title and path). Entries show the number in the status color, type icon,
+    comment (two lines; struck through when deleted), component or tag, and "Not found" when
+    the target was missing on the page's last visit. Hover highlights the target on the page
+    (the highlight goes when the panel closes). Click goes to the item: on the current page it
+    scrolls to the target and opens its popover; on another page of the site (on the web) it
+    opens that page in the tab, waits for the overlay and does the same there. Actions: Delete
+    (open and done items), **Reopen** (done), **Restore** (deleted); **Go to** in the heading
+    of another page.
+  - Footer: **Copy as prompt** (the site's open items, which then become done; toast "Copied 3
+    items"), **Copy again** (the items of the site's last copy that were not deleted since;
+    changes nothing), **Clear all** (every item of the site, after a confirmation; undoable).
+  - Without a site (the overlay does not answer on the tab), the view shows the status and how
+    to activate, no list. Empty states: "No feedback yet: pick an element, drag an area, or
+    select text."; when the filter hides every item, it says how many it hides.
+- **Settings** (gear): the title becomes **Settings** and the gear a **Close** button (X); the
+  buttons and texts of Edit are hidden. Sections: voice (API key: a password field and
+  **Save**; once saved only masked, `sk-or-v1-…` and the last four characters, with **Test** and
+  **Remove**; model: the list below or a custom id; language; microphone access: Allowed / Not
+  allowed yet with **Grant** / Blocked, with how to allow it); **Sites**: every remembered site
+  and every site with feedback, the address opening the site in a new tab (web sites only), its
+  number of open items, **Auto** for remembered sites with **Forget**; **Keyboard shortcuts**:
+  the toolbar shortcut as Chrome assigned it (**Change** opens `chrome://extensions/shortcuts`),
+  and the keys on the page, in element and area mode, in the comment popover and in the panel.
+  **Open settings** in the popover opens the panel there.
+- Everything clickable shows the pointer cursor, in the panel and in the overlay.
 
 Visual references: v0 and Lovable element selection (outline, tag chip, inline comment field,
 select-parent), ClickUp and Air comment pins with a side list.
@@ -466,10 +551,17 @@ select-parent), ClickUp and Air comment pins with a side list.
 | Areas                                                                                                                                                   | Limited to the viewport (no scrolling while dragging). Elements clipped by a scroll container count when their box is inside the rectangle; elements overflowing a parent that lies outside it are not listed.                                                                                   |
 | Extension updated or reloaded while a page is open                                                                                                      | The orphaned overlay removes itself within a second; the panel shows the tab as not active and a toolbar click starts a fresh overlay without a reload. Open tabs of remembered sites get a fresh overlay after an update.                                                                       |
 | Service worker terminated                                                                                                                               | No in-memory state; everything is in storage.                                                                                                                                                                                                                                                    |
-| Several tabs or windows                                                                                                                                 | One collection; the background is the single writer, so writes never race.                                                                                                                                                                                                                       |
+| Several tabs or windows                                                                                                                                 | One collection per site; the background is the single writer, so writes never race. Every tab of a site shares its undo history.                                                                                                                                                                 |
 | Clipboard write fails                                                                                                                                   | Dialog with the text selected for manual copying.                                                                                                                                                                                                                                                |
 | Site access revoked in `chrome://extensions`                                                                                                            | `chrome.permissions.onRemoved` drops the site from the settings and the registered overlay script; the panel follows. Access granted there for other sites does not load the overlay by itself.                                                                                                  |
-| Storage                                                                                                                                                 | Text only; far below the 10 MB `storage.local` quota.                                                                                                                                                                                                                                            |
+| Storage                                                                                                                                                 | Text only, a few kilobytes per item. Done and deleted items stay until **Clear all** of their site; the 10 MB `storage.local` quota holds thousands of items.                                                                                                                                    |
+| Update from a version with one collection (milestones 2–5)                                                                                              | When the background starts, the old collection is split by site: numbers kept, every item open, each site continues at the old `nextNumber`; then the old key is removed. A malformed old collection, which the panel already showed as empty, is removed.                                       |
+| Several projects at once                                                                                                                                | Each site has its own list, numbers, copy, clear and history; the panel shows the site of the active tab, Settings lists every site with feedback.                                                                                                                                               |
+| A page asks to change items of another site                                                                                                             | Refused: messages from a page count only for the site of the frame that sent them.                                                                                                                                                                                                               |
+| Undo after a browser restart                                                                                                                            | The history is gone; Undo and Redo are disabled until the next change.                                                                                                                                                                                                                           |
+| Undo when an item changed outside the history (should not happen)                                                                                       | "This changed in the meantime; it can no longer be undone." The site's history is cleared, nothing is overwritten.                                                                                                                                                                               |
+| History larger than `storage.session` allows                                                                                                            | The oldest steps are dropped until it fits; if a single step does not fit, the history of that site is cleared.                                                                                                                                                                                  |
+| Jump to an item on another page whose target is missing there                                                                                           | The page opens; the popover does not; the entry keeps or gets "Not found".                                                                                                                                                                                                                       |
 | Voice: no key                                                                                                                                           | The popover says "Add an OpenRouter API key in settings." with **Open settings**, which opens the panel on its settings.                                                                                                                                                                         |
 | Voice: microphone not granted or no device                                                                                                              | "Allow the microphone first." with **Grant** (opens the permission page), "The microphone is blocked for this extension." with **Grant** (the page says how to allow it), or "No microphone found."                                                                                              |
 | Voice: 401 / 402 / 429 / 5xx / timeout / offline                                                                                                        | Inline message (section 9) with **Retry**, which sends the kept audio again.                                                                                                                                                                                                                     |
@@ -514,7 +606,11 @@ select-parent), ClickUp and Air comment pins with a side list.
   disturb or block commenting on itself; an extension-origin iframe for the editor would close
   that gap but needs `web_accessible_resources` (candidate for milestone 6).
 - **Messages:** the background accepts messages only from the extension's own contexts and
-  validates every message shape.
+  validates every message shape. A page's overlay may add, edit, delete and restore items only
+  from the top frame and only for the site of that frame (`sender.url`); copying, clearing,
+  reopening, undo and redo are accepted only from the panel's URL. The overlay tells the panel
+  which pin is pointed at or open by item id only. The sites list opens only `http:` and
+  `https:` origins.
 - **API key:** see section 9. The OpenRouter key pattern (`sk-or-v1-…`) is added to the secret
   scanners of this repository.
 - **Dictation:** the popover starts a recording only on a trusted click or key. The background
@@ -536,7 +632,8 @@ deliberate bug hunt.
 1. **Unit (Vitest, WXT's fake browser):** formatter with golden files (synthetic collection →
    exact Markdown); selector generator (ids, test ids, generated classes, uniqueness); capture
    (truncation, style list, form values excluded, area element choice); collection logic
-   (add, edit, delete, numbering, grouping); code origin from mocked Vue and Astro structures;
+   (add, edit, statuses, numbering per site, grouping, the split of the old collection, undo
+   and redo steps); code origin from mocked Vue and Astro structures;
    OpenRouter client (request shape, error mapping) with mocked `fetch`; recorder and popover
    state machines.
 2. **E2E (Puppeteer + Chrome for Testing, real extension build)** against fixture sites served
@@ -550,7 +647,9 @@ deliberate bug hunt.
      copy → clipboard equals the expected Markdown; remember and forget a site (with a test
      copy of the build that grants localhost, since Chrome's prompt cannot be automated); voice with
      Chrome's fake microphone (`--use-file-for-fake-audio-capture`) against a local fake
-     OpenRouter (test builds only; production builds always use `https://openrouter.ai`)
+     OpenRouter (test builds only; production builds always use `https://openrouter.ai`); the
+     review loop on two sites at once: copy → done → copy again → undo → redo, delete from the
+     popover and restore, jump from the list to an item on another page
 3. **Live voice test** (`pnpm test:live`): runs only locally when `OPENROUTER_API_KEY_TEST` is set in
    `.env`; sends the fixture audio to the real API and checks the transcript. Never in CI.
 4. **Fixture audio** is synthetic speech (text-to-speech), committed with its expected text;
@@ -653,7 +752,7 @@ src/lib/
   collection/             # model and pure operations
   format/                 # Markdown formatter
   voice/                  # OpenRouter client, recorder, settings, key, protocol
-  background/             # writer, sites, dictation coordinator, voice settings
+  background/             # writer, history, sites, dictation coordinator, voice settings
   messages.ts             # typed messages between contexts
 src/components/ui/        # shadcn-vue (copied, not a dependency)
 tests/
@@ -674,4 +773,6 @@ Each step is its own pull request with tests, review and a green `ci` check.
 4. **Across pages:** re-anchoring, client-side navigation, remembered sites, Vue/Astro origin.
 5. **Voice:** spike 4, permission page, offscreen recorder, OpenRouter client, voice settings,
    live test.
-6. **Hardening:** security review of the whole extension, smoke checklist, README for users.
+6. **Review workflow:** one collection per site, statuses (open, done, deleted), Copy again,
+   the filter, undo and redo, the Edit and Settings views with the shortcut list, page ↔ list.
+7. **Hardening:** security review of the whole extension, smoke checklist, README for users.
