@@ -1,0 +1,66 @@
+// What the panel's voice settings show (spec section 8): model and language, the key only
+// masked, and the extension's microphone permission. The background writes all of it.
+
+import { onBeforeUnmount, onMounted, type Ref, ref, shallowRef } from 'vue'
+import { browser } from 'wxt/browser'
+import { KEY_STORAGE, loadKey, maskKey } from '@/lib/voice/key'
+import {
+  defaultVoiceSettings,
+  loadVoiceSettings,
+  type VoiceSettings,
+  watchVoiceSettings,
+} from '@/lib/voice/settings'
+
+export type Microphone = PermissionState | 'unknown'
+
+export function useVoiceSettings(): {
+  voice: Ref<VoiceSettings>
+  /** The stored key as the settings show it; null when there is none. */
+  maskedKey: Ref<string | null>
+  microphone: Ref<Microphone>
+} {
+  const voice = shallowRef<VoiceSettings>(defaultVoiceSettings())
+  const maskedKey = ref<string | null>(null)
+  const microphone = ref<Microphone>('unknown')
+  let changed = false
+  let stop: (() => void) | undefined
+  let permission: PermissionStatus | undefined
+
+  // Only the masked form leaves this function.
+  const readKey = async () => {
+    const key = await loadKey().catch(() => undefined)
+    maskedKey.value = key ? maskKey(key) : null
+  }
+  const onKey = (changes: Record<string, unknown>, area: string) => {
+    if (area === 'local' && KEY_STORAGE in changes) void readKey()
+  }
+
+  onMounted(async () => {
+    stop = watchVoiceSettings((next) => {
+      changed = true
+      voice.value = next
+    })
+    browser.storage.onChanged.addListener(onKey)
+    void readKey()
+    const loaded = await loadVoiceSettings()
+    // A change that arrived while loading is newer than what was loaded.
+    if (!changed) voice.value = loaded
+    try {
+      permission = await navigator.permissions.query({ name: 'microphone' as PermissionName })
+      microphone.value = permission.state
+      permission.onchange = () => {
+        if (permission) microphone.value = permission.state
+      }
+    } catch {
+      microphone.value = 'unknown'
+    }
+  })
+
+  onBeforeUnmount(() => {
+    stop?.()
+    browser.storage.onChanged.removeListener(onKey)
+    if (permission) permission.onchange = null
+  })
+
+  return { voice, maskedKey, microphone }
+}
