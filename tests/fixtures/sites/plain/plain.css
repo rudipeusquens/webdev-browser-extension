@@ -22,3 +22,12 @@ body {
   padding: 12px;
   border: 1px solid #ccc;
 }
+.contents {
+  display: contents;
+}
+.pick {
+  padding: 32px;
+}
+#listbox {
+  width: 160px;
+}

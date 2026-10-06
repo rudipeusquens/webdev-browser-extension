@@ -4,7 +4,7 @@
 
 import type { AreaTarget, Rect } from '../collection/model'
 import { LIMITS } from '../collection/model'
-import { childrenOf, MAX_DEPTH, parentOf, rectOf } from './dom'
+import { childrenOf, isRendered, MAX_DEPTH, ownerDocumentOf, parentOf, rectOf, tagOf } from './dom'
 import { snapshotElement } from './snapshot'
 
 /** Most elements one search looks at; the count of elements inside stops there. */
@@ -12,9 +12,9 @@ export const AREA_BUDGET = 10_000
 /** Boxes may stick out this far and still count as inside: drags are not pixel-exact. */
 const TOLERANCE = 1
 
-const rendered = (el: Element) => Element.prototype.checkVisibility?.call(el) ?? true
-const shown = (el: Element) =>
-  Element.prototype.checkVisibility?.call(el, { checkVisibilityCSS: true }) ?? true
+const styleOf = (el: Element) => (ownerDocumentOf(el).defaultView ?? window).getComputedStyle(el)
+const rendered = (el: Element) => isRendered(el, styleOf)
+const shown = (el: Element) => isRendered(el, styleOf, { checkVisibilityCSS: true })
 
 function holds(outer: Rect, inner: Rect): boolean {
   return (
@@ -29,6 +29,9 @@ const overlaps = (a: Rect, b: Rect) =>
   a.x < b.x + b.width && b.x < a.x + a.width && a.y < b.y + b.height && b.y < a.y + a.height
 
 const isEmpty = (r: Rect) => r.width === 0 || r.height === 0
+
+// Their children are the values they offer: an area lists the control, never its options.
+const OPAQUE = new Set(['select', 'datalist'])
 
 /**
  * The element that holds the rectangle: from the topmost page element at its center (hit
@@ -74,6 +77,7 @@ export function elementsInside(
     }
     // Zero-size wrappers (`display: contents`), hidden elements and boxes that reach into the
     // rectangle may hold elements inside it; boxes elsewhere do not.
+    if (OPAQUE.has(tagOf(el))) continue
     if (isEmpty(box) || inside || overlaps(box, rect)) stack.push(...childrenOf(el).reverse())
   }
   return { elements, total }

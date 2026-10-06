@@ -200,6 +200,29 @@ describe('marking text', () => {
     await expectNoChip()
   })
 
+  it('captures only the selection the chip was offered for (review focus 3)', async () => {
+    await dragSelect(session.page, '#intro', 'contact you')
+    await waitInOverlay(session, CHIP)
+    // The page swaps the selection on the way to the chip's click.
+    await session.page.evaluate(() => {
+      window.addEventListener(
+        'click',
+        () => {
+          const range = document.createRange()
+          range.selectNodeContents(document.getElementById('words') as HTMLElement)
+          const selection = document.getSelection()
+          selection?.removeAllRanges()
+          selection?.addRange(range)
+        },
+        true,
+      )
+    })
+    await clickInOverlay(session, CHIP)
+    await sleep(400)
+    expect(await inOverlay(POPOVER)).toBe(false)
+    expect((await storedCollection(panel))?.items.length ?? 0).toBe(0)
+  })
+
   it('offers the chip after a double-click and forgets it when the selection goes', async () => {
     const { start } = await textEnds(session.page, '#words', 'onewordhere')
     await session.page.mouse.click(start.x + 6, start.y, { count: 2 })
@@ -273,5 +296,38 @@ describe('marking text on a huge page', () => {
     const target = stored.items[0]?.target as TextTarget
     expect([...target.selected]).toHaveLength(500)
     expect(target.selected.endsWith('…')).toBe(true)
+  })
+
+  it('keeps scrolling smooth while a huge selection is offered and commented', async () => {
+    await session.page.goto(`${server.origin}/plain/big.html`)
+    await clickAction(session)
+    await overlayMounted(session)
+    await session.page.click('h1')
+    await session.page.keyboard.down('Control')
+    await session.page.keyboard.press('a')
+    await session.page.keyboard.up('Control')
+    await waitInOverlay(session, CHIP)
+
+    /** Long animation frames (over 50 ms) while the page scrolls. */
+    const longFramesWhileScrolling = async () => {
+      await session.page.evaluate(() => {
+        const w = window as unknown as { longFrames: number }
+        w.longFrames = 0
+        new PerformanceObserver((list) => {
+          w.longFrames += list.getEntries().filter((e) => e.duration > 50).length
+        }).observe({ type: 'long-animation-frame' })
+      })
+      for (let i = 0; i < 20; i++) {
+        await session.page.evaluate(() => window.scrollBy(0, 40))
+        await sleep(30)
+      }
+      await sleep(200)
+      return session.page.evaluate(() => (window as unknown as { longFrames: number }).longFrames)
+    }
+
+    expect(await longFramesWhileScrolling()).toBeLessThanOrEqual(2)
+    await clickInOverlay(session, CHIP)
+    await waitInOverlay(session, POPOVER)
+    expect(await longFramesWhileScrolling()).toBeLessThanOrEqual(2)
   })
 })

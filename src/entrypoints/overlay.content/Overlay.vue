@@ -2,10 +2,17 @@
 import { computed, onBeforeUnmount, onMounted, ref, shallowReactive, shallowRef, watch } from 'vue'
 import { browser } from 'wxt/browser'
 import { useCollection } from '@/composables/use-collection'
-import { closestOf, tagOf } from '@/lib/capture/dom'
+import { closestOf, deepActiveElement, tagOf } from '@/lib/capture/dom'
 import { snapshotArea } from '@/lib/capture/area'
 import { pageInfo, snapshotElement } from '@/lib/capture/snapshot'
-import { rangeContainer, rangeHasText, selectionRange, snapshotRange } from '@/lib/capture/text'
+import {
+  type CapturedText,
+  chipAnchor,
+  rangeContainer,
+  sameRange,
+  selectionRange,
+  snapshotRange,
+} from '@/lib/capture/text'
 import type { Rect, Target } from '@/lib/collection/model'
 import { pageKey } from '@/lib/collection/page-key'
 import { truncate } from '@/lib/text'
@@ -20,14 +27,7 @@ import CommentPopover from './CommentPopover.vue'
 import HoverBox from './HoverBox.vue'
 import { newId } from './ids'
 import { pageShortcut } from './keys'
-import {
-  deepActiveElement,
-  forwardsWheel,
-  isEditable,
-  pickAt,
-  scrollableAncestor,
-  TargetPath,
-} from './picker'
+import { forwardsWheel, isEditable, pickAt, scrollableAncestor, TargetPath } from './picker'
 import { boxOf, type LiveAnchor, pinPositions, placeItems, pruneLive } from './pins'
 import type { Layer } from './top-layer'
 import { rectBetween } from './place'
@@ -68,8 +68,9 @@ const path = shallowRef<TargetPath | null>(null)
 const hovered = shallowRef<Element | null>(null)
 const draft = shallowRef<Draft | null>(null)
 const highlighted = ref<string | null>(null)
-// The page's selection the Comment chip offers to comment on (browse mode).
-const chip = shallowRef<Range | null>(null)
+// The page's selection the Comment chip offers to comment on (browse mode), and the
+// character the chip sits under.
+const chip = shallowRef<{ range: Range; anchor: Range } | null>(null)
 // The rectangle being dragged in area mode, in viewport coordinates.
 const drag = shallowRef<{ from: { x: number; y: number }; to: { x: number; y: number } } | null>(
   null,
@@ -104,11 +105,10 @@ const draftRect = computed(() => {
 })
 const chipLine = computed(() => {
   void frame.value
-  const range = chip.value
-  if (!range || mode.value !== 'browse' || draft.value) return null
-  const lines = range.getClientRects()
-  const last = lines[lines.length - 1] ?? range.getBoundingClientRect()
-  return { x: last.x, y: last.y, width: last.width, height: last.height }
+  const anchor = chip.value?.anchor
+  if (!anchor || mode.value !== 'browse' || draft.value) return null
+  const r = anchor.getBoundingClientRect()
+  return { x: r.x, y: r.y, width: r.width, height: r.height }
 })
 
 const pageItems = computed(() =>
@@ -272,7 +272,8 @@ function onRelease(e: Event) {
   cancelAnimationFrame(chipCheck)
   chipCheck = requestAnimationFrame(() => {
     const range = selectionRange(document)
-    chip.value = range && rangeHasText(range) ? range : null
+    const anchor = range && chipAnchor(range)
+    chip.value = range && anchor ? { range, anchor } : null
   })
 }
 
@@ -281,44 +282,39 @@ function onSelectionChange() {
   const offered = chip.value
   if (!offered) return
   const current = selectionRange(document)
-  try {
-    if (
-      current &&
-      current.compareBoundaryPoints(Range.START_TO_START, offered) === 0 &&
-      current.compareBoundaryPoints(Range.END_TO_END, offered) === 0
-    ) {
-      return
-    }
-  } catch {
-    // Ranges in different trees: not the same selection.
-  }
-  chip.value = null
+  if (!current || !sameRange(current, offered.range)) chip.value = null
 }
 
-/** The chip was clicked: comment on what is selected now. */
+/** The chip was clicked: comment on the selection it was offered for. */
 function commentOnSelection() {
+  const offered = chip.value
   chip.value = null
   const range = selectionRange(document)
-  if (!range) return
-  let target: Target | null
+  // The page may change the selection on the way to the click (`selectionchange` comes
+  // later): only what the chip was offered for is captured.
+  if (!offered || !range || !sameRange(range, offered.range)) return
+  let captured: CapturedText | null
   try {
-    target = snapshotRange(range)
+    captured = snapshotRange(range)
   } catch {
-    target = null
+    captured = null
   }
-  if (!target) return
+  if (!captured) return
+  // What was read: measuring it on every frame stays cheap however much was selected.
+  const { target, range: read } = captured
+  const el = rangeContainer(read)
   const rect = () => {
-    const r = range.getBoundingClientRect()
+    const r = read.getBoundingClientRect()
     return { x: r.x, y: r.y, width: r.width, height: r.height }
   }
   openDraft({
     kind: 'text',
-    el: rangeContainer(range),
+    el,
     rect,
-    range,
+    range: read,
     target,
-    live: range,
-    label: labelOf(target, rangeContainer(range), rect()),
+    live: read,
+    label: labelOf(target, el, rect()),
   })
 }
 

@@ -1,0 +1,31 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <title>Shapes fixture</title>
+    <link rel="stylesheet" href="plain.css" />
+  </head>
+  <body>
+    <h1>Page shapes</h1>
+    <p id="terms">Read the <span class="contents">terms of service</span> before you continue.</p>
+    <section class="features" id="wrapped">
+      <div class="contents">
+        <div class="card">Alpha</div>
+        <div class="card">Beta</div>
+      </div>
+    </section>
+    <section class="pick">
+      <select id="listbox" name="plan" size="4">
+        <option value="plan-basic">Basic</option>
+        <option value="plan-pro" selected>Pro</option>
+        <option value="plan-team">Team</option>
+      </select>
+    </section>
+    <main id="paragraphs">
+      <p id="first">First paragraph says something here.</p>
+      <p id="second">Second paragraph text.</p>
+    </main>
+    <x-field id="field"></x-field>
+    <script src="shapes.js"></script>
+  </body>
+</html>

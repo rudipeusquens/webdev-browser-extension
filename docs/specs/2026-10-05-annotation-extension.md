@@ -207,8 +207,11 @@ counts if it is inside and its parent is not), max 10, plus how many more there 
 Form fields, scripts, styles and text the page does not show are skipped; selections also
 skip text that cannot be selected (`user-select: none`). Neither `innerText` (it lists every
 option of a `<select>`) nor `Selection.toString()` (it returns the selected part of a focused
-field's value) is used. Every walk over the page has a budget, so a selection of a whole long
-page stays quick.
+field's value) is used. `display: contents` elements count as shown when their parent is
+(Chrome's `checkVisibility()` says they are not). Every walk over the page has a budget, so a
+selection of a whole long page stays quick. A selection is captured from its first to its last
+visible character: a triple-click, which Chrome ends at the start of the next block, takes the
+paragraph as the container, and only the part that was read is highlighted and measured.
 
 **Selector:** prefer a unique `#id` (skipping ids that look generated, e.g. `:r1:`, `v-12`,
 long digit runs), then `[data-testid]`/`[data-test]`, then tag plus stable classes (skipping
@@ -227,7 +230,8 @@ further, because the result must match exactly one element.
 - Paths are reported exactly as the dev server exposes them (usually absolute).
 
 **Never captured:** values of form fields (`input`, `textarea`, `select`; for these only type
-and name are recorded), cookies, storage, network data, anything from other tabs.
+and name are recorded, options record no attributes, and an area lists a `select` but never
+its options), cookies, storage, network data, anything from other tabs.
 
 ## 7. Clipboard format
 

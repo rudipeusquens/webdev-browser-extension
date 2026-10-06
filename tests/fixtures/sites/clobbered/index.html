@@ -12,6 +12,14 @@
       <div class="card">Two</div>
     </section>
     <button type="button" id="action">Do something</button>
+    <!-- Named controls shadow their form's own properties, in every world. -->
+    <form id="named-form">
+      <input name="childNodes" /><input name="parentNode" /><input name="nextSibling" /><input
+        name="ownerDocument"
+      />
+      <p id="in-form">Inside the form text</p>
+    </form>
+    <p id="after-form">After it</p>
     <script src="clobber.js"></script>
   </body>
 </html>

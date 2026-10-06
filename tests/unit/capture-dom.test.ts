@@ -1,5 +1,14 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { queryAll, queryFirst, shadowRootOf } from '@/lib/capture/dom'
+import {
+  childNodeAt,
+  deepActiveElement,
+  documentOf,
+  nextNodeOf,
+  parentNodeOf,
+  queryAll,
+  queryFirst,
+  shadowRootOf,
+} from '@/lib/capture/dom'
 
 // A named control shadows the property of its form with the same name, in the content
 // script's world too. An own property on the instance has the same effect.
@@ -60,5 +69,45 @@ describe('shadowRootOf', () => {
   it('is null without a shadow root', () => {
     vi.spyOn(chromeDom(), 'openOrClosedShadowRoot').mockReturnValue(undefined)
     expect(shadowRootOf(document.body)).toBeNull()
+  })
+})
+
+describe('deepActiveElement', () => {
+  it('follows the focus into open and closed shadow roots', () => {
+    const outer = document.createElement('div')
+    const open = outer.attachShadow({ mode: 'open' })
+    const inner = document.createElement('div')
+    open.append(inner)
+    const closed = inner.attachShadow({ mode: 'closed' })
+    const input = document.createElement('input')
+    closed.append(input)
+    document.body.append(outer)
+    vi.spyOn(chromeDom(), 'openOrClosedShadowRoot').mockImplementation((el) =>
+      el === inner ? closed : undefined,
+    )
+    input.focus()
+    expect(deepActiveElement(document)).toBe(input)
+  })
+
+  it('is the focused element of the document outside shadow roots', () => {
+    vi.spyOn(chromeDom(), 'openOrClosedShadowRoot').mockReturnValue(undefined)
+    const button = document.querySelector('#save') as HTMLButtonElement
+    button.focus()
+    expect(deepActiveElement(document)).toBe(button)
+  })
+})
+
+describe('node reads', () => {
+  it('see the real tree through a form whose named controls shadow them', () => {
+    const form = document.querySelector('form') as HTMLFormElement
+    for (const name of ['childNodes', 'parentNode', 'nextSibling', 'ownerDocument']) {
+      shadow(form, name)
+    }
+    expect(childNodeAt(form, 1)).toBe(document.querySelector('p'))
+    expect(childNodeAt(form, 5)).toBeNull()
+    expect(parentNodeOf(form)).toBe(document.body)
+    expect(nextNodeOf(form)).toBeNull()
+    expect(documentOf(form)).toBe(document)
+    expect(documentOf(document)).toBe(document)
   })
 })

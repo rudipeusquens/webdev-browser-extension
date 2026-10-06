@@ -5,7 +5,18 @@
 
 import { LIMITS } from '../collection/model'
 import { collapse, truncate } from '../text'
-import { closestOf, MAX_DEPTH, parentOf, tagOf } from './dom'
+import {
+  childNodeAt,
+  closestOf,
+  containsNode,
+  documentOf,
+  isRendered,
+  MAX_DEPTH,
+  nextNodeOf,
+  parentNodeOf,
+  parentOf,
+  tagOf,
+} from './dom'
 
 const SKIPPED_TAGS = new Set([
   'input',
@@ -62,7 +73,7 @@ export class TextReader {
       const style = this.style(el)
       shown =
         closestOf(el, SKIPPED) === null &&
-        (Element.prototype.checkVisibility?.call(el) ?? true) &&
+        isRendered(el, (box) => this.style(box)) &&
         style.visibility !== 'hidden' &&
         style.visibility !== 'collapse' &&
         !(this.selectable && style.userSelect === 'none')
@@ -96,7 +107,7 @@ export class TextReader {
 
   /** Runs `walk` with a fresh budget; true when the budget ran out. */
   run(root: Node, walk: (walker: TreeWalker, accepts: (node: Node) => boolean) => void): boolean {
-    const doc = root.ownerDocument ?? (root as Document)
+    const doc = documentOf(root)
     this.visited = 0
     const walker = doc.createTreeWalker(
       root,
@@ -117,6 +128,9 @@ export interface Piece {
   text: string
   /** The box the text belongs to; text of different boxes is separated by a space. */
   block: Element | null
+  /** The text node the text was read from, and where in it the text starts; none for `<br>`. */
+  node?: Text
+  start?: number
 }
 
 export interface Read {
@@ -125,10 +139,10 @@ export interface Read {
   cut: boolean
 }
 
-const pieceOf = (reader: TextReader, node: Node, text: string): Piece => ({
-  text: node instanceof Text ? text : ' ',
-  block: reader.blockOf(node),
-})
+const pieceOf = (reader: TextReader, node: Node, text: string, start = 0): Piece =>
+  node instanceof Text
+    ? { text, block: reader.blockOf(node), node, start }
+    : { text: ' ', block: reader.blockOf(node) }
 
 /** Joins pieces; pieces from different boxes are separated by a space. */
 export function join(pieces: Piece[]): string {
@@ -140,13 +154,13 @@ export function join(pieces: Piece[]): string {
 /** The first node at or after the boundary point (`container`, `offset`), in tree order. */
 function nodeAt(container: Node, offset: number): Node | null {
   if (container instanceof CharacterData) return container
-  const child = container.childNodes[offset]
+  const child = childNodeAt(container, offset)
   if (child) return child
   let node: Node | null = container
-  for (let depth = 0; node && !node.nextSibling && depth < MAX_DEPTH; depth++) {
-    node = node.parentNode
+  for (let depth = 0; node && !nextNodeOf(node) && depth < MAX_DEPTH; depth++) {
+    node = parentNodeOf(node)
   }
-  return node?.nextSibling ?? null
+  return node && nextNodeOf(node)
 }
 
 export interface Until {
@@ -172,7 +186,8 @@ export function readForward(
   let cut = false
   const exhausted = reader.run(root, (walker, accepts) => {
     let node = nodeAt(container, offset)
-    if (!node) return
+    // A boundary at the end of `root` points past it: nothing to read.
+    if (!node || !containsNode(root, node)) return
     walker.currentNode = node
     if (!accepts(node)) node = walker.nextNode()
     let length = 0
@@ -181,8 +196,11 @@ export function readForward(
       if (stop) return
       const from = node === container ? offset : 0
       const text = node instanceof Text ? node.data.slice(from, endOffset ?? node.data.length) : ''
-      pieces.push(pieceOf(reader, node, text))
-      length += text.length
+      // Nothing left of the node the boundary is in: its box must not decide the spacing.
+      if (!(node === container && text === '')) {
+        pieces.push(pieceOf(reader, node, text, from))
+        length += text.length
+      }
       if (endOffset !== undefined) return
       if (length > limit) {
         cut = true
@@ -211,13 +229,14 @@ export function readBackward(
   const exhausted = reader.run(root, (walker, accepts) => {
     let node: Node | null
     if (container instanceof CharacterData) {
-      if (accepts(container)) {
+      // Nothing before the boundary in its node: its box must not decide the spacing.
+      if (accepts(container) && offset > 0) {
         pieces.push(pieceOf(reader, container, (container as Text).data.slice(0, offset)))
       }
       walker.currentNode = container
       node = walker.previousNode()
     } else {
-      const before = container.childNodes[offset - 1]
+      const before = childNodeAt(container, offset - 1)
       if (!before) {
         walker.currentNode = container
         node = walker.previousNode()

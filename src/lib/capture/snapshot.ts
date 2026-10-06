@@ -10,13 +10,18 @@ import { buildSelector } from './selector'
 import { pickStyles } from './styles'
 
 const FORM_FIELDS = new Set(['input', 'textarea', 'select'])
+// Their attributes are the values a select offers (`value`, `label`, `selected`).
+const OPTIONS = new Set(['option', 'optgroup', 'datalist'])
 const isFormField = (el: Element) => FORM_FIELDS.has(tagOf(el))
 
-export function openingTag(el: Element): string {
+function recordedAttributes(el: Element): Attr[] {
+  if (OPTIONS.has(tagOf(el))) return []
   const all = attributesOf(el)
-  const attributes = isFormField(el)
-    ? all.filter((a) => a.name === 'type' || a.name === 'name')
-    : all
+  return isFormField(el) ? all.filter((a) => a.name === 'type' || a.name === 'name') : all
+}
+
+export function openingTag(el: Element): string {
+  const attributes = recordedAttributes(el)
   const parts = attributes.map(({ name, value }) =>
     value === ''
       ? name

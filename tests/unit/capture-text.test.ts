@@ -1,6 +1,14 @@
-import { afterEach, beforeEach, describe, expect, it } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { codePoints } from '@/lib/collection/validate'
-import { rangeContainer, rangeHasText, selectionRange, snapshotRange } from '@/lib/capture/text'
+import {
+  chipAnchor,
+  rangeContainer,
+  sameRange,
+  selectionRange,
+  snapshotRange,
+} from '@/lib/capture/text'
+import { join, readForward, TextReader } from '@/lib/capture/reader'
+import { chromeLikeVisibility } from './helpers/chrome-visibility'
 
 const $ = (selector: string) => {
   const el = document.querySelector(selector)
@@ -36,13 +44,19 @@ function select(range: Range) {
   selection?.addRange(range)
 }
 
+type Dom = { openOrClosedShadowRoot(el: Element): ShadowRoot | undefined }
+
 beforeEach(() => {
   document.body.innerHTML = ''
+  // WXT's fake browser has no chrome.dom; Chrome answers with the element's shadow root.
+  const dom = (globalThis as unknown as { chrome: { dom: Dom } }).chrome.dom
+  vi.spyOn(dom, 'openOrClosedShadowRoot').mockImplementation((el) => el.shadowRoot ?? undefined)
 })
 
 afterEach(() => {
   document.getSelection()?.removeAllRanges()
   ;(document.activeElement as HTMLElement | null)?.blur?.()
+  vi.restoreAllMocks()
 })
 
 describe('snapshotRange', () => {
@@ -50,7 +64,7 @@ describe('snapshotRange', () => {
     document.body.innerHTML =
       '<h3>Preferences</h3>' +
       '<section class="prefs"><h3>Manage your Email notifcations and alerts</h3></section>'
-    const target = snapshotRange(over('Email notifcations'))
+    const target = snapshotRange(over('Email notifcations'))?.target
     expect(target).toMatchObject({
       kind: 'text',
       selected: 'Email notifcations',
@@ -64,7 +78,7 @@ describe('snapshotRange', () => {
     const left = 'Lorem ipsum dolor sit amet, consectetur adipiscing elit, sed do eiusmod'
     const right = 'tempor incididunt ut labore et dolore magna aliqua. Ut enim ad minim veniam'
     document.body.innerHTML = `<p>${left} TARGET ${right}</p>`
-    const target = snapshotRange(over('TARGET'))
+    const target = snapshotRange(over('TARGET'))?.target
     expect(target?.before).toBe(`…${left.slice(-39)} `)
     expect(codePoints(target?.before ?? '')).toBe(41)
     expect(target?.after).toBe(` ${right.slice(0, 39)}…`)
@@ -77,14 +91,14 @@ describe('snapshotRange', () => {
     const range = document.createRange()
     range.setStart(p, 0)
     range.setEnd(p, 700)
-    const target = snapshotRange(range)
+    const target = snapshotRange(range)?.target
     expect(codePoints(target?.selected ?? '')).toBe(500)
     expect(target?.selected.endsWith('…')).toBe(true)
   })
 
   it('moves whitespace at the edges of the selection into the context', () => {
     document.body.innerHTML = '<p>Manage your\n  Email\nnotifications  and alerts</p>'
-    const target = snapshotRange(between('\n  Email', 'notifications  '))
+    const target = snapshotRange(between('\n  Email', 'notifications  '))?.target
     expect(target?.selected).toBe('Email notifications')
     expect(target?.before).toBe('Manage your ')
     expect(target?.after).toBe(' and alerts')
@@ -92,13 +106,13 @@ describe('snapshotRange', () => {
 
   it('separates text of different blocks and line breaks with a space', () => {
     document.body.innerHTML = '<article><p>First</p><p>Second</p></article>'
-    const target = snapshotRange(between('First', 'Second'))
+    const target = snapshotRange(between('First', 'Second'))?.target
     expect(target?.selected).toBe('First Second')
     expect(target?.container.selector).toBe('article')
 
     document.body.innerHTML = '<p>Alpha <b>bold</b> text</p><p>one<br>two</p>'
-    expect(snapshotRange(between('Alpha', 'text'))?.selected).toBe('Alpha bold text')
-    expect(snapshotRange(between('one', 'two'))?.selected).toBe('one two')
+    expect(snapshotRange(between('Alpha', 'text'))?.target.selected).toBe('Alpha bold text')
+    expect(snapshotRange(between('one', 'two'))?.target.selected).toBe('one two')
   })
 
   it('never reads form fields, scripts or styles inside the selection', () => {
@@ -110,7 +124,7 @@ describe('snapshotRange', () => {
       '<p>After the form</p></div>'
     ;($('input') as HTMLInputElement).value = 'SECRET-VALUE'
     ;($('textarea') as HTMLTextAreaElement).value = 'Typed text'
-    const target = snapshotRange(between('Before', 'After the form'))
+    const target = snapshotRange(between('Before', 'After the form'))?.target
     const all = JSON.stringify(target)
     expect(target?.selected).toBe('Before the form After the form')
     for (const secret of ['SECRET', 'Draft', 'Typed', 'Option', 'inline', 'color']) {
@@ -120,7 +134,7 @@ describe('snapshotRange', () => {
 
   it('takes context only from the block that holds the selection', () => {
     document.body.innerHTML = '<p>Neighbour paragraph</p><p>Start of this one ends here.</p>'
-    const target = snapshotRange(over('this one'))
+    const target = snapshotRange(over('this one'))?.target
     expect(target?.before).toBe('Start of ')
     expect(target?.after).toBe(' ends here.')
   })
@@ -128,9 +142,59 @@ describe('snapshotRange', () => {
   it('keeps form field values out of the context', () => {
     document.body.innerHTML = '<p>Name <input name="n"> is TARGET then <textarea>x</textarea>.</p>'
     ;($('input') as HTMLInputElement).value = 'SECRET-VALUE'
-    const target = snapshotRange(over('TARGET'))
+    const target = snapshotRange(over('TARGET'))?.target
     expect(target?.before).toBe('Name is ')
     expect(target?.after).toBe(' then .')
+  })
+
+  it('returns the part of the range it read, without white space at its edges', () => {
+    document.body.innerHTML = '<p>Manage your\n  Email\nnotifications  and alerts</p>'
+    const captured = snapshotRange(between('\n  Email', 'notifications  '))
+    expect(captured?.range.toString()).toBe('Email\nnotifications')
+  })
+
+  it('takes the paragraph of a triple-click, which Chrome ends at the next block', () => {
+    document.body.innerHTML =
+      '<main><p id="first">First paragraph says something here.</p>\n' +
+      '<p id="second">Second paragraph text.</p></main>'
+    const range = document.createRange()
+    range.setStart($('#first').firstChild as Text, 0)
+    range.setEnd($('#second'), 0)
+    const captured = snapshotRange(range)
+    expect(captured?.target).toMatchObject({
+      selected: 'First paragraph says something here.',
+      before: '',
+      after: '',
+    })
+    expect(captured?.target.container.selector).toBe('#first')
+    expect(captured?.range.toString()).toBe('First paragraph says something here.')
+  })
+
+  it('separates context of other blocks from the selection with a space', () => {
+    document.body.innerHTML =
+      '<article><h2>Head</h2><p>First</p><p>Second</p><h4>Tail</h4></article>'
+    const target = snapshotRange(between('First', 'Second'))?.target
+    expect(target?.before).toBe('Head ')
+    expect(target?.after).toBe(' Tail')
+  })
+
+  it('ends the returned range where reading a huge selection stopped', () => {
+    document.body.innerHTML = `<div>${`<span>${'w'.repeat(1000)} </span>`.repeat(10)}</div>`
+    const range = document.createRange()
+    range.selectNodeContents($('div'))
+    const captured = snapshotRange(range)
+    expect(range.toString().length).toBe(10010)
+    expect(captured?.range.toString().length).toBeLessThan(4100)
+  })
+
+  it('keeps text inside display: contents wrappers, which Chrome reports as not visible', () => {
+    chromeLikeVisibility()
+    document.body.innerHTML =
+      '<p>Read the <span style="display: contents">terms of service</span> first.</p>'
+    expect(chipAnchor(over('terms of service'))?.toString()).toBe('e')
+    expect(snapshotRange(between('Read', 'first.'))?.target.selected).toBe(
+      'Read the terms of service first.',
+    )
   })
 
   it('returns null for a collapsed or whitespace-only range', () => {
@@ -149,7 +213,7 @@ describe('snapshotRange', () => {
     document.body.innerHTML = `<div>${`<span>${'w'.repeat(1000)} </span>`.repeat(10)}</div>`
     const range = document.createRange()
     range.selectNodeContents($('div'))
-    const target = snapshotRange(range)
+    const target = snapshotRange(range)?.target
     expect(codePoints(target?.selected ?? '')).toBe(500)
     expect(target?.selected.endsWith('…')).toBe(true)
   })
@@ -158,7 +222,7 @@ describe('snapshotRange', () => {
     document.body.innerHTML = `<div><span>early</span>${'<i></i>'.repeat(20000)}<span>late</span></div>`
     const range = document.createRange()
     range.selectNodeContents($('div'))
-    expect(snapshotRange(range)?.selected).toBe('early…')
+    expect(snapshotRange(range)?.target.selected).toBe('early…')
   })
 
   it('returns null when the budget ends before any text', () => {
@@ -220,17 +284,78 @@ describe('rangeContainer', () => {
   })
 })
 
-describe('rangeHasText', () => {
-  it('is true when the range holds text the page shows', () => {
+describe('chipAnchor', () => {
+  it('is the last character the range shows', () => {
     document.body.innerHTML = '<p>Some words</p>'
-    expect(rangeHasText(over('words'))).toBe(true)
+    expect(chipAnchor(over('words'))?.toString()).toBe('s')
   })
 
-  it('is false for whitespace, form fields and scripts only', () => {
+  it('skips white space, scripts and a triple-click into the next block at the end', () => {
+    // A script, not hidden text: happy-dom's TreeWalker.previousNode() loses its place after
+    // a skipped element that has children (Chrome follows the spec).
+    document.body.innerHTML =
+      '<main><p id="a">Ends here. <script>var x</script>  </p>\n<p id="b">Next</p></main>'
+    const range = document.createRange()
+    range.setStart($('#a').firstChild as Text, 0)
+    range.setEnd($('#b'), 0)
+    expect(chipAnchor(range)?.toString()).toBe('.')
+  })
+
+  it('is null for white space, form fields and scripts only', () => {
     document.body.innerHTML =
       '<div><p>   </p><textarea>Draft</textarea><script>var x</script></div>'
     const range = document.createRange()
     range.selectNodeContents($('div'))
-    expect(rangeHasText(range)).toBe(false)
+    expect(chipAnchor(range)).toBeNull()
+  })
+
+  it('takes the first character when the end is far behind hidden content', () => {
+    document.body.innerHTML = `<div><span>early</span>${'<i></i>'.repeat(20000)}</div>`
+    const range = document.createRange()
+    range.selectNodeContents($('div'))
+    expect(chipAnchor(range)?.toString()).toBe('e')
+  })
+
+  it('never ends up before the start of the range', () => {
+    document.body.innerHTML = '<p>Before <b>   </b></p>'
+    const range = document.createRange()
+    range.selectNodeContents($('b'))
+    expect(chipAnchor(range)).toBeNull()
+  })
+})
+
+describe('sameRange', () => {
+  it('compares both boundaries', () => {
+    document.body.innerHTML = '<p>Some words here</p>'
+    expect(sameRange(over('words'), over('words'))).toBe(true)
+    expect(sameRange(over('words'), over('Some'))).toBe(false)
+    expect(sameRange(over('words'), between('words', 'here'))).toBe(false)
+  })
+
+  it('is false for ranges in different trees', () => {
+    document.body.innerHTML = '<p>Some words</p>'
+    const host = document.createElement('div')
+    const root = host.attachShadow({ mode: 'open' })
+    root.innerHTML = '<p>Some words</p>'
+    document.body.append(host)
+    expect(sameRange(over('words'), over('words', root))).toBe(false)
+  })
+})
+
+describe('readForward', () => {
+  it('reads nothing from a boundary at the end of its root', () => {
+    document.body.innerHTML = '<h3>Heading</h3><p>Neighbour paragraph</p>'
+    const h3 = $('h3')
+    const read = readForward(
+      new TextReader(window),
+      h3,
+      h3,
+      h3.childNodes.length,
+      () => ({
+        stop: false,
+      }),
+      100,
+    )
+    expect(join(read.pieces)).toBe('')
   })
 })

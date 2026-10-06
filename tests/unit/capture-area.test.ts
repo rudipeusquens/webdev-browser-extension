@@ -2,6 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { areaContainer, elementsInside, snapshotArea } from '@/lib/capture/area'
 import type { Rect } from '@/lib/collection/model'
 import { isTarget } from '@/lib/collection/validate'
+import { chromeLikeVisibility } from './helpers/chrome-visibility'
 
 const $ = (selector: string) => {
   const el = document.querySelector(selector)
@@ -109,6 +110,24 @@ describe('elementsInside', () => {
     box('#p1', 120, 150, 100, 20)
     box('#p2', 120, 180, 100, 20)
     expect(elementsInside($('section'), around).elements.map((el) => el.id)).toEqual(['p1', 'p2'])
+  })
+
+  it('looks through display: contents wrappers, which Chrome reports as not visible', () => {
+    chromeLikeVisibility()
+    $('section').innerHTML =
+      '<div style="display: contents"><p id="p1">One</p><p id="p2">Two</p></div>'
+    box('#p1', 120, 150, 100, 20)
+    box('#p2', 120, 180, 100, 20)
+    expect(elementsInside($('section'), around).elements.map((el) => el.id)).toEqual(['p1', 'p2'])
+  })
+
+  it('never looks into a select, whose options hold its values (review focus 1)', () => {
+    $('section').innerHTML =
+      '<select id="list" size="3"><option id="o1" value="a">A</option><option id="o2" value="b">B</option></select>'
+    box('#list', 120, 150, 100, 200)
+    box('#o1', 120, 150, 100, 20)
+    box('#o2', 120, 170, 100, 20)
+    expect(elementsInside($('section'), around)).toEqual({ elements: [], total: 0 })
   })
 
   it('never lists the overlay host or elements that are not rendered', () => {
