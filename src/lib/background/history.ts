@@ -7,6 +7,11 @@ import { browser } from 'wxt/browser'
 import type { Annotation, Collection, PageInfo } from '../collection/model'
 
 export const HISTORY_LIMIT = 50
+/**
+ * Most characters of one site's history: storage.session (10 MB) also holds the missing items,
+ * the tab status and the panel's view, which must always find room.
+ */
+export const HISTORY_BYTES = 1_000_000
 export const HISTORY_PREFIX = 'history:'
 export const LABELS_PREFIX = 'historyLabels:'
 
@@ -125,15 +130,26 @@ export const labelsOf = (h: History): Labels => ({
   ...(h.redo.length > 0 && { redo: h.redo.at(-1)?.label }),
 })
 
+/** The history without its oldest step: an undo step first, then a redo step. */
+const withoutOldest = (h: History): History =>
+  h.undo.length > 1 || h.redo.length === 0
+    ? { ...h, undo: h.undo.slice(1) }
+    : { ...h, redo: h.redo.slice(1) }
+
 /**
- * Keeps the history and its labels. When storage.session is full, the oldest steps go, one at
- * a time, until it fits; when not even one step fits, the site's history is forgotten.
+ * Keeps the history and its labels: at most HISTORY_LIMIT steps each way and HISTORY_BYTES in
+ * all, the oldest steps going first; when storage.session is full anyway, more of them go, one
+ * at a time. When not even one step fits, the site's history is forgotten.
  */
 export async function saveHistory(site: string, h: History): Promise<void> {
   let kept: History = {
     undo: h.undo.slice(-HISTORY_LIMIT),
     redo: h.redo.slice(-HISTORY_LIMIT),
   }
+  while (kept.undo.length + kept.redo.length > 0 && JSON.stringify(kept).length > HISTORY_BYTES) {
+    kept = withoutOldest(kept)
+  }
+  if (kept.undo.length + kept.redo.length === 0) return forgetHistory(site)
   for (;;) {
     try {
       await browser.storage.session.set({
@@ -143,11 +159,7 @@ export async function saveHistory(site: string, h: History): Promise<void> {
       return
     } catch {
       if (kept.undo.length + kept.redo.length <= 1) break
-      // The oldest undo step goes first, then the oldest redo step.
-      kept =
-        kept.undo.length > 1
-          ? { ...kept, undo: kept.undo.slice(1) }
-          : { ...kept, redo: kept.redo.slice(1) }
+      kept = withoutOldest(kept)
     }
   }
   await forgetHistory(site)

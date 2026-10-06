@@ -2,10 +2,14 @@ import { beforeEach, describe, expect, it } from 'vitest'
 import { fakeBrowser } from 'wxt/testing/fake-browser'
 import {
   applyStep,
+  HISTORY_BYTES,
   HISTORY_LIMIT,
   HISTORY_PREFIX,
   LABELS_PREFIX,
+  loadHistory,
   loadLabels,
+  saveHistory,
+  type Step,
   stepBetween,
 } from '@/lib/background/history'
 import { createWriter } from '@/lib/background/writer'
@@ -210,5 +214,37 @@ describe('undo and redo', () => {
     while ((await undo(SITE)).ok) undone++
     expect(undone).toBe(3)
     expect((await items()).map(([id]) => id)).toEqual(['a0', 'a1', 'a2'])
+  })
+})
+
+describe('the size of the history', () => {
+  beforeEach(() => fakeBrowser.reset())
+
+  /** A step of about `size` characters: storage.session is shared with other runtime state. */
+  const step = (size: number, label = 'x'): Step => ({
+    label: label + ' '.repeat(size),
+    items: [],
+    pages: [],
+    nextNumber: [1, 1],
+    lastCopy: [[], []],
+  })
+
+  it('keeps the newest steps that fit, so the rest of the session storage stays free', async () => {
+    // A third, less room for the JSON around each step.
+    const third = Math.floor(HISTORY_BYTES / 3) - 200
+    await saveHistory(SITE, {
+      undo: [step(third, 'a'), step(third, 'b'), step(third, 'c'), step(third, 'd')],
+      redo: [],
+    })
+    const kept = await loadHistory(SITE)
+    expect(kept.undo.map((s) => s.label[0])).toEqual(['b', 'c', 'd'])
+    expect(JSON.stringify(kept).length).toBeLessThanOrEqual(HISTORY_BYTES)
+    expect(await loadLabels(SITE)).toEqual({ undo: expect.stringMatching(/^d/) })
+  })
+
+  it('keeps no history when a single step is too large', async () => {
+    await saveHistory(SITE, { undo: [step(HISTORY_BYTES)], redo: [] })
+    expect(await loadHistory(SITE)).toEqual({ undo: [], redo: [] })
+    expect(await loadLabels(SITE)).toEqual({})
   })
 })

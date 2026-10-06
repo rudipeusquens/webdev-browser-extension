@@ -28,6 +28,8 @@ export function useOverlayLines(
 ): { pointed: Ref<Pointed> } {
   const lines = new Map<number, { overlay: string; port: Browser.runtime.Port }>()
   const pointed = ref<Pointed>(NOTHING)
+  /** The last word of each overlay: its popover stays open while the panel shows another tab. */
+  const lastPointed = new Map<number, Pointed>()
   let shownTab: number | undefined
   let closed = false
   // The panel's own window: overlays of other windows belong to their own panel.
@@ -43,18 +45,23 @@ export function useOverlayLines(
     // A new overlay started on the tab: the old one is gone, and what it pointed at.
     open?.port.disconnect()
     lines.delete(tab)
+    lastPointed.delete(tab)
     if (open && tab === shownTab) pointed.value = NOTHING
     try {
       const port = browser.tabs.connect(tab, { name: 'panel' })
       // The tab navigated or closed.
       port.onDisconnect.addListener(() => {
-        if (lines.get(tab)?.port === port) lines.delete(tab)
+        if (lines.get(tab)?.port !== port) return
+        lines.delete(tab)
+        lastPointed.delete(tab)
         if (tab === shownTab) pointed.value = NOTHING
       })
-      // Only the overlay the panel shows marks entries; others keep quiet in its list.
+      // Only the overlay the panel shows marks entries; the others are remembered for later.
       port.onMessage.addListener((message: unknown) => {
-        if (tab !== shownTab || lines.get(tab)?.port !== port || !isPinsPointed(message)) return
-        pointed.value = { hovered: message.hovered, open: message.open }
+        if (lines.get(tab)?.port !== port || !isPinsPointed(message)) return
+        const now = { hovered: message.hovered, open: message.open }
+        lastPointed.set(tab, now)
+        if (tab === shownTab) pointed.value = now
       })
       lines.set(tab, { overlay, port })
     } catch {
@@ -75,7 +82,11 @@ export function useOverlayLines(
           // That overlay is gone already.
         }
       }
-      if (shownTab !== next?.tab) pointed.value = NOTHING
+      // Back on a tab: its open popover is still open; the pointer is elsewhere now.
+      if (shownTab !== next?.tab) {
+        const open = next ? (lastPointed.get(next.tab)?.open ?? null) : null
+        pointed.value = { hovered: null, open }
+      }
       shownTab = next?.tab
       if (next) lineTo(next.tab, next.overlay)
     },

@@ -75,7 +75,7 @@ const undoKey = mac ? '⌘Z' : 'Ctrl+Z'
 const redoKey = mac ? '⇧⌘Z' : 'Ctrl+Shift+Z'
 
 function history(type: 'history:undo' | 'history:redo') {
-  if (site.value) toBackground({ type, site: site.value })
+  if (site.value) void change({ type, site: site.value })
 }
 
 /** Ctrl+Z and Ctrl+Shift+Z (⌘ on macOS) in Edit, outside text fields; the page keeps its own. */
@@ -165,6 +165,21 @@ function toBackground(message: BackgroundMessage) {
   browser.runtime.sendMessage(message).catch(() => undefined)
 }
 
+/** Why the last change from the panel was refused; empty once one works. */
+const panelError = ref('')
+
+/** A change of the site's items: its refusal is shown, its success clears the last one. */
+async function change(message: BackgroundMessage, refused = (error: string) => error) {
+  let reply: Reply | undefined
+  try {
+    reply = (await browser.runtime.sendMessage(message)) as Reply | undefined
+  } catch {
+    reply = undefined
+  }
+  if (reply?.ok) panelError.value = ''
+  else panelError.value = refused(reply?.error ?? 'The extension did not answer. Try again.')
+}
+
 function toOverlay(message: OverlayMessage) {
   if (tabId.value === undefined) return
   browser.tabs.sendMessage(tabId.value, message).catch(() => undefined)
@@ -194,7 +209,10 @@ async function copy() {
   const current = site.value
   if (!current || ids.length === 0) return
   await writePrompt(ids, `Copied ${plural(ids.length, 'item')}`)
-  toBackground({ type: 'collection:copied', site: current, ids })
+  await change(
+    { type: 'collection:copied', site: current, ids },
+    (error) => `Copied, but the items could not be marked done: ${error}`,
+  )
 }
 
 /** The last copy again, for a paste that went wrong; it changes nothing. */
@@ -225,15 +243,15 @@ function forgetSite(origin: string) {
   toBackground({ type: 'site:forget', origin })
 }
 
-function change(
+function changeItem(
   type: 'annotation:remove' | 'annotation:restore' | 'annotation:reopen',
   id: string,
 ) {
-  if (site.value) toBackground({ type, site: site.value, id })
+  if (site.value) void change({ type, site: site.value, id })
 }
 
 function clearSite() {
-  if (site.value) toBackground({ type: 'collection:clear', site: site.value })
+  if (site.value) void change({ type: 'collection:clear', site: site.value })
 }
 
 function goTo(pageKey: string) {
@@ -517,9 +535,9 @@ function setMode(next: unknown) {
         :groups="groups"
         :missing="missing"
         :pointed="pointed"
-        @remove="(id) => change('annotation:remove', id)"
-        @restore="(id) => change('annotation:restore', id)"
-        @reopen="(id) => change('annotation:reopen', id)"
+        @remove="(id) => changeItem('annotation:remove', id)"
+        @restore="(id) => changeItem('annotation:restore', id)"
+        @reopen="(id) => changeItem('annotation:reopen', id)"
         @highlight="(id) => toOverlay({ type: 'overlay:highlight', id })"
         @reveal="reveal"
         @jump="jumpTo"
@@ -528,6 +546,9 @@ function setMode(next: unknown) {
     </section>
 
     <footer v-if="!showSettings" class="space-y-2 border-t p-3">
+      <p v-if="panelError" data-testid="panel-error" role="alert" class="text-xs text-destructive">
+        {{ panelError }}
+      </p>
       <!-- Two rows: three labels do not fit side by side in a narrow panel. -->
       <div class="grid grid-cols-2 gap-2">
         <Button

@@ -416,6 +416,53 @@ describe('side panel', () => {
     })
   })
 
+  describe('refused changes', () => {
+    const refuse = (type: string, error: string) =>
+      vi
+        .mocked(fakeBrowser.runtime.sendMessage)
+        .mockImplementation((async (m: { type: string }) =>
+          m.type === type ? { ok: false, error } : { ok: true }) as never)
+
+    it('says why an undo was refused', async () => {
+      overlayReply = active
+      await fakeBrowser.storage.session.set({
+        [`historyLabels:${SITE}`]: { undo: 'Delete item 1' },
+      })
+      refuse('history:undo', 'This changed in the meantime; it can no longer be undone.')
+      await render(twoPages())
+      byTestId('undo').click()
+      await flushPromises()
+      expect(byTestId('panel-error').textContent).toContain(
+        'This changed in the meantime; it can no longer be undone.',
+      )
+      expect(byTestId('panel-error').getAttribute('role')).toBe('alert')
+    })
+
+    it('says when copied items could not be marked done', async () => {
+      overlayReply = active
+      refuse('collection:copied', 'Could not save.')
+      await render(twoPages())
+      byTestId('copy-prompt').click()
+      await flushPromises()
+      expect(writeText).toHaveBeenCalled()
+      expect(byTestId('panel-error').textContent).toContain('could not be marked done')
+      expect(byTestId('panel-error').textContent).toContain('Could not save.')
+    })
+
+    it('says why a change was refused, until the next one works', async () => {
+      overlayReply = active
+      refuse('annotation:remove', 'This item no longer exists.')
+      await render(twoPages())
+      document.querySelector<HTMLElement>('[aria-label="Delete item 1"]')?.click()
+      await flushPromises()
+      expect(byTestId('panel-error').textContent).toContain('This item no longer exists.')
+      vi.mocked(fakeBrowser.runtime.sendMessage).mockResolvedValue({ ok: true } as never)
+      document.querySelector<HTMLElement>('[aria-label="Delete item 2"]')?.click()
+      await flushPromises()
+      expect(document.querySelector('[data-testid="panel-error"]')).toBeNull()
+    })
+  })
+
   describe('the page and the list point at each other', () => {
     let ports: ReturnType<typeof panelPort>[]
     let scrolled: string[]
@@ -486,6 +533,24 @@ describe('side panel', () => {
       await fakeBrowser.tabs.onActivated.trigger({ tabId: 2, windowId: 1 })
       await flushPromises()
       expect(pointed()).toEqual([])
+    })
+
+    it('keeps the mark of an open popover when it comes back to its tab', async () => {
+      overlayReply = active
+      await render(twoPages())
+      ports[0]?.receive({ type: 'pins:pointed', hovered: 'b1', open: 'b1' })
+      await flushPromises()
+      expect(pointed()).toEqual([['On B <b>not bold</b>', 'open']])
+      vi.mocked(fakeBrowser.tabs.query).mockResolvedValue([{ id: 2 }] as never)
+      overlayReply = undefined
+      await fakeBrowser.tabs.onActivated.trigger({ tabId: 2, windowId: 1 })
+      await flushPromises()
+      vi.mocked(fakeBrowser.tabs.query).mockResolvedValue([{ id: 1 }] as never)
+      overlayReply = active
+      await fakeBrowser.tabs.onActivated.trigger({ tabId: 1, windowId: 1 })
+      await flushPromises()
+      // The pointer is elsewhere now; the popover is still open.
+      expect(pointed()).toEqual([['On B <b>not bold</b>', 'open']])
     })
 
     it('goes to an entry of another page, then shows it once that page is ready', async () => {
