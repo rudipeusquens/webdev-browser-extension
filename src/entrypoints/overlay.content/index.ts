@@ -1,7 +1,9 @@
 import styles from '@/assets/tailwind.css?inline'
 import { type App as VueApp, createApp } from 'vue'
+import { browser } from 'wxt/browser'
 import { createShadowRootUi } from 'wxt/utils/content-script-ui/shadow-root'
 import { defineContentScript } from 'wxt/utils/define-content-script'
+import type { BackgroundMessage } from '@/lib/messages'
 import Overlay from './Overlay.vue'
 import { keepOnTop } from './top-layer'
 
@@ -45,38 +47,54 @@ export default defineContentScript({
   registration: 'runtime',
   // CSS is passed inline: with 'ui' mode Chrome would block the stylesheet fetch.
   cssInjectionMode: 'manual',
+  // Everything lives inside main: WXT strips its body when it reads this file's options at
+  // build time, and code outside it would be evaluated there.
   async main(ctx) {
-    // Every injection mounts. A repeated injection (second action click) starts a new
-    // context; WXT then invalidates the previous one, which removes its UI.
-    const ui = await createShadowRootUi<VueApp>(ctx, {
-      name: 'webdev-overlay',
-      position: 'overlay',
-      zIndex: 2147483647,
-      anchor: 'body',
-      append: 'last',
-      mode: 'closed',
-      // WXT moves @property rules into the page's <head>, where they would also apply to the
-      // page's own --tw-* variables (`inherits: false` breaks inheritance). Ours get a name
-      // no page uses.
-      css: styles.replaceAll(':root', ':host').replaceAll('--tw-', '--webdev-tw-'),
-      isolateEvents: ISOLATED_EVENTS,
-      onMount(container, shadow, host) {
-        const layer = keepOnTop(host, shadow)
-        // Registered after WXT's own cleanup, so the host is gone before this stops watching.
-        ctx.onInvalidated(layer.stop)
-        const app = createApp(Overlay, { host, layer })
-        app.mount(container)
-        return app
-      },
-      onRemove(app) {
-        app?.unmount()
-      },
-    })
-    ui.mount()
-    // After the extension is reloaded or updated, this script is orphaned: it cannot reach
-    // the extension anymore. WXT's interval notices (`browser.runtime.id` is gone) and
-    // invalidates the context, which removes the overlay.
-    ctx.setInterval(() => undefined, 1000)
-    globalThis.__webdevOverlay = { shadow: ui.shadow }
+    try {
+      // Every injection mounts. A repeated injection (second action click) starts a new
+      // context; WXT then invalidates the previous one, which removes its UI.
+      const ui = await createShadowRootUi<VueApp>(ctx, {
+        name: 'webdev-overlay',
+        position: 'overlay',
+        zIndex: 2147483647,
+        anchor: 'body',
+        append: 'last',
+        mode: 'closed',
+        // WXT moves @property rules into the page's <head>, where they would also apply to the
+        // page's own --tw-* variables (`inherits: false` breaks inheritance). Ours get a name
+        // no page uses.
+        css: styles.replaceAll(':root', ':host').replaceAll('--tw-', '--webdev-tw-'),
+        isolateEvents: ISOLATED_EVENTS,
+        onMount(container, shadow, host) {
+          const layer = keepOnTop(host, shadow)
+          // Registered after WXT's own cleanup, so the host is gone before this stops watching.
+          ctx.onInvalidated(layer.stop)
+          const app = createApp(Overlay, { host, layer })
+          app.mount(container)
+          return app
+        },
+        onRemove(app) {
+          app?.unmount()
+        },
+      })
+      try {
+        ui.mount()
+      } catch (error) {
+        // Nothing half-mounted stays on the page.
+        ui.remove()
+        throw error
+      }
+      // After the extension is reloaded or updated, this script is orphaned: it cannot reach
+      // the extension anymore. WXT's interval notices (`browser.runtime.id` is gone) and
+      // invalidates the context, which removes the overlay.
+      ctx.setInterval(() => undefined, 1000)
+      globalThis.__webdevOverlay = { shadow: ui.shadow }
+    } catch (error) {
+      // WXT's production build logs nothing when a content script fails to start: say it
+      // here, and tell the panel. The error stays on the page, it may hold page content.
+      console.error('Webdev Browser Extension: The overlay could not start on this page.', error)
+      const failed: BackgroundMessage = { type: 'overlay:failed' }
+      browser.runtime.sendMessage(failed).catch(() => undefined)
+    }
   },
 })

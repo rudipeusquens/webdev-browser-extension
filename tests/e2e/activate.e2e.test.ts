@@ -69,6 +69,17 @@ describe('activation', () => {
     expect(await menuEntry(worker, 'nothing')).not.toBe('found')
   })
 
+  it('says when the overlay cannot start on a page', async () => {
+    await session.page.goto(`${server.origin}/taken-name/`)
+    const errors: string[] = []
+    session.page.on('console', (m) => {
+      if (m.type() === 'error') errors.push(m.text())
+    })
+    const panel = await clickAction(session)
+    await panel.waitForSelector("::-p-text(Couldn't start on this page)")
+    expect(errors.some((e) => e.includes('The overlay could not start on this page'))).toBe(true)
+  })
+
   it('names the assigned shortcut in the panel of a page it is not active on', async () => {
     await session.page.goto(`${server.origin}/plain/`)
     const panel = await clickAction(session)

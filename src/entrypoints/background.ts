@@ -4,7 +4,7 @@ import { clearMissing, createAnchorStore } from '@/lib/background/anchor-status'
 import { goTo } from '@/lib/background/go-to'
 import { readOrigins } from '@/lib/background/origins'
 import { createSites, OVERLAY_SCRIPT } from '@/lib/background/sites'
-import { clearBlocked, markBlocked } from '@/lib/background/tab-status'
+import { clearBlocked, clearFailed, markBlocked, markFailed } from '@/lib/background/tab-status'
 import { createWriter } from '@/lib/background/writer'
 import { loadCollection } from '@/lib/collection/store'
 import {
@@ -34,6 +34,7 @@ export default defineBackground(() => {
     const tabId = tab.id
     // -1: a frame outside any tab, such as one in another extension's panel.
     if (tabId === undefined || tabId < 0) return
+    void clearFailed(tabId).catch(() => undefined)
     inject(tabId)
       // Restricted pages (chrome://, Web Store) refuse injection; the panel says so.
       .then(
@@ -72,10 +73,13 @@ export default defineBackground(() => {
   }
 
   browser.tabs.onUpdated.addListener((tabId, info) => {
-    if (info.status === 'loading') void clearBlocked(tabId).catch(() => undefined)
+    if (info.status !== 'loading') return
+    void clearBlocked(tabId).catch(() => undefined)
+    void clearFailed(tabId).catch(() => undefined)
   })
   browser.tabs.onRemoved.addListener((tabId) => {
     void clearBlocked(tabId).catch(() => undefined)
+    void clearFailed(tabId).catch(() => undefined)
   })
 
   // Remembered sites follow Chrome's grants, which can change in chrome://extensions, and
@@ -139,6 +143,14 @@ export default defineBackground(() => {
       case 'annotation:add':
         if (!sender.tab) return { ok: false, error: 'Items are added from a page.' } satisfies Reply
         return write(message)
+      case 'overlay:failed': {
+        // The overlay runs in the top frame of a tab only.
+        const tabId = sender.tab?.id
+        if (tabId === undefined || sender.frameId !== 0) {
+          return { ok: false, error: 'Only an overlay reports its start.' } satisfies Reply
+        }
+        return markFailed(tabId).then(() => ({ ok: true }) satisfies Reply)
+      }
       case 'collection:clear':
         return write(message).then(async (reply) => {
           if (reply.ok) await clearMissing().catch(() => undefined)

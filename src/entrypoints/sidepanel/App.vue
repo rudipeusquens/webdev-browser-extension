@@ -68,6 +68,8 @@ const statusText = computed(() => {
       return `Active on ${status.value.host}`
     case 'blocked':
       return "Can't run on this page"
+    case 'failed':
+      return "Couldn't start on this page. Reload it and try again; the page's console has details."
     default: {
       const press = shortcut.value ? `, press ${shortcut.value}` : ''
       return `Not active on this page. Click the toolbar icon${press} or right-click the page and choose "Annotate this page".`
@@ -190,7 +192,7 @@ function setMode(next: unknown) {
           class="mt-1 size-2 shrink-0 rounded-full"
           :class="{
             'bg-green-500': status.kind === 'active',
-            'bg-red-500': status.kind === 'blocked',
+            'bg-red-500': status.kind === 'blocked' || status.kind === 'failed',
             'bg-muted-foreground/40': status.kind === 'idle',
           }"
         />

@@ -27,6 +27,7 @@ describe('isMessage', () => {
     { type: 'site:forget', origin: 'https://example.com' },
     { type: 'tab:go', tabId: 4, pageKey: 'http://localhost:3000/settings' },
     { type: 'overlay:changed' },
+    { type: 'overlay:failed' },
     { type: 'origin:read', selectors: ['#save'] },
     { type: 'anchors:report', pageKey: 'http://localhost:3000/', found: ['a1'], missing: [] },
     { type: 'anchors:report', pageKey: 'http://localhost:3000/', found: [], missing: ['a1', 'b2'] },
@@ -51,6 +52,8 @@ describe('isMessage', () => {
     ['an invalid target', { ...add, target: { kind: 'element', element: { selector: 'x' } } }],
     ['an invalid page', { ...add, page: page('chrome://settings/') }],
     ['an extra key', { type: 'collection:clear', all: true }],
+    // The error stays on the page: its text may hold page content.
+    ['a failure with its error', { type: 'overlay:failed', error: 'TypeError: x' }],
     ['no selectors', { type: 'origin:read', selectors: [] }],
     ['12 selectors', { type: 'origin:read', selectors: Array.from({ length: 12 }, () => 'b') }],
     ['a selector that is not a string', { type: 'origin:read', selectors: [42] }],
@@ -90,6 +93,7 @@ describe('message groups', () => {
     expect(isBackgroundMessage({ type: 'overlay:status' })).toBe(false)
     expect(isOverlayMessage({ type: 'overlay:status' })).toBe(true)
     expect(isOverlayMessage({ type: 'overlay:changed' })).toBe(false)
+    expect(isBackgroundMessage({ type: 'overlay:failed' })).toBe(true)
   })
 })
 

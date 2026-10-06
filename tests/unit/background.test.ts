@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { fakeBrowser } from 'wxt/testing/fake-browser'
-import { isBlocked, markBlocked } from '@/lib/background/tab-status'
+import { isBlocked, isFailed, markBlocked, markFailed } from '@/lib/background/tab-status'
 import { loadMissing } from '@/lib/background/anchor-status'
 import { loadSettings, SETTINGS_KEY } from '@/lib/settings'
 import { loadCollection } from '@/lib/collection/store'
@@ -67,6 +67,35 @@ describe('background', () => {
     await fakeBrowser.tabs.onRemoved.trigger(5, { windowId: 1, isWindowClosing: false })
     await flush()
     expect(await isBlocked(5)).toBe(false)
+  })
+
+  it('records an overlay that did not start, for its tab, from the top frame only', async () => {
+    const top = { id: fakeBrowser.runtime.id, tab, frameId: 0 }
+    expect(await send({ type: 'overlay:failed' }, { ...top, frameId: 2 })).toMatchObject({
+      ok: false,
+    })
+    expect(await send({ type: 'overlay:failed' }, { id: fakeBrowser.runtime.id })).toMatchObject({
+      ok: false,
+    })
+    expect(await isFailed(5)).toBe(false)
+    expect(await send({ type: 'overlay:failed' }, top)).toEqual({ ok: true })
+    expect(await isFailed(5)).toBe(true)
+  })
+
+  it('forgets a failed start when the tab navigates, closes or is activated again', async () => {
+    vi.spyOn(fakeBrowser.scripting, 'executeScript').mockResolvedValue([] as never)
+    await markFailed(5)
+    await fakeBrowser.tabs.onUpdated.trigger(5, { status: 'loading' }, tab as never)
+    await flush()
+    expect(await isFailed(5)).toBe(false)
+    await markFailed(5)
+    await fakeBrowser.tabs.onRemoved.trigger(5, { windowId: 1, isWindowClosing: false })
+    await flush()
+    expect(await isFailed(5)).toBe(false)
+    await markFailed(5)
+    await fakeBrowser.action.onClicked.trigger(tab)
+    await flush()
+    expect(await isFailed(5)).toBe(false)
   })
 
   it('writes an annotation sent from a content script', async () => {

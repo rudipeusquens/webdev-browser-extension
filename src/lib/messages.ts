@@ -43,8 +43,11 @@ export type SiteMessage =
 /** Side panel → background: open a page of the collection in a tab (Go to). */
 export type GoToMessage = { type: 'tab:go'; tabId: number; pageKey: string }
 
+/** Overlay → background: it could not start; the error itself stays in the page's console. */
+export type FailedMessage = { type: 'overlay:failed' }
+
 export type BackgroundMessage =
-  CollectionMessage | OriginMessage | AnchorMessage | SiteMessage | GoToMessage
+  CollectionMessage | OriginMessage | AnchorMessage | SiteMessage | GoToMessage | FailedMessage
 
 /** Most ids one `anchors:report` lists in each of its lists. */
 const MAX_REPORTED = 1000
@@ -103,6 +106,7 @@ export function isBackgroundMessage(x: unknown): x is BackgroundMessage {
     case 'annotation:remove':
       return hasKeys(x, ['type', 'id']) && isAnnotationId(x.id)
     case 'collection:clear':
+    case 'overlay:failed':
       return hasKeys(x, ['type'])
     case 'tab:go':
       return (

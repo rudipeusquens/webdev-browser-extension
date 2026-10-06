@@ -4,7 +4,7 @@ import { fakeBrowser } from 'wxt/testing/fake-browser'
 import App from '@/entrypoints/sidepanel/App.vue'
 import { MISSING_KEY } from '@/lib/background/anchor-status'
 import { SETTINGS_KEY } from '@/lib/settings'
-import { markBlocked } from '@/lib/background/tab-status'
+import { markBlocked, markFailed } from '@/lib/background/tab-status'
 import type { Collection } from '@/lib/collection/model'
 import { addAnnotation, emptyCollection } from '@/lib/collection/ops'
 import { COLLECTION_KEY } from '@/lib/collection/store'
@@ -165,6 +165,22 @@ describe('side panel', () => {
       overlayReply = active
       await render()
       expect(byTestId('tab-status').textContent).toContain('Active on localhost:3000')
+    })
+
+    it('says when the overlay did not start, and where to look', async () => {
+      await markFailed(1)
+      await render()
+      expect(byTestId('tab-status').textContent).toContain(
+        "Couldn't start on this page. Reload it and try again; the page's console has details.",
+      )
+    })
+
+    it('shows a failed start as soon as it is recorded', async () => {
+      await render()
+      expect(byTestId('tab-status').textContent).toContain('Not active on this page')
+      await markFailed(1)
+      await flushPromises()
+      expect(byTestId('tab-status').textContent).toContain("Couldn't start on this page")
     })
 
     it('says when the page refused the overlay', async () => {
