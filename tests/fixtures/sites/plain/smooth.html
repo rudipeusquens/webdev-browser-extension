@@ -1,0 +1,41 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <title>Smooth scrolling fixture</title>
+    <style>
+      /* Many sites scroll smoothly: scripts that scroll them get animations. */
+      html,
+      #box {
+        scroll-behavior: smooth;
+      }
+      body {
+        margin: 0;
+        font-family: sans-serif;
+      }
+      #box {
+        margin: 40px;
+        width: 300px;
+        height: 200px;
+        overflow: auto;
+        border: 1px solid #ccc;
+      }
+      #box p {
+        margin: 0;
+        height: 3000px;
+      }
+      #free {
+        margin: 40px;
+        height: 100px;
+      }
+      .tall {
+        height: 5000px;
+      }
+    </style>
+  </head>
+  <body>
+    <div id="box"><p>Inside a scroll container</p></div>
+    <div id="free">Outside any scroll container</div>
+    <div class="tall"></div>
+  </body>
+</html>

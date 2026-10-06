@@ -1,5 +1,11 @@
 import { beforeEach, describe, expect, it } from 'vitest'
-import { forwardsWheel, isEditable, pickAt, TargetPath } from '@/entrypoints/overlay.content/picker'
+import {
+  forwardsWheel,
+  isEditable,
+  pickAt,
+  TargetPath,
+  wheelTarget,
+} from '@/entrypoints/overlay.content/picker'
 
 const $ = (selector: string) => {
   const el = document.querySelector(selector)
@@ -105,5 +111,83 @@ describe('forwardsWheel', () => {
   it('leaves zooming with Ctrl or Cmd to the browser', () => {
     expect(forwardsWheel(wheel({ ctrlKey: true }))).toBe(false)
     expect(forwardsWheel(wheel({ metaKey: true }))).toBe(false)
+  })
+})
+
+describe('wheelTarget', () => {
+  /** A scroll container with this much content, scrolled this far (happy-dom has no layout). */
+  function box(
+    id: string,
+    size: { height: number; scrollHeight: number; scrollTop?: number },
+    overflow = 'auto',
+  ) {
+    const el = document.createElement('div')
+    el.id = id
+    el.style.overflowY = overflow
+    el.style.overflowX = overflow
+    Object.defineProperties(el, {
+      clientHeight: { value: size.height },
+      scrollHeight: { value: size.scrollHeight },
+      clientWidth: { value: size.height },
+      scrollWidth: { value: size.scrollHeight },
+      scrollTop: { value: size.scrollTop ?? 0, writable: true },
+      scrollLeft: { value: size.scrollTop ?? 0, writable: true },
+    })
+    return el
+  }
+
+  function nest(...boxes: HTMLElement[]) {
+    let parent: HTMLElement = document.body
+    for (const b of boxes) {
+      parent.append(b)
+      parent = b
+    }
+    const leaf = document.createElement('p')
+    parent.append(leaf)
+    return leaf
+  }
+
+  it('is the nearest container that can still move that way', () => {
+    const leaf = nest(
+      box('outer', { height: 100, scrollHeight: 500 }),
+      box('inner', { height: 100, scrollHeight: 300 }),
+    )
+    expect(wheelTarget(leaf, true, 100)?.id).toBe('inner')
+  })
+
+  it('passes a container at its end on to the next one', () => {
+    const leaf = nest(
+      box('outer', { height: 100, scrollHeight: 500 }),
+      box('inner', { height: 100, scrollHeight: 300, scrollTop: 200 }),
+    )
+    expect(wheelTarget(leaf, true, 100)?.id).toBe('outer')
+    // Upwards it can still move.
+    expect(wheelTarget(leaf, true, -100)?.id).toBe('inner')
+  })
+
+  it('passes a container at its top on when the wheel turns up', () => {
+    const leaf = nest(
+      box('outer', { height: 100, scrollHeight: 500, scrollTop: 50 }),
+      box('inner', { height: 100, scrollHeight: 300 }),
+    )
+    expect(wheelTarget(leaf, true, -100)?.id).toBe('outer')
+  })
+
+  it('is the document once no container can move that way', () => {
+    const leaf = nest(box('full', { height: 100, scrollHeight: 300, scrollTop: 200 }))
+    expect(wheelTarget(leaf, true, 100)).toBe(document.scrollingElement)
+    expect(wheelTarget(document.body, true, 100)).toBe(document.scrollingElement)
+    expect(wheelTarget(null, true, 100)).toBeNull()
+  })
+
+  it('does not scroll what the page keeps from scrolling', () => {
+    const leaf = nest(box('clipped', { height: 100, scrollHeight: 300 }, 'hidden'))
+    expect(wheelTarget(leaf, true, 100)).toBe(document.scrollingElement)
+  })
+
+  it('looks at the width for a sideways turn', () => {
+    const leaf = nest(box('wide', { height: 100, scrollHeight: 300 }))
+    expect(wheelTarget(leaf, false, 100)?.id).toBe('wide')
+    expect(wheelTarget(leaf, false, -100)).toBe(document.scrollingElement)
   })
 })

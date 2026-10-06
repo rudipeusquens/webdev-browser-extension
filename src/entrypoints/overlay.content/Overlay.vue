@@ -36,7 +36,7 @@ import HoverBox from './HoverBox.vue'
 import { newId } from './ids'
 import { type Origins, readOrigins, sourcesOf, within, withOrigins } from './origins'
 import { pageShortcut } from './keys'
-import { forwardsWheel, isEditable, pickAt, scrollableAncestor, TargetPath } from './picker'
+import { forwardsWheel, isEditable, pickAt, TargetPath, wheelTarget } from './picker'
 import {
   boxOf,
   clippersOf,
@@ -734,15 +734,22 @@ function onGlassClick(e: MouseEvent) {
   select(path.value?.current ?? null)
 }
 
+/**
+ * The glass takes the pointer, so what lies under it is scrolled from here. A scroll container
+ * moves at once and by the whole turn: with the page's smooth scrolling, each turn would start
+ * from where the last one is and lose distance. The document keeps the page's own way; Chrome
+ * adds quick turns up there.
+ */
 function onWheel(e: WheelEvent) {
   if (!e.isTrusted || !forwardsWheel(e)) return
-  // The glass takes the pointer, so scroll what lies under it ourselves.
   const vertical = Math.abs(e.deltaY) >= Math.abs(e.deltaX)
-  const target = scrollableAncestor(pickAt(document, e.clientX, e.clientY, props.host), vertical)
+  const unit = e.deltaMode === 1 ? 16 : e.deltaMode === 2 ? window.innerHeight : 1
+  const under = pickAt(document, e.clientX, e.clientY, props.host)
+  const target = wheelTarget(under, vertical, (vertical ? e.deltaY : e.deltaX) * unit)
   if (!target) return
   e.preventDefault()
-  const unit = e.deltaMode === 1 ? 16 : e.deltaMode === 2 ? window.innerHeight : 1
-  target.scrollBy({ left: e.deltaX * unit, top: e.deltaY * unit })
+  const behavior = target === document.scrollingElement ? 'auto' : 'instant'
+  target.scrollBy({ left: e.deltaX * unit, top: e.deltaY * unit, behavior })
 }
 
 function onKeydown(e: KeyboardEvent) {
