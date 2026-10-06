@@ -24,6 +24,16 @@ const emit = defineEmits<{
   go: [pageKey: string]
 }>()
 
+/** The page within its site: path and query (the site is in the title row). */
+function pathOf(key: string): string {
+  try {
+    const url = new URL(key)
+    return url.protocol === 'file:' ? url.pathname : `${url.pathname}${url.search}`
+  } catch {
+    return key
+  }
+}
+
 /** Go to works for pages on the web only. */
 function openable(url: string): boolean {
   try {
@@ -42,7 +52,15 @@ const ICONS = { element: SquareMousePointerIcon, text: TextSelectIcon, area: Squ
       class="sticky top-0 z-10 flex items-center gap-2 bg-background/95 px-4 pt-3 pb-1 text-xs font-medium text-muted-foreground backdrop-blur"
       :title="group.key"
     >
-      <span class="truncate">{{ group.page.title || group.key }}</span>
+      <span class="flex min-w-0 items-baseline gap-1.5">
+        <span v-if="group.page.title" class="truncate">{{ group.page.title }}</span>
+        <span
+          data-testid="page-path"
+          class="shrink-0 truncate font-mono font-normal"
+          :class="group.page.title ? 'max-w-[60%]' : ''"
+          >{{ pathOf(group.key) }}</span
+        >
+      </span>
       <Badge v-if="group.current" variant="outline" class="shrink-0">This page</Badge>
       <Button
         v-else-if="openable(group.page.url)"

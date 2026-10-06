@@ -3,6 +3,7 @@
 
 import type { CodeOrigin, PageInfo, Target } from './collection/model'
 import { LIMITS } from './collection/model'
+import { isSite } from './collection/site'
 import { isSiteOrigin } from './settings'
 import { isApiKey, isLanguage, isModelId } from './voice/settings'
 import {
@@ -19,12 +20,15 @@ import {
 export type Mode = 'browse' | 'element' | 'area'
 export const MODES: readonly Mode[] = ['browse', 'element', 'area']
 
-/** Overlay or side panel → background, which is the only writer of the collection. */
+/**
+ * Overlay or side panel → background, which is the only writer of the collections. Each names
+ * the site whose collection it changes; `annotation:add` takes it from its page.
+ */
 export type CollectionMessage =
   | { type: 'annotation:add'; id: string; page: PageInfo; target: Target; comment: string }
-  | { type: 'annotation:update'; id: string; comment: string }
-  | { type: 'annotation:remove'; id: string }
-  | { type: 'collection:clear' }
+  | { type: 'annotation:update'; site: string; id: string; comment: string }
+  | { type: 'annotation:remove'; site: string; id: string }
+  | { type: 'collection:clear'; site: string }
 
 /** Overlay → background: the code origins of the elements these selectors match. */
 export type OriginMessage = { type: 'origin:read'; selectors: string[] }
@@ -157,10 +161,16 @@ export function isBackgroundMessage(x: unknown): x is BackgroundMessage {
         isComment(x.comment)
       )
     case 'annotation:update':
-      return hasKeys(x, ['type', 'id', 'comment']) && isAnnotationId(x.id) && isComment(x.comment)
+      return (
+        hasKeys(x, ['type', 'site', 'id', 'comment']) &&
+        isSite(x.site) &&
+        isAnnotationId(x.id) &&
+        isComment(x.comment)
+      )
     case 'annotation:remove':
-      return hasKeys(x, ['type', 'id']) && isAnnotationId(x.id)
+      return hasKeys(x, ['type', 'site', 'id']) && isSite(x.site) && isAnnotationId(x.id)
     case 'collection:clear':
+      return hasKeys(x, ['type', 'site']) && isSite(x.site)
     case 'overlay:failed':
     case 'voice:key:remove':
     case 'voice:key:test':

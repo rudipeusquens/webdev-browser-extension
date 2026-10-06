@@ -1,14 +1,16 @@
 import { browser, type Browser } from 'wxt/browser'
 import { defineBackground } from 'wxt/utils/define-background'
-import { clearMissing, createAnchorStore } from '@/lib/background/anchor-status'
+import { createAnchorStore, forgetMissing } from '@/lib/background/anchor-status'
 import { goTo } from '@/lib/background/go-to'
 import { readOrigins } from '@/lib/background/origins'
 import { createSites, OVERLAY_SCRIPT } from '@/lib/background/sites'
 import { clearBlocked, clearFailed, markBlocked, markFailed } from '@/lib/background/tab-status'
 import { createVoice } from '@/lib/background/voice'
-import { isPanelSender, setVoice } from '@/lib/background/voice-settings'
+import { isPanelSender, pageSite } from '@/lib/background/senders'
+import { setVoice } from '@/lib/background/voice-settings'
 import { createWriter } from '@/lib/background/writer'
-import { loadCollection } from '@/lib/collection/store'
+import { siteOf } from '@/lib/collection/site'
+import { loadSite } from '@/lib/collection/store'
 import {
   type BackgroundMessage,
   isBackgroundMessage,
@@ -25,7 +27,9 @@ import { isSiteOrigin, originPattern } from '@/lib/settings'
 const MENU_ENTRY = 'annotate'
 
 export default defineBackground(() => {
-  const write = createWriter()
+  const { write, migrate } = createWriter()
+  // Queued before any write: the collection of milestones 2–5 becomes one per site.
+  void migrate()
   const recordAnchors = createAnchorStore()
   const sites = createSites()
   const voice = createVoice()
@@ -142,7 +146,7 @@ export default defineBackground(() => {
 
   /** Go to: only pages of the collection, only on the web. */
   async function openPage(tabId: number, pageKey: string): Promise<Reply> {
-    const { pages } = await loadCollection()
+    const { pages } = await loadSite(siteOf(pageKey))
     const page = pages[pageKey]
     const origin = page && new URL(page.url).origin
     if (!page || !origin || !isSiteOrigin(origin)) {
@@ -167,7 +171,9 @@ export default defineBackground(() => {
         )
       }
       case 'anchors:report':
-        if (!sender.tab) return { ok: false, error: 'Reports come from a page.' } satisfies Reply
+        if (pageSite(sender) !== siteOf(message.pageKey)) {
+          return { ok: false, error: 'Reports come from a page of their site.' } satisfies Reply
+        }
         return recordAnchors(message).then(() => ({ ok: true }) satisfies Reply)
       case 'site:remember':
       case 'site:forget':
@@ -179,9 +185,26 @@ export default defineBackground(() => {
         if (sender.tab)
           return { ok: false, error: 'Pages are opened from the panel.' } satisfies Reply
         return openPage(message.tabId, message.pageKey)
-      case 'annotation:add':
-        if (!sender.tab) return { ok: false, error: 'Items are added from a page.' } satisfies Reply
-        return write(message)
+      case 'annotation:add': {
+        const site = siteOf(message.page.url)
+        if (pageSite(sender) !== site) {
+          return { ok: false, error: 'Items are added from a page of their site.' } satisfies Reply
+        }
+        return write(site, message)
+      }
+      case 'annotation:update':
+        if (pageSite(sender) !== message.site) {
+          return { ok: false, error: 'Items are changed on a page of their site.' } satisfies Reply
+        }
+        return write(message.site, message)
+      case 'annotation:remove':
+        if (pageSite(sender) !== message.site && !isPanelSender(sender)) {
+          return {
+            ok: false,
+            error: 'Items are deleted on their site or in the panel.',
+          } satisfies Reply
+        }
+        return write(message.site, message)
       case 'overlay:failed': {
         // The overlay runs in the top frame of a tab only.
         const tabId = sender.tab?.id
@@ -221,13 +244,17 @@ export default defineBackground(() => {
           .set({ [PANEL_VIEW_KEY]: view })
           .then(() => ({ ok: true }) satisfies Reply)
       }
-      case 'collection:clear':
-        return write(message).then(async (reply) => {
-          if (reply.ok) await clearMissing().catch(() => undefined)
+      case 'collection:clear': {
+        if (!isPanelSender(sender)) {
+          return { ok: false, error: 'Clear all is a button of the panel.' } satisfies Reply
+        }
+        const { site } = message
+        return loadSite(site).then(async ({ items }) => {
+          const reply = await write(site, message)
+          if (reply.ok) await forgetMissing(items.map((item) => item.id)).catch(() => undefined)
           return reply
         })
-      default:
-        return write(message)
+      }
     }
   }
 

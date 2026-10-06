@@ -7,12 +7,16 @@ import {
   type Collection,
   CURATED_STYLES,
   type ElementSnapshot,
+  type LegacyCollection,
   LIMITS,
   type PageInfo,
   type Rect,
+  STATUSES,
+  type Status,
   type Target,
 } from './model'
 import { pageKey } from './page-key'
+import { isSite, siteOf } from './site'
 
 export type Fields = Record<string, unknown>
 
@@ -167,9 +171,12 @@ export function isComment(x: unknown): x is string {
 
 const isTimestamp = (x: unknown): x is string => isText(x, 40, 1)
 
-function isAnnotation(x: unknown): x is Annotation {
+const ITEM_KEYS = ['id', 'number', 'pageKey', 'comment', 'createdAt', 'updatedAt', 'target']
+
+/** An item without its status, as milestones 2–5 stored it. */
+function isItem(x: unknown, keys: string[]): x is Omit<Annotation, 'status'> {
   return (
-    hasKeys(x, ['id', 'number', 'pageKey', 'comment', 'createdAt', 'updatedAt', 'target']) &&
+    hasKeys(x, keys) &&
     isAnnotationId(x.id) &&
     isCount(x.number, 1) &&
     isText(x.pageKey, LIMITS.url, 1) &&
@@ -180,19 +187,56 @@ function isAnnotation(x: unknown): x is Annotation {
   )
 }
 
-export function isCollection(x: unknown): x is Collection {
-  if (!hasKeys(x, ['version', 'nextNumber', 'pages', 'items'])) return false
-  if (x.version !== 1 || !isCount(x.nextNumber, 1) || !isObject(x.pages)) return false
-  const pages = x.pages
-  const pagesValid = Object.entries(pages).every(
-    ([key, info]) => isPageInfo(info) && pageKey(info.url) === key,
-  )
-  if (!pagesValid || !Array.isArray(x.items) || !x.items.every(isAnnotation)) return false
-  const items = x.items as Annotation[]
-  const nextNumber = x.nextNumber
+export const isStatus = (x: unknown): x is Status => STATUSES.includes(x as Status)
+
+function isAnnotation(x: unknown): x is Annotation {
+  return isItem(x, [...ITEM_KEYS, 'status']) && isStatus((x as Fields).status)
+}
+
+export function isIdList(x: unknown, max: number): x is string[] {
   return (
+    Array.isArray(x) && x.length <= max && x.every(isAnnotationId) && new Set(x).size === x.length
+  )
+}
+
+/** Pages keyed by their own key, and items with unique ids and numbers below `nextNumber`. */
+function isConsistent(
+  pages: Record<string, unknown>,
+  items: { id: string; number: number; pageKey: string }[],
+  nextNumber: number,
+): boolean {
+  return (
+    Object.entries(pages).every(([key, info]) => isPageInfo(info) && pageKey(info.url) === key) &&
     new Set(items.map((item) => item.id)).size === items.length &&
     new Set(items.map((item) => item.number)).size === items.length &&
     items.every((item) => item.number < nextNumber && Object.hasOwn(pages, item.pageKey))
   )
+}
+
+const belongsTo = (url: string, site: string) => {
+  try {
+    return siteOf(url) === site
+  } catch {
+    return false
+  }
+}
+
+export function isCollection(x: unknown): x is Collection {
+  if (!hasKeys(x, ['version', 'site', 'nextNumber', 'pages', 'items', 'lastCopy'])) return false
+  if (x.version !== 2 || !isSite(x.site) || !isCount(x.nextNumber, 1)) return false
+  if (!isObject(x.pages) || !Array.isArray(x.items) || !x.items.every(isAnnotation)) return false
+  const site = x.site
+  return (
+    isConsistent(x.pages, x.items, x.nextNumber) &&
+    Object.keys(x.pages).every((key) => belongsTo(key, site)) &&
+    isIdList(x.lastCopy, LIMITS.copied)
+  )
+}
+
+/** The single collection of milestones 2–5 (spec section 5): read once, to split it by site. */
+export function isLegacyCollection(x: unknown): x is LegacyCollection {
+  if (!hasKeys(x, ['version', 'nextNumber', 'pages', 'items'])) return false
+  if (x.version !== 1 || !isCount(x.nextNumber, 1) || !isObject(x.pages)) return false
+  if (!Array.isArray(x.items) || !x.items.every((item) => isItem(item, ITEM_KEYS))) return false
+  return isConsistent(x.pages, x.items, x.nextNumber)
 }

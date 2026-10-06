@@ -9,6 +9,8 @@ import {
 } from '@/lib/messages'
 import { page, snapshot } from './helpers/collection'
 
+const S = 'http://localhost:3000'
+
 const add = {
   type: 'annotation:add',
   id: 'a1',
@@ -20,9 +22,9 @@ const add = {
 describe('isMessage', () => {
   it.each([
     add,
-    { type: 'annotation:update', id: 'a1', comment: 'x' },
-    { type: 'annotation:remove', id: 'a1' },
-    { type: 'collection:clear' },
+    { type: 'annotation:update', site: 'http://localhost:3000', id: 'a1', comment: 'x' },
+    { type: 'annotation:remove', site: 'file://', id: 'a1' },
+    { type: 'collection:clear', site: 'https://example.com' },
     { type: 'overlay:status' },
     { type: 'overlay:set-mode', mode: 'element' },
     { type: 'overlay:set-mode', mode: 'area' },
@@ -50,10 +52,17 @@ describe('isMessage', () => {
 
   it.each([
     ['an unknown type', { type: 'annotation:delete', id: 'a1' }],
-    ['a missing id', { type: 'annotation:remove' }],
-    ['a long id', { type: 'annotation:remove', id: 'a'.repeat(65) }],
-    ['an empty comment', { type: 'annotation:update', id: 'a1', comment: '  \n ' }],
-    ['a comment over 5000', { type: 'annotation:update', id: 'a1', comment: 'x'.repeat(5001) }],
+    ['a missing id', { type: 'annotation:remove', site: S }],
+    ['a long id', { type: 'annotation:remove', site: S, id: 'a'.repeat(65) }],
+    ['an empty comment', { type: 'annotation:update', site: S, id: 'a1', comment: '  \n ' }],
+    [
+      'a comment over 5000',
+      { type: 'annotation:update', site: S, id: 'a1', comment: 'x'.repeat(5001) },
+    ],
+    ['a change without its site', { type: 'annotation:update', id: 'a1', comment: 'x' }],
+    ['a site with a path', { type: 'annotation:remove', site: `${S}/a`, id: 'a1' }],
+    ['a clear without its site', { type: 'collection:clear' }],
+    ['a clear of a chrome page', { type: 'collection:clear', site: 'chrome://extensions' }],
     ['an unknown mode', { type: 'overlay:set-mode', mode: 'text' }],
     ['pins that are not a boolean', { type: 'overlay:set-pins', visible: 'no' }],
     ['a site with a path', { type: 'site:remember', origin: 'http://localhost:3000/a' }],
@@ -63,7 +72,7 @@ describe('isMessage', () => {
     ['a page that is no URL', { type: 'tab:go', tabId: 1, pageKey: 'javascript:alert(1)' }],
     ['an invalid target', { ...add, target: { kind: 'element', element: { selector: 'x' } } }],
     ['an invalid page', { ...add, page: page('chrome://settings/') }],
-    ['an extra key', { type: 'collection:clear', all: true }],
+    ['an extra key', { type: 'collection:clear', site: S, all: true }],
     ['a change without the overlay instance', { type: 'overlay:changed' }],
     ['a change with an invalid instance', { type: 'overlay:changed', instance: 'a b' }],
     // The error stays on the page: its text may hold page content.

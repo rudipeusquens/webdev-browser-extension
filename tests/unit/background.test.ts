@@ -3,10 +3,11 @@ import { fakeBrowser } from 'wxt/testing/fake-browser'
 import { isBlocked, isFailed, markBlocked, markFailed } from '@/lib/background/tab-status'
 import { loadMissing } from '@/lib/background/anchor-status'
 import { loadSettings, SETTINGS_KEY } from '@/lib/settings'
-import { loadCollection } from '@/lib/collection/store'
+import { addAnnotation, emptyCollection } from '@/lib/collection/ops'
+import { collectionKey, LEGACY_KEY, loadSite } from '@/lib/collection/store'
 import background from '@/entrypoints/background'
 import { vueOrigins } from '@/lib/capture/origin-bridge'
-import { elementInput } from './helpers/collection'
+import { elementInput, legacyOf } from './helpers/collection'
 import { fakeContextMenus } from './helpers/fake-context-menus'
 import { fakePorts } from './helpers/fake-ports'
 import { fakeSites } from './helpers/fake-sites'
@@ -15,6 +16,19 @@ const tab = { id: 5, windowId: 1 } as Parameters<
   Parameters<typeof fakeBrowser.action.onClicked.addListener>[0]
 >[0]
 const flush = () => new Promise((done) => setTimeout(done, 0))
+
+/** The overlay in the top frame of `tab`, on the page `url`. */
+const pageSender = (url: string, frameId = 0) => ({
+  id: fakeBrowser.runtime.id,
+  tab,
+  frameId,
+  url,
+  documentId: 'doc-1',
+})
+const panelSender = {
+  id: fakeBrowser.runtime.id,
+  url: fakeBrowser.runtime.getURL('/sidepanel.html'),
+}
 
 /** No side panel is open: nothing answers a message from the background. */
 const noPanel = () =>
@@ -135,16 +149,13 @@ describe('background', () => {
     expect(await isFailed(5)).toBe(false)
   })
 
-  it('writes an annotation sent from a content script', async () => {
+  it('writes an annotation sent from a content script, to the site of its page', async () => {
     const reply = await send(
-      { type: 'annotation:add', ...elementInput('a1', 'http://x.test/') },
-      {
-        id: fakeBrowser.runtime.id,
-        tab,
-      },
+      { type: 'annotation:add', ...elementInput('a1', 'http://x.test/a') },
+      pageSender('http://x.test/b'),
     )
     expect(reply).toEqual({ ok: true })
-    expect((await loadCollection()).items).toHaveLength(1)
+    expect((await loadSite('http://x.test')).items).toHaveLength(1)
   })
 
   it('ignores other senders, invalid messages and adds without a tab', async () => {
@@ -154,7 +165,43 @@ describe('background', () => {
       await send({ type: 'annotation:nope' }, { id: fakeBrowser.runtime.id, tab }),
     ).toBeUndefined()
     expect(await send(message, { id: fakeBrowser.runtime.id })).toMatchObject({ ok: false })
-    expect((await loadCollection()).items).toHaveLength(0)
+    expect(await send(message, panelSender)).toMatchObject({ ok: false })
+    expect((await loadSite('http://x.test')).items).toHaveLength(0)
+  })
+
+  it('refuses items for another site than the page that sends them', async () => {
+    const message = { type: 'annotation:add', ...elementInput('a1', 'http://x.test/') }
+    for (const sender of [
+      pageSender('http://y.test/'),
+      pageSender('https://x.test/'),
+      pageSender('http://x.test/', 2),
+      { id: fakeBrowser.runtime.id, tab, frameId: 0 },
+    ]) {
+      expect(await send(message, sender)).toMatchObject({ ok: false })
+    }
+    expect(await fakeBrowser.storage.local.get(null)).toEqual({})
+  })
+
+  it('changes items only for the site of the page or for the panel', async () => {
+    const site = 'http://x.test'
+    await send(
+      { type: 'annotation:add', ...elementInput('a1', `${site}/`) },
+      pageSender(`${site}/`),
+    )
+    const update = { type: 'annotation:update', site, id: 'a1', comment: 'Changed' }
+    const remove = { type: 'annotation:remove', site, id: 'a1' }
+    const clear = { type: 'collection:clear', site }
+    for (const message of [update, remove, clear]) {
+      expect(await send(message, pageSender('http://y.test/'))).toMatchObject({ ok: false })
+      expect(await send(message, pageSender(`${site}/`, 1))).toMatchObject({ ok: false })
+    }
+    expect(await send(clear, pageSender(`${site}/`))).toMatchObject({ ok: false })
+    expect(await send(update, panelSender)).toMatchObject({ ok: false })
+    expect((await loadSite(site)).items).toHaveLength(1)
+    expect(await send(update, pageSender(`${site}/other`))).toEqual({ ok: true })
+    expect(await send(remove, panelSender)).toEqual({ ok: true })
+    expect(await send(clear, panelSender)).toEqual({ ok: true })
+    expect((await loadSite(site)).items).toEqual([])
   })
 })
 
@@ -228,7 +275,7 @@ describe('background: code origins', () => {
 })
 
 describe('background: items not found', () => {
-  const contentScript = { id: fakeBrowser.runtime.id, tab, frameId: 0, documentId: 'doc-1' }
+  const contentScript = pageSender('http://x.test/a')
   const A = 'http://x.test/a'
   const B = 'http://x.test/b'
   const report = (pageKey: string, found: string[], missing: string[]) => ({
@@ -264,15 +311,26 @@ describe('background: items not found', () => {
     expect([...(await loadMissing())]).toEqual(['b1'])
   })
 
-  it('accepts reports from pages only, and forgets everything on Clear all', async () => {
+  it('accepts reports from pages only, and forgets the site on Clear all', async () => {
     expect(await send(report(A, [], ['a1']), { id: fakeBrowser.runtime.id })).toMatchObject({
       ok: false,
     })
     expect((await loadMissing()).size).toBe(0)
     await send(report(A, [], ['a1']), contentScript)
     expect((await loadMissing()).size).toBe(1)
-    await send({ type: 'collection:clear' }, { id: fakeBrowser.runtime.id })
+    await send({ type: 'collection:clear', site: 'http://x.test' }, panelSender)
     expect((await loadMissing()).size).toBe(0)
+  })
+
+  it('counts a report only for the site of the page that sent it', async () => {
+    const other = 'http://y.test/a'
+    await send({ type: 'annotation:add', ...elementInput('y1', other) }, pageSender(other))
+    expect(await send(report(other, [], ['y1']), contentScript)).toMatchObject({ ok: false })
+    expect((await loadMissing()).size).toBe(0)
+    await send(report(other, [], ['y1']), pageSender(other))
+    // Clearing one site keeps what another site's pages reported.
+    await send({ type: 'collection:clear', site: 'http://x.test' }, panelSender)
+    expect([...(await loadMissing())]).toEqual(['y1'])
   })
 })
 
@@ -355,14 +413,9 @@ describe('background: go to a page of the collection', () => {
     fakeContextMenus()
     fakePorts()
     background.main()
-    await send({ type: 'annotation:add', ...elementInput('a1', page) }, { ...panel, tab })
-    await send(
-      { type: 'annotation:add', ...elementInput('f1', 'file:///srv/app/index.html') },
-      {
-        ...panel,
-        tab,
-      },
-    )
+    await send({ type: 'annotation:add', ...elementInput('a1', page) }, pageSender(page))
+    const file = 'file:///srv/app/index.html'
+    await send({ type: 'annotation:add', ...elementInput('f1', file) }, pageSender(file))
     vi.spyOn(fakeBrowser.tabs, 'update').mockResolvedValue({} as never)
   })
 
@@ -385,6 +438,44 @@ describe('background: go to a page of the collection', () => {
       expect(await send({ type: 'tab:go', tabId: 9, pageKey }, sender)).toMatchObject({ ok: false })
     }
     expect(fakeBrowser.tabs.update).not.toHaveBeenCalled()
+  })
+})
+
+describe('background: the collection of milestones 2–5', () => {
+  afterEach(() => vi.restoreAllMocks())
+
+  it('is split by site when the background starts, before any write', async () => {
+    fakeBrowser.reset()
+    fakeSites()
+    fakeContextMenus()
+    fakePorts()
+    const a = addAnnotation(
+      emptyCollection('http://x.test'),
+      elementInput('a1', 'http://x.test/'),
+      'T',
+    )
+    const b = addAnnotation(
+      emptyCollection('http://y.test'),
+      elementInput('b1', 'http://y.test/'),
+      'T',
+    )
+    await fakeBrowser.storage.local.set({ [LEGACY_KEY]: legacyOf(a, b) })
+    background.main()
+    const reply = await send(
+      { type: 'annotation:add', ...elementInput('a2', 'http://x.test/') },
+      pageSender('http://x.test/'),
+    )
+    expect(reply).toEqual({ ok: true })
+    const stored = await fakeBrowser.storage.local.get(null)
+    expect(Object.keys(stored).sort()).toEqual([
+      collectionKey('http://x.test'),
+      collectionKey('http://y.test'),
+    ])
+    // a1 was 1 and b1 2 in the old collection: every site goes on at 3.
+    expect((await loadSite('http://x.test')).items.map((i) => [i.id, i.number])).toEqual([
+      ['a1', 1],
+      ['a2', 3],
+    ])
   })
 })
 

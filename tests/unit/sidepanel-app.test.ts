@@ -7,12 +7,13 @@ import { SETTINGS_KEY } from '@/lib/settings'
 import { markBlocked, markFailed } from '@/lib/background/tab-status'
 import type { Collection } from '@/lib/collection/model'
 import { addAnnotation, emptyCollection } from '@/lib/collection/ops'
-import { COLLECTION_KEY } from '@/lib/collection/store'
+import { collectionKey } from '@/lib/collection/store'
 import { formatCollection } from '@/lib/format/markdown'
 import type { OverlayStatus } from '@/lib/messages'
 import { elementInput, page, snapshot } from './helpers/collection'
 import { fakeSites } from './helpers/fake-sites'
 
+const SITE = 'http://localhost:3000'
 const A = 'http://localhost:3000/a'
 const B = 'http://localhost:3000/b'
 const active: OverlayStatus = {
@@ -24,7 +25,7 @@ const active: OverlayStatus = {
 }
 
 function twoPages(): Collection {
-  let c = addAnnotation(emptyCollection(), elementInput('a1', A, 'First on A'), 'T')
+  let c = addAnnotation(emptyCollection(SITE), elementInput('a1', A, 'First on A'), 'T')
   c = addAnnotation(
     c,
     {
@@ -47,7 +48,8 @@ let overlayReply: unknown
 const writeText = vi.fn()
 
 async function render(collection?: Collection) {
-  if (collection) await fakeBrowser.storage.local.set({ [COLLECTION_KEY]: collection })
+  if (collection)
+    await fakeBrowser.storage.local.set({ [collectionKey(collection.site)]: collection })
   wrapper = mount(App, { attachTo: document.body })
   await flushPromises()
   return wrapper
@@ -82,6 +84,7 @@ describe('side panel', () => {
   })
 
   it('shows the empty state and disabled buttons', async () => {
+    overlayReply = active
     await render()
     expect(body()).toContain('No feedback yet: pick an element, drag an area, or select text.')
     expect(byTestId('copy-prompt').hasAttribute('disabled')).toBe(true)
@@ -101,6 +104,7 @@ describe('side panel', () => {
   })
 
   it('renders page-derived strings and comments as text only', async () => {
+    overlayReply = active
     await render(twoPages())
     expect(document.querySelector('main img')).toBeNull()
     expect(document.querySelector('main b')).toBeNull()
@@ -109,6 +113,7 @@ describe('side panel', () => {
   })
 
   it('copies the formatted prompt and says how many items', async () => {
+    overlayReply = active
     const c = twoPages()
     await render(c)
     byTestId('copy-prompt').click()
@@ -118,6 +123,7 @@ describe('side panel', () => {
   })
 
   it('offers the text for manual copying when the clipboard fails', async () => {
+    overlayReply = active
     const c = twoPages()
     writeText.mockRejectedValue(new DOMException('Document is not focused.'))
     await render(c)
@@ -129,6 +135,7 @@ describe('side panel', () => {
   })
 
   it('clears everything only after confirmation', async () => {
+    overlayReply = active
     await render(twoPages())
     byTestId('clear-all').click()
     await flushPromises()
@@ -140,24 +147,92 @@ describe('side panel', () => {
     await flushPromises()
     byTestId('clear-confirm').click()
     await flushPromises()
-    expect(fakeBrowser.runtime.sendMessage).toHaveBeenCalledWith({ type: 'collection:clear' })
+    expect(fakeBrowser.runtime.sendMessage).toHaveBeenCalledWith({
+      type: 'collection:clear',
+      site: SITE,
+    })
   })
 
   it('deletes a single item', async () => {
+    overlayReply = active
     await render(twoPages())
     document.querySelector<HTMLElement>('[aria-label="Delete item 1"]')?.click()
     await flushPromises()
     expect(fakeBrowser.runtime.sendMessage).toHaveBeenCalledWith({
       type: 'annotation:remove',
+      site: SITE,
       id: 'a1',
     })
   })
 
   it('updates when the collection changes', async () => {
+    overlayReply = active
     await render()
-    await fakeBrowser.storage.local.set({ [COLLECTION_KEY]: twoPages() })
+    await fakeBrowser.storage.local.set({ [collectionKey(SITE)]: twoPages() })
     await flushPromises()
     expect(document.querySelectorAll('[data-testid="item"]')).toHaveLength(2)
+  })
+
+  describe('one site at a time', () => {
+    const OTHER = 'http://localhost:5173'
+    const onOther = () =>
+      addAnnotation(emptyCollection(OTHER), elementInput('o1', `${OTHER}/`, 'On the other'), 'T')
+
+    it('lists only the items of the active site, numbered on their own', async () => {
+      await fakeBrowser.storage.local.set({ [collectionKey(OTHER)]: onOther() })
+      overlayReply = active
+      await render(twoPages())
+      expect(body()).toContain('First on A')
+      expect(body()).not.toContain('On the other')
+      overlayReply = { ...active, host: 'localhost:5173', pageKey: `${OTHER}/`, instance: 'two' }
+      await fakeBrowser.tabs.onActivated.trigger({ tabId: 1, windowId: 1 })
+      await flushPromises()
+      expect(body()).toContain('On the other')
+      expect(body()).not.toContain('First on A')
+      expect(byTestId('item-number').textContent).toBe('1')
+      byTestId('copy-prompt').click()
+      await flushPromises()
+      expect(writeText).toHaveBeenCalledWith(formatCollection(onOther()))
+    })
+
+    it('names the site in the title row, with its full origin as tooltip', async () => {
+      overlayReply = active
+      await render(twoPages())
+      expect(byTestId('title-site').textContent?.trim()).toBe('localhost:3000')
+      expect(byTestId('title-site').title).toBe(SITE)
+    })
+
+    it('heads each page with its title and its path', async () => {
+      overlayReply = active
+      const c = addAnnotation(twoPages(), elementInput('q1', `${SITE}/settings?tab=2#top`), 'T')
+      await render(c)
+      const headings = [...document.querySelectorAll('[data-testid="page-group"] h2')]
+      const paths = headings.map((h) => h.querySelector('[data-testid="page-path"]')?.textContent)
+      expect(paths).toEqual(['/b', '/a', '/settings?tab=2'])
+      expect(headings[1]?.textContent).toContain('Example')
+    })
+
+    it('shows no list while the tab has no active overlay', async () => {
+      await render(twoPages())
+      expect(body()).not.toContain('First on A')
+      expect(document.querySelector('[data-testid="item"]')).toBeNull()
+      expect(byTestId('no-site').textContent).toContain('Feedback is kept per site.')
+      expect(body()).not.toContain('No feedback yet')
+      expect(byTestId('tab-status').textContent).toContain('Not active on this page')
+      expect(byTestId('copy-prompt').hasAttribute('disabled')).toBe(true)
+      expect(byTestId('clear-all').hasAttribute('disabled')).toBe(true)
+    })
+
+    it('follows changes of its own site only', async () => {
+      overlayReply = active
+      await render(twoPages())
+      await fakeBrowser.storage.local.set({ [collectionKey(OTHER)]: onOther() })
+      await flushPromises()
+      expect(document.querySelectorAll('[data-testid="item"]')).toHaveLength(2)
+      await fakeBrowser.storage.local.remove(collectionKey(SITE))
+      await flushPromises()
+      expect(document.querySelector('[data-testid="item"]')).toBeNull()
+    })
   })
 
   describe('tab status', () => {
@@ -473,8 +548,8 @@ describe('side panel', () => {
         (el) => el.textContent,
       )
       expect(sites).toEqual([
-        expect.stringContaining(ORIGIN),
-        expect.stringContaining('https://staging.example.com'),
+        expect.stringContaining('localhost:3000'),
+        expect.stringContaining('staging.example.com'),
       ])
       document
         .querySelector<HTMLElement>('[data-testid="site"] [data-testid="remove-site"]')
@@ -489,11 +564,11 @@ describe('side panel', () => {
       expect(document.querySelector('[data-testid="site"]')).toBeNull()
     })
 
-    it('says when no site is remembered', async () => {
+    it('says when there is no site yet', async () => {
       await render()
       byTestId('open-settings').click()
       await flushPromises()
-      expect(body()).toContain('No remembered sites yet')
+      expect(body()).toContain('No sites yet')
     })
   })
 
@@ -512,9 +587,10 @@ describe('side panel', () => {
   })
 
   it('offers no Go to for pages that are not on the web', async () => {
-    let c = twoPages()
+    let c = emptyCollection('file://')
     c = addAnnotation(c, elementInput('f1', 'file:///srv/app/index.html', 'Local'), 'T')
-    overlayReply = active
+    c = addAnnotation(c, elementInput('f2', 'file:///srv/app/other.html', 'Here'), 'T')
+    overlayReply = { ...active, host: 'file', pageKey: 'file:///srv/app/other.html' }
     await render(c)
     const local = [...document.querySelectorAll('[data-testid="page-group"]')].find((g) =>
       g.textContent?.includes('Local'),
@@ -703,6 +779,7 @@ describe('side panel', () => {
   })
 
   it('marks items that were not found and copies the prompt with them', async () => {
+    overlayReply = active
     const c = twoPages()
     await fakeBrowser.storage.session.set({ [MISSING_KEY]: ['a1'] })
     await render(c)
@@ -719,9 +796,10 @@ describe('side panel', () => {
   })
 
   it('shows the target summary of an entry', async () => {
+    overlayReply = active
     await render(
       addAnnotation(
-        emptyCollection(),
+        emptyCollection(SITE),
         elementInput('a1', A, 'x', snapshot({ openingTag: '<a href="/x">', text: 'Docs' })),
         'T',
       ),

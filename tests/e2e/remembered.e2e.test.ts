@@ -77,9 +77,9 @@ describe('remembered sites', () => {
     await (await panel.waitForSelector('[data-testid="remember-site"]'))?.click()
     await panel.waitForSelector('[data-testid="forget-site"]')
     await panel.click('[data-testid="open-settings"]')
-    await panel.waitForSelector(`[data-testid="site"] ::-p-text(${server.origin})`)
+    await panel.waitForSelector(`[data-testid="site"] ::-p-text(${new URL(server.origin).host})`)
     await panel.click('[data-testid="site"] [data-testid="remove-site"]')
-    await panel.waitForSelector('::-p-text(No remembered sites yet)')
+    await panel.waitForSelector('::-p-text(No sites yet)')
     // Settings hides the controls of Edit; the next test starts from there.
     await panel.click('[data-testid="close-settings"]')
     await session.page.reload()

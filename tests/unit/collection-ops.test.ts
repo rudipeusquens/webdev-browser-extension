@@ -12,13 +12,14 @@ import {
 import { pageKey } from '@/lib/collection/page-key'
 import { elementInput, page } from './helpers/collection'
 
+const SITE = 'http://localhost:3000'
 const A = 'http://localhost:3000/a'
 const B = 'http://localhost:3000/b'
 const T1 = '2026-10-05T10:00:00.000Z'
 const T2 = '2026-10-05T11:00:00.000Z'
 
 const build = (...inputs: NewAnnotation[]): Collection =>
-  inputs.reduce((c, input) => addAnnotation(c, input, T1), emptyCollection())
+  inputs.reduce((c, input) => addAnnotation(c, input, T1), emptyCollection(SITE))
 
 describe('addAnnotation', () => {
   it('numbers items in order and records the page', () => {
@@ -32,7 +33,14 @@ describe('addAnnotation', () => {
       comment: 'Make this wider.',
       createdAt: T1,
       updatedAt: T1,
+      status: 'open',
     })
+  })
+
+  it('refuses a page of another site', () => {
+    const c = build(elementInput('a1', A))
+    expect(addAnnotation(c, elementInput('x', 'http://localhost:5173/a'), T2)).toBe(c)
+    expect(addAnnotation(c, elementInput('y', 'https://localhost:3000/a'), T2)).toBe(c)
   })
 
   it('keys the page by its URL without the hash', () => {
@@ -97,9 +105,24 @@ describe('updateComment', () => {
   })
 })
 
+describe('emptyCollection', () => {
+  it('belongs to its site and has nothing copied yet', () => {
+    expect(emptyCollection(SITE)).toEqual({
+      version: 2,
+      site: SITE,
+      nextNumber: 1,
+      pages: {},
+      items: [],
+      lastCopy: [],
+    })
+  })
+})
+
 describe('clearAll', () => {
-  it('resets the numbering', () => {
-    const c = addAnnotation(clearAll(), elementInput('x', A), T2)
+  it('resets the numbering and keeps the site', () => {
+    const cleared = clearAll(build(elementInput('a1', A), elementInput('a2', A)))
+    expect(cleared).toEqual(emptyCollection(SITE))
+    const c = addAnnotation(cleared, elementInput('x', A), T2)
     expect(c.items[0]?.number).toBe(1)
     expect(c.nextNumber).toBe(2)
   })

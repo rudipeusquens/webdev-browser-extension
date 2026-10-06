@@ -7,6 +7,7 @@ import {
   overlayMounted,
   overlayText,
   sleep,
+  storedCollection,
   waitForItems,
   waitInOverlay,
 } from './overlay-helpers'
@@ -105,8 +106,7 @@ describe('element mode', () => {
     await waitInOverlay(session, '[data-testid="overlay-glass"]')
     await session.page.keyboard.press('Escape')
     await waitInOverlay(session, '[data-testid="overlay-glass"]', false)
-    const c = await panel.evaluate(() => chrome.storage.local.get('collection'))
-    expect(c.collection).toBeUndefined()
+    expect(await storedCollection(panel)).toBeUndefined()
   })
 
   it('scrolls the container under the pointer', async () => {

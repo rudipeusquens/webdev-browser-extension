@@ -3,6 +3,7 @@
 
 import type { Annotation, Collection, PageInfo, Target } from './model'
 import { pageKey } from './page-key'
+import { siteOf } from './site'
 
 export interface NewAnnotation {
   id: string
@@ -17,12 +18,22 @@ export interface PageGroup {
   items: Annotation[]
 }
 
-export function emptyCollection(): Collection {
-  return { version: 1, nextNumber: 1, pages: {}, items: [] }
+export function emptyCollection(site: string): Collection {
+  return { version: 2, site, nextNumber: 1, pages: {}, items: [], lastCopy: [] }
 }
 
+/** Whether `url` is a page of the site `site`. */
+function onSite(url: string, site: string): boolean {
+  try {
+    return siteOf(url) === site
+  } catch {
+    return false
+  }
+}
+
+/** A new open item; nothing for an id that exists or a page of another site. */
 export function addAnnotation(c: Collection, input: NewAnnotation, now: string): Collection {
-  if (c.items.some((item) => item.id === input.id)) return c
+  if (c.items.some((item) => item.id === input.id) || !onSite(input.page.url, c.site)) return c
   const key = pageKey(input.page.url)
   const item: Annotation = {
     id: input.id,
@@ -31,6 +42,7 @@ export function addAnnotation(c: Collection, input: NewAnnotation, now: string):
     comment: input.comment,
     createdAt: now,
     updatedAt: now,
+    status: 'open',
     target: input.target,
   }
   return {
@@ -58,8 +70,9 @@ export function removeAnnotation(c: Collection, id: string): Collection {
   return { ...c, pages, items }
 }
 
-export function clearAll(): Collection {
-  return emptyCollection()
+/** Every item of the site goes, and its numbers start again at 1. */
+export function clearAll(c: Collection): Collection {
+  return emptyCollection(c.site)
 }
 
 /** Pages in the order of their first item, items by number. */

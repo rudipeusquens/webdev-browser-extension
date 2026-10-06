@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed, onBeforeUnmount, onMounted, ref, shallowReactive, shallowRef, watch } from 'vue'
 import { browser } from 'wxt/browser'
-import { useCollection } from '@/composables/use-collection'
+import { useSiteCollection } from '@/composables/use-site-collection'
 import { closestOf, deepActiveElement, queryFirst, tagOf } from '@/lib/capture/dom'
 import { findText } from '@/lib/capture/find-text'
 import { snapshotArea } from '@/lib/capture/area'
@@ -16,6 +16,7 @@ import {
   snapshotRange,
 } from '@/lib/capture/text'
 import type { PageInfo, Rect, Target } from '@/lib/collection/model'
+import { siteOf } from '@/lib/collection/site'
 import { truncate } from '@/lib/text'
 import {
   type BackgroundMessage,
@@ -114,7 +115,9 @@ const drag = shallowRef<{ from: { x: number; y: number }; to: { x: number; y: nu
 )
 const { frame, layout } = useTracking()
 const { key: page } = usePage()
-const { collection } = useCollection()
+// The site of this page: a single-page app stays on it while it navigates.
+const site = siteOf(location.href)
+const { collection } = useSiteCollection(ref(site))
 // What was marked in this session, by item id: more precise than the stored selector.
 const live = shallowReactive(new Map<string, LiveAnchor>())
 let pointed: Element | null = null
@@ -190,7 +193,7 @@ const chipLine = computed(() => {
 })
 
 const pageItems = computed(() =>
-  collection.value.items.filter((item) => item.pageKey === page.value),
+  (collection.value?.items ?? []).filter((item) => item.pageKey === page.value),
 )
 const placements = computed(() => {
   // Again after DOM changes, not on every scroll: an element may have been replaced.
@@ -295,7 +298,7 @@ watch(
   { immediate: true },
 )
 
-watch(collection, (current) => pruneLive(live, current.items))
+watch(collection, (current) => pruneLive(live, current?.items ?? []))
 
 // Text items without a selection from this session are found again by their text: at once
 // when the page's items change (mount, another page), so the pin does not jump from the
@@ -585,7 +588,7 @@ async function save(comment: string) {
     if (origins) target = withOrigins(target, origins)
   }
   const message: BackgroundMessage = current.edit
-    ? { type: 'annotation:update', id, comment }
+    ? { type: 'annotation:update', site, id, comment }
     : {
         type: 'annotation:add',
         id,

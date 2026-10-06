@@ -12,7 +12,7 @@ function collect(...items: { url: string; target: Target; comment: string; title
   return items.reduce<Collection>(
     (c, { url, target, comment, title }, i) =>
       addAnnotation(c, { id: `i${i}`, page: page(url, { title }), target, comment }, NOW),
-    emptyCollection(),
+    emptyCollection('http://localhost:3000'),
   )
 }
 

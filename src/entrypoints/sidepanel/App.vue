@@ -36,10 +36,23 @@ import { useOverlayLines } from './use-overlay-lines'
 import { usePanelToggle } from './use-panel-toggle'
 import { useSettings } from './use-settings'
 import { useShortcut } from './use-shortcut'
-import { useCollection } from '@/composables/use-collection'
+import { useSiteCollection } from '@/composables/use-site-collection'
+import { emptyCollection } from '@/lib/collection/ops'
+import { siteLabel, siteOf } from '@/lib/collection/site'
 
-const { collection } = useCollection()
 const { tabId, windowId, status, refresh } = useActiveTab()
+/** The site of the active tab's page, known while its overlay answers. */
+const site = computed(() => {
+  if (status.value.kind !== 'active') return null
+  try {
+    return siteOf(status.value.pageKey)
+  } catch {
+    return null
+  }
+})
+const { collection: stored } = useSiteCollection(site)
+/** What the panel lists: the active site's collection, empty without one. */
+const collection = computed(() => stored.value ?? emptyCollection(site.value ?? 'file://'))
 usePanelToggle(windowId)
 const { missing } = useMissing()
 const { settings } = useSettings()
@@ -136,6 +149,14 @@ function forgetSite(origin: string) {
   toBackground({ type: 'site:forget', origin })
 }
 
+function removeItem(id: string) {
+  if (site.value) toBackground({ type: 'annotation:remove', site: site.value, id })
+}
+
+function clearSite() {
+  if (site.value) toBackground({ type: 'collection:clear', site: site.value })
+}
+
 function goTo(pageKey: string) {
   if (tabId.value === undefined) return
   toBackground({ type: 'tab:go', tabId: tabId.value, pageKey })
@@ -163,6 +184,13 @@ function setMode(next: unknown) {
         <h1 data-testid="panel-title" class="font-semibold">
           {{ showSettings ? 'Settings' : 'Edit' }}
         </h1>
+        <span
+          v-if="!showSettings && site"
+          data-testid="title-site"
+          class="min-w-0 truncate font-mono text-xs text-muted-foreground"
+          :title="site"
+          >{{ siteLabel(site) }}</span
+        >
         <Badge v-if="!showSettings && count" data-testid="item-count" variant="secondary">{{
           count
         }}</Badge>
@@ -284,14 +312,17 @@ function setMode(next: unknown) {
       @forget="forgetSite"
     />
     <section v-else class="flex-1 overflow-y-auto">
-      <p v-if="!count" class="p-6 pt-12 text-center text-muted-foreground">
+      <p v-if="!site" data-testid="no-site" class="p-6 pt-12 text-center text-muted-foreground">
+        Feedback is kept per site. Start the overlay on a page to see the feedback of its site.
+      </p>
+      <p v-else-if="!count" class="p-6 pt-12 text-center text-muted-foreground">
         No feedback yet: pick an element, drag an area, or select text.
       </p>
       <ItemList
         v-else
         :groups="groups"
         :missing="missing"
-        @remove="(id) => toBackground({ type: 'annotation:remove', id })"
+        @remove="removeItem"
         @highlight="(id) => toOverlay({ type: 'overlay:highlight', id })"
         @reveal="(id) => toOverlay({ type: 'overlay:reveal', id })"
         @go="goTo"
@@ -321,7 +352,7 @@ function setMode(next: unknown) {
       v-model:open="confirmClear"
       :items="count"
       :pages="groups.length"
-      @confirm="toBackground({ type: 'collection:clear' })"
+      @confirm="clearSite"
     />
     <CopyFallbackDialog :text="fallbackText" @close="fallbackText = null" />
   </main>

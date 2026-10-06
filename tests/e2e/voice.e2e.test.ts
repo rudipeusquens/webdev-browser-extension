@@ -360,10 +360,11 @@ describe('dictating a comment', () => {
     for (let i = 0; i < 50; i++) {
       const comments = await worker.evaluate(async () => {
         const { storage } = (globalThis as unknown as { chrome: ExtensionApi }).chrome
-        const { collection } = await storage.local.get('collection')
-        return ((collection as { items?: { comment: string }[] } | undefined)?.items ?? []).map(
-          (item) => item.comment,
-        )
+        const all = await storage.local.get(null)
+        return Object.entries(all)
+          .filter(([key]) => key.startsWith('collection:'))
+          .flatMap(([, c]) => (c as { items: { comment: string }[] }).items)
+          .map((item) => item.comment)
       })
       if (comments.length) return comments
       await sleep(100)

@@ -5,8 +5,14 @@ declare global {
   // Extension pages have `chrome`; this is the part the tests call inside them.
   var chrome: {
     storage: {
-      local: { get(key: string): Promise<Record<string, unknown>>; clear(): Promise<void> }
+      local: {
+        /** Every key without an argument. */
+        get(key?: string | null): Promise<Record<string, unknown>>
+        set(items: Record<string, unknown>): Promise<void>
+        clear(): Promise<void>
+      }
     }
+    runtime: { sendMessage(message: unknown): Promise<unknown> }
   }
 }
 
@@ -60,13 +66,45 @@ export async function centerOf(page: Page, selector: string) {
   })
 }
 
-/** The stored collection, read through an extension page. */
-export async function storedCollection(extensionPage: Page) {
-  return extensionPage.evaluate(async () => {
-    const { collection } = await chrome.storage.local.get('collection')
-    return collection as
-      { items: { id: string; number: number; comment: string; target: never }[] } | undefined
-  })
+export interface StoredItem {
+  id: string
+  number: number
+  comment: string
+  status: 'open' | 'done' | 'deleted'
+  pageKey: string
+  target: never
+}
+
+/**
+ * The stored collections of every site, read through an extension page, as one; undefined
+ * while there are none. With `site`, that site's collection only.
+ */
+export async function storedCollection(extensionPage: Page, site?: string) {
+  return extensionPage.evaluate(async (only) => {
+    const all = await chrome.storage.local.get()
+    const sites = Object.entries(all)
+      .filter(([key]) => key.startsWith('collection:') && (!only || key === `collection:${only}`))
+      .map(
+        ([, value]) =>
+          value as {
+            site: string
+            nextNumber: number
+            pages: Record<string, unknown>
+            items: StoredItem[]
+            lastCopy: string[]
+          },
+      )
+    if (sites.length === 0) return undefined
+    // One site: its collection as stored. Several: their items, pages and copies together.
+    return {
+      version: 2,
+      site: sites[0]?.site,
+      nextNumber: Math.max(...sites.map((c) => c.nextNumber)),
+      pages: Object.assign({}, ...sites.map((c) => c.pages)) as Record<string, unknown>,
+      items: sites.flatMap((c) => c.items),
+      lastCopy: sites.flatMap((c) => c.lastCopy),
+    }
+  }, site ?? null)
 }
 
 /** Polls until the stored collection holds `count` items. */
