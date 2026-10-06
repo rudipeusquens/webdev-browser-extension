@@ -60,6 +60,25 @@ export default defineBackground(() => {
       .catch(() => undefined)
   }
 
+  /**
+   * Annotate this page in the panel: a click there grants no `activeTab`, so this works only
+   * where the extension may run already (a grant that outlived its overlay, a granted origin).
+   * A refusal is no restricted page: nothing is marked.
+   */
+  async function startFromPanel(tabId: number): Promise<Reply> {
+    await clearFailed(tabId).catch(() => undefined)
+    try {
+      await inject(tabId)
+    } catch {
+      return {
+        ok: false,
+        error: 'Chrome does not let the extension on this page yet: click the toolbar icon.',
+      }
+    }
+    await clearBlocked(tabId).catch(() => undefined)
+    return { ok: true }
+  }
+
   /** The context menu entry only ever opens the panel and starts the overlay. */
   function activate(tab: Browser.tabs.Tab) {
     const tabId = openPanel(tab)
@@ -213,6 +232,11 @@ export default defineBackground(() => {
           if (message.key === 'contextMenu') setMenuEntry(message.value)
           return reply
         })
+      case 'tab:start':
+        if (!isPanelSender(sender)) {
+          return { ok: false, error: 'The overlay is started from the panel.' } satisfies Reply
+        }
+        return startFromPanel(message.tabId)
       case 'tab:go':
         if (sender.tab)
           return { ok: false, error: 'Pages are opened from the panel.' } satisfies Reply

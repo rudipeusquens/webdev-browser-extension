@@ -55,6 +55,7 @@ describe('isMessage', () => {
     { type: 'voice:key:test' },
     { type: 'settings:set', key: 'pageTitles', value: true },
     { type: 'settings:set', key: 'contextMenu', value: false },
+    { type: 'tab:start', tabId: 4 },
   ])('accepts $type', (message) => {
     expect(isMessage(message)).toBe(true)
   })
@@ -91,6 +92,9 @@ describe('isMessage', () => {
     ['a file site', { type: 'site:remember', origin: 'file:///srv/app' }],
     ['a site that is no origin', { type: 'site:forget', origin: 'localhost' }],
     ['a tab id that is no integer', { type: 'tab:go', tabId: 1.5, pageKey: 'http://x.test/' }],
+    ['a start without a tab', { type: 'tab:start' }],
+    ['a start of a tab that is no integer', { type: 'tab:start', tabId: 2.5 }],
+    ['a start of no tab', { type: 'tab:start', tabId: -1 }],
     ['an unknown option', { type: 'settings:set', key: 'rememberedOrigins', value: true }],
     ['an option that is no boolean', { type: 'settings:set', key: 'pageTitles', value: 'on' }],
     ['an option with more', { type: 'settings:set', key: 'pageTitles', value: true, all: 1 }],

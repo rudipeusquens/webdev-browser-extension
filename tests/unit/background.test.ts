@@ -87,6 +87,31 @@ describe('background', () => {
     await vi.waitFor(() => expect(inject).toHaveBeenCalled())
   })
 
+  it('starts the overlay on a tab for the panel only', async () => {
+    const inject = vi.spyOn(fakeBrowser.scripting, 'executeScript').mockResolvedValue([] as never)
+    const start = { type: 'tab:start', tabId: 7 }
+    expect(await send(start, pageSender('http://localhost:3000/'))).toMatchObject({ ok: false })
+    expect(await send(start, { id: fakeBrowser.runtime.id })).toMatchObject({ ok: false })
+    expect(inject).not.toHaveBeenCalled()
+    await markFailed(7)
+    expect(await send(start, panelSender)).toEqual({ ok: true })
+    expect(inject).toHaveBeenCalledWith({
+      target: { tabId: 7 },
+      files: ['/content-scripts/overlay.js'],
+    })
+    expect(await isFailed(7)).toBe(false)
+  })
+
+  it('says when Chrome gives the panel no access to the tab, and marks nothing', async () => {
+    vi.spyOn(fakeBrowser.scripting, 'executeScript').mockRejectedValue(
+      new Error('Cannot access contents of the page.'),
+    )
+    const reply = await send({ type: 'tab:start', tabId: 7 }, panelSender)
+    expect(reply).toMatchObject({ ok: false })
+    expect((reply as { error: string }).error).toContain('toolbar icon')
+    expect(await isBlocked(7)).toBe(false)
+  })
+
   it('marks a tab that refuses injection and clears it after a later success', async () => {
     const inject = vi
       .spyOn(fakeBrowser.scripting, 'executeScript')

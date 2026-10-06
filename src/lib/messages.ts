@@ -67,6 +67,9 @@ export type SettingsMessage = { type: 'settings:set'; key: Option; value: boolea
 /** Side panel → background: open a page of the collection in a tab (Go to). */
 export type GoToMessage = { type: 'tab:go'; tabId: number; pageKey: string }
 
+/** Side panel → background: start the overlay on a tab, where Chrome lets the extension. */
+export type StartMessage = { type: 'tab:start'; tabId: number }
+
 /** Overlay → background: it could not start; the error itself stays in the page's console. */
 export type FailedMessage = { type: 'overlay:failed' }
 
@@ -99,6 +102,7 @@ export type BackgroundMessage =
   | ViewMessage
   | SettingsMessage
   | GoToMessage
+  | StartMessage
   | FailedMessage
   | VoiceSettingsMessage
   | VoiceRequestMessage
@@ -238,6 +242,8 @@ export function isBackgroundMessage(x: unknown): x is BackgroundMessage {
       return hasKeys(x, ['type', 'filter']) && isFilter(x.filter)
     case 'settings:set':
       return hasKeys(x, ['type', 'key', 'value']) && isOption(x.key) && typeof x.value === 'boolean'
+    case 'tab:start':
+      return hasKeys(x, ['type', 'tabId']) && Number.isInteger(x.tabId) && (x.tabId as number) >= 0
     case 'tab:go':
       return (
         hasKeys(x, ['type', 'tabId', 'pageKey']) &&

@@ -148,6 +148,15 @@ describe("the panel's layout", () => {
     await server?.close()
   })
 
+  it('puts the site in the middle of the title row', async () => {
+    await panel.waitForSelector('[data-testid="site-pill"][data-state="active"]')
+    const row = await boxOf(panel, '[data-testid="title-row"]')
+    const pill = await boxOf(panel, '[data-testid="site-pill"]')
+    expect(Math.abs((pill.left + pill.right) / 2 - (row.left + row.right) / 2)).toBeLessThan(1)
+    const undo = await boxOf(panel, '[data-testid="undo"]')
+    expect(pill.right).toBeLessThan(undo.left)
+  })
+
   it('centers an empty state in the list area', async () => {
     await panel.waitForSelector('[data-testid="empty-state"]')
     const list = await boxOf(panel, '[data-testid="list-area"]')

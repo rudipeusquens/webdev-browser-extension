@@ -112,7 +112,6 @@ describe('side panel', () => {
     expect(groups[0]?.textContent).toContain('This page')
     expect(groups[0]?.textContent).toContain('On B')
     expect(groups[1]?.textContent).toContain('First on A')
-    expect(byTestId('item-count').textContent).toBe('2')
     expect(groups[1]?.querySelector('[data-testid="item-number"]')?.textContent).toBe('1')
   })
 
@@ -208,7 +207,6 @@ describe('side panel', () => {
       overlayReply = active
       const c = mixed()
       await render(c)
-      expect(byTestId('item-count').textContent).toBe('2')
       byTestId('copy-prompt').click()
       await flushPromises()
       expect(writeText).toHaveBeenCalledWith(formatCollection(pick(c, new Set(['a1', 'b1']))))
@@ -647,7 +645,7 @@ describe('side panel', () => {
       overlayReply = active
       await render(twoPages())
       expect(byTestId('title-site').textContent?.trim()).toBe('localhost:3000')
-      expect(byTestId('title-site').title).toBe(SITE)
+      expect(byTestId('site-pill').title).toContain(SITE)
     })
 
     it('heads each page with its path only, This page first', async () => {
@@ -684,7 +682,7 @@ describe('side panel', () => {
       expect(document.querySelector('[data-testid="item"]')).toBeNull()
       expect(byTestId('no-site').textContent).toContain('Feedback is kept per site.')
       expect(body()).not.toContain('No feedback yet')
-      expect(byTestId('tab-status').textContent).toContain('Not active on this page')
+      expect(byTestId('site-pill').dataset.state).toBe('idle')
       expect(byTestId('copy-prompt').hasAttribute('disabled')).toBe(true)
       expect(byTestId('clear-all').hasAttribute('disabled')).toBe(true)
     })
@@ -701,40 +699,106 @@ describe('side panel', () => {
     })
   })
 
-  describe('tab status', () => {
-    it('names the host when the overlay answers', async () => {
+  describe('the site pill and starting the overlay', () => {
+    const pill = () => byTestId('site-pill')
+    const sleep = (ms: number) => new Promise((done) => setTimeout(done, ms))
+    /** The pointer rests on the pill: its action shows after a moment. */
+    async function hoverPill() {
+      pill().dispatchEvent(new Event('pointerenter'))
+      await sleep(200)
+      await flushPromises()
+    }
+    const exists = (id: string) => document.querySelector(`[data-testid="${id}"]`) !== null
+    const knownPage = (url = `${SITE}/b`) =>
+      vi.mocked(fakeBrowser.tabs.query).mockResolvedValue([{ id: 1, url }] as never)
+
+    it('sits in the middle of the title row, between the title and Undo', async () => {
       overlayReply = active
       await render()
-      expect(byTestId('tab-status').textContent).toContain('Active on localhost:3000')
-    })
-
-    it('says when the overlay did not start, and where to look', async () => {
-      await markFailed(1)
-      await render()
-      expect(byTestId('tab-status').textContent).toContain(
-        "Couldn't start on this page. Reload it and try again; the page's console has details.",
+      const row = byTestId('title-row')
+      const order = [...row.querySelectorAll('[data-testid]')].map((e) =>
+        e.getAttribute('data-testid'),
       )
+      expect(order.indexOf('panel-title')).toBeLessThan(order.indexOf('site-pill'))
+      expect(order.indexOf('site-pill')).toBeLessThan(order.indexOf('undo'))
+      expect(exists('item-count')).toBe(false)
     })
 
-    it('shows a failed start as soon as it is recorded', async () => {
+    it('shows an active site with a green dot, its name and its full origin as tooltip', async () => {
+      overlayReply = active
       await render()
-      expect(byTestId('tab-status').textContent).toContain('Not active on this page')
-      await markFailed(1)
+      expect(pill().dataset.state).toBe('active')
+      expect(byTestId('site-dot').className).toContain('bg-green-500')
+      expect(byTestId('title-site').textContent?.trim()).toBe('localhost:3000')
+      expect(pill().title).toContain(SITE)
+      expect(body()).not.toContain('Active on')
+    })
+
+    it('shows a known page without an overlay grey, with Annotate this page', async () => {
+      knownPage()
+      await render()
+      expect(pill().dataset.state).toBe('idle')
+      expect(byTestId('site-dot').className).toContain('bg-muted-foreground')
+      expect(byTestId('title-site').textContent?.trim()).toBe('localhost:3000')
+      expect(exists('start-overlay')).toBe(false)
+      await hoverPill()
+      byTestId('start-overlay').click()
       await flushPromises()
-      expect(byTestId('tab-status').textContent).toContain("Couldn't start on this page")
+      expect(fakeBrowser.runtime.sendMessage).toHaveBeenCalledWith({ type: 'tab:start', tabId: 1 })
     })
 
-    it('says when the page refused the overlay', async () => {
-      await markBlocked(1)
+    it('offers Annotate this page in the middle of the view for a known page', async () => {
+      knownPage()
       await render()
-      expect(byTestId('tab-status').textContent).toContain("Can't run on this page")
+      const center = byTestId('start-overlay-center')
+      expect(center.closest('[data-testid="empty-state"]')).not.toBeNull()
+      expect(center.textContent).toContain('Annotate this page')
+      center.click()
+      await flushPromises()
+      expect(fakeBrowser.runtime.sendMessage).toHaveBeenCalledWith({ type: 'tab:start', tabId: 1 })
     })
 
-    it('explains how to activate otherwise, with the shortcut Chrome assigned', async () => {
+    it('says when Chrome refused the start', async () => {
+      knownPage()
+      vi.mocked(fakeBrowser.runtime.sendMessage).mockResolvedValue({
+        ok: false,
+        error: 'Chrome does not let the extension on this page yet.',
+      } as never)
+      await render()
+      byTestId('start-overlay-center').click()
+      await flushPromises()
+      expect(byTestId('panel-error').textContent).toContain('Chrome does not let the extension')
+    })
+
+    it('starts nothing on pages it cannot run on', async () => {
+      knownPage('chrome://extensions/')
+      await render()
+      expect(pill().dataset.state).toBe('idle')
+      expect(byTestId('title-site').textContent?.trim()).toBe('Not active')
+      expect(exists('start-overlay-center')).toBe(false)
+    })
+
+    it('shows a page Chrome tells nothing about as Not active, and how to start', async () => {
       shortcutIs('Ctrl+Shift+K')
       await render()
+      expect(pill().dataset.state).toBe('idle')
+      expect(byTestId('title-site').textContent?.trim()).toBe('Not active')
+      expect(pill().tagName).not.toBe('BUTTON')
+      expect(exists('start-overlay-center')).toBe(false)
       expect(byTestId('tab-status').textContent).toContain(
-        'Not active on this page. Click the toolbar icon, press Ctrl+Shift+K or right-click ' +
+        'Click the toolbar icon or press Ctrl+Shift+K to annotate this page.',
+      )
+      expect(byTestId('tab-status').textContent).not.toContain('right-click')
+    })
+
+    it('names the context menu too while Settings has it on', async () => {
+      shortcutIs('Ctrl+Shift+K')
+      await fakeBrowser.storage.local.set({
+        [SETTINGS_KEY]: { rememberedOrigins: [], pageTitles: false, contextMenu: true },
+      })
+      await render()
+      expect(byTestId('tab-status').textContent).toContain(
+        'Click the toolbar icon or press Ctrl+Shift+K to annotate this page, or right-click ' +
           'the page and choose "Annotate this page".',
       )
     })
@@ -746,9 +810,36 @@ describe('side panel', () => {
       setUp()
       await render()
       expect(byTestId('tab-status').textContent).toContain(
-        'Not active on this page. Click the toolbar icon or right-click the page and choose ' +
-          '"Annotate this page".',
+        'Click the toolbar icon to annotate this page.',
       )
+    })
+
+    it('says when the overlay did not start, and where to look, in red', async () => {
+      knownPage()
+      await markFailed(1)
+      await render()
+      expect(pill().dataset.state).toBe('failed')
+      expect(byTestId('site-dot').className).toContain('bg-red-500')
+      expect(byTestId('tab-status').textContent).toContain(
+        "Couldn't start on this page. Reload it and try again; the page's console has details.",
+      )
+    })
+
+    it('shows a failed start as soon as it is recorded', async () => {
+      await render()
+      expect(pill().dataset.state).toBe('idle')
+      await markFailed(1)
+      await flushPromises()
+      expect(pill().dataset.state).toBe('failed')
+      expect(byTestId('tab-status').textContent).toContain("Couldn't start on this page")
+    })
+
+    it('says when the page refused the overlay', async () => {
+      await markBlocked(1)
+      await render()
+      expect(pill().dataset.state).toBe('blocked')
+      expect(byTestId('title-site').textContent?.trim()).toBe("Can't run here")
+      expect(byTestId('tab-status').textContent).toContain("Can't run on this page")
     })
 
     it('reads the shortcut again when a tab becomes active', async () => {
@@ -778,7 +869,31 @@ describe('side panel', () => {
     it('ignores a malformed overlay reply', async () => {
       overlayReply = { host: 'x', mode: 'element' }
       await render()
-      expect(byTestId('tab-status').textContent).toContain('Not active on this page')
+      expect(pill().dataset.state).toBe('idle')
+    })
+
+    it('stays open when it is clicked, which focuses it first', async () => {
+      overlayReply = active
+      fakeSites()
+      await render()
+      byTestId('site-pill').focus()
+      byTestId('site-pill').click()
+      await flushPromises()
+      expect(exists('remember-site')).toBe(true)
+    })
+
+    it('opens its action on focus too, and closes it with Escape', async () => {
+      overlayReply = active
+      fakeSites()
+      await render()
+      byTestId('site-pill').focus()
+      await flushPromises()
+      expect(exists('remember-site')).toBe(true)
+      byTestId('remember-site').dispatchEvent(
+        new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }),
+      )
+      await flushPromises()
+      expect(exists('remember-site')).toBe(false)
     })
   })
 
@@ -795,15 +910,15 @@ describe('side panel', () => {
     const exists = (id: string) => document.querySelector(`[data-testid="${id}"]`) !== null
     const before = (a: string, b: string) =>
       (byTestId(a).compareDocumentPosition(byTestId(b)) & Node.DOCUMENT_POSITION_FOLLOWING) !== 0
-    const EDIT_ONLY = ['mode-browse', 'toggle-pins', 'tab-status', 'copy-prompt']
+    const EDIT_ONLY = ['mode-browse', 'toggle-pins', 'filter-open', 'copy-prompt']
 
-    it('is titled Edit, with the buttons above the texts', async () => {
+    it('is titled Edit, with the buttons above the filter and the list', async () => {
       overlayReply = active
       await render(twoPages())
       expect(byTestId('panel-title').textContent).toBe('Edit')
-      expect(before('mode-browse', 'tab-status')).toBe(true)
-      expect(before('toggle-pins', 'tab-status')).toBe(true)
-      expect(before('tab-status', 'item')).toBe(true)
+      expect(before('mode-browse', 'filter-open')).toBe(true)
+      expect(before('toggle-pins', 'filter-open')).toBe(true)
+      expect(before('filter-open', 'item')).toBe(true)
     })
 
     it('swaps to Settings, the gear for a close button, and hides what belongs to Edit', async () => {
@@ -817,6 +932,8 @@ describe('side panel', () => {
       expect(byTestId('close-settings').closest('[data-testid="title-row"]')).toBe(row)
       expect(byTestId('close-settings').getAttribute('aria-label')).toBe('Close settings')
       for (const id of [...EDIT_ONLY, 'clear-all', 'item']) expect(exists(id)).toBe(false)
+      // The site stays in the middle of the title row.
+      expect(byTestId('site-pill').closest('[data-testid="title-row"]')).toBe(row)
       byTestId('close-settings').click()
       await flushPromises()
       expect(byTestId('panel-title').textContent).toBe('Edit')
@@ -969,6 +1086,11 @@ describe('side panel', () => {
   describe('sites', () => {
     const ORIGIN = 'http://localhost:3000'
     let fake: ReturnType<typeof fakeSites>
+    async function hoverPill() {
+      byTestId('site-pill').dispatchEvent(new Event('pointerenter'))
+      await new Promise((done) => setTimeout(done, 200))
+      await flushPromises()
+    }
 
     beforeEach(() => {
       fake = fakeSites()
@@ -988,6 +1110,7 @@ describe('side panel', () => {
         calls.push(m.type)
         return { ok: true }
       }) as never)
+      await hoverPill()
       byTestId('remember-site').click()
       expect(calls).toEqual(['request'])
       expect(fakeBrowser.permissions.request).toHaveBeenCalledWith({ origins: [`${ORIGIN}/*`] })
@@ -1002,6 +1125,7 @@ describe('side panel', () => {
       overlayReply = active
       await render()
       vi.mocked(fakeBrowser.permissions.request).mockResolvedValue(false as never)
+      await hoverPill()
       byTestId('remember-site').click()
       await flushPromises()
       expect(fakeBrowser.runtime.sendMessage).not.toHaveBeenCalledWith(
@@ -1016,17 +1140,29 @@ describe('side panel', () => {
         ok: false,
         error: 'You can remember up to 100 sites. Forget one first.',
       } as never)
+      await hoverPill()
       byTestId('remember-site').click()
       await flushPromises()
       expect(byTestId('site-error').textContent).toContain('up to 100 sites')
     })
 
-    it('offers Forget this site on a remembered site', async () => {
+    it('offers Forget this site on a remembered site, and forgets only once confirmed', async () => {
       await fakeBrowser.storage.local.set({ [SETTINGS_KEY]: { rememberedOrigins: [ORIGIN] } })
       overlayReply = active
       await render()
+      await hoverPill()
       expect(document.querySelector('[data-testid="remember-site"]')).toBeNull()
       byTestId('forget-site').click()
+      await flushPromises()
+      expect(byTestId('forget-dialog').textContent).toContain('Forget localhost:3000?')
+      expect(byTestId('forget-dialog').textContent).toContain('Its feedback stays.')
+      byTestId('forget-cancel').click()
+      await flushPromises()
+      expect(fakeBrowser.runtime.sendMessage).not.toHaveBeenCalled()
+      await hoverPill()
+      byTestId('forget-site').click()
+      await flushPromises()
+      byTestId('forget-confirm').click()
       await flushPromises()
       expect(fakeBrowser.runtime.sendMessage).toHaveBeenCalledWith({
         type: 'site:forget',
@@ -1034,12 +1170,14 @@ describe('side panel', () => {
       })
     })
 
-    it('offers nothing for an inactive tab or a file page', async () => {
+    it('offers nothing for an unknown tab or a file page', async () => {
       await render()
-      expect(document.querySelector('[data-testid="remember-site"]')).toBeNull()
+      expect(byTestId('site-pill').tagName).not.toBe('BUTTON')
       wrapper?.unmount()
       overlayReply = { ...active, host: 'file', pageKey: 'file:///srv/app/index.html' }
       await render()
+      expect(byTestId('title-site').textContent?.trim()).toBe('Local files')
+      expect(byTestId('site-pill').tagName).not.toBe('BUTTON')
       expect(document.querySelector('[data-testid="remember-site"]')).toBeNull()
       expect(fake.state.granted.size).toBe(0)
     })
@@ -1061,6 +1199,9 @@ describe('side panel', () => {
       document
         .querySelector<HTMLElement>('[data-testid="site"] [data-testid="remove-site"]')
         ?.click()
+      await flushPromises()
+      expect(fakeBrowser.runtime.sendMessage).not.toHaveBeenCalled()
+      byTestId('forget-confirm').click()
       await flushPromises()
       expect(fakeBrowser.runtime.sendMessage).toHaveBeenCalledWith({
         type: 'site:forget',

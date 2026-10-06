@@ -27,7 +27,7 @@ describe('marking an element end to end', () => {
   it('marks, lists and copies the prompt', async () => {
     await session.page.goto(`${server.origin}/plain/`)
     const panel = await clickAction(session)
-    await panel.waitForSelector('::-p-text(Active on localhost:)')
+    await panel.waitForSelector('[data-testid="site-pill"][data-state="active"]')
     await panel.click('[data-testid="mode-element"]')
     await waitInOverlay(session, '[data-testid="overlay-glass"]')
 
@@ -39,7 +39,7 @@ describe('marking an element end to end', () => {
     await session.page.keyboard.press('Enter')
 
     await panel.waitForSelector('[data-testid="item"] ::-p-text(Make it wider)')
-    expect(await panel.$eval('[data-testid="item-count"]', (el) => el.textContent)).toBe('1')
+    expect(await panel.$eval('[data-testid="filter-open"]', (el) => el.textContent)).toContain('1')
     await panel.click('[data-testid="copy-prompt"]')
     await panel.waitForSelector('::-p-text(Copied 1 pin)')
 

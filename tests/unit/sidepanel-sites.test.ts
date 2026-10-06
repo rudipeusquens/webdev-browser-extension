@@ -75,6 +75,10 @@ describe('Settings: sites', () => {
     expect(byTestId('site-auto', staging!).textContent).toContain('Auto')
     byTestId('remove-site', staging!).click()
     await flushPromises()
+    // It asks first.
+    expect(fakeBrowser.runtime.sendMessage).not.toHaveBeenCalled()
+    byTestId('forget-confirm', document.body).click()
+    await flushPromises()
     expect(fakeBrowser.runtime.sendMessage).toHaveBeenCalledWith({
       type: 'site:forget',
       origin: STAGING,

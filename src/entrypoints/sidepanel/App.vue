@@ -6,6 +6,7 @@ import {
   RepeatIcon,
   MapPinOffIcon,
   MousePointer2Icon,
+  PlusIcon,
   SettingsIcon,
   SquareDashedIcon,
   SquareMousePointerIcon,
@@ -14,7 +15,6 @@ import {
 } from '@lucide/vue'
 import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { browser } from 'wxt/browser'
-import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Toggle } from '@/components/ui/toggle'
 import { ToggleGroup, ToggleGroupItem } from '@/components/ui/toggle-group'
@@ -30,7 +30,9 @@ import {
 import { isSiteOrigin, originPattern } from '@/lib/settings'
 import ClearAllDialog from './ClearAllDialog.vue'
 import CopyFallbackDialog from './CopyFallbackDialog.vue'
+import ForgetSiteDialog from './ForgetSiteDialog.vue'
 import ItemList from './ItemList.vue'
+import SitePill from './SitePill.vue'
 import SettingsView from './SettingsView.vue'
 import { useActiveTab } from './use-active-tab'
 import { usePanelView } from './use-panel-view'
@@ -141,18 +143,34 @@ const siteOrigin = computed(() => {
 const remembered = computed(
   () => !!siteOrigin.value && settings.value.rememberedOrigins.includes(siteOrigin.value),
 )
-const statusText = computed(() => {
+/** What the empty Edit view says while the overlay does not run on the tab. */
+const startText = computed(() => {
   switch (status.value.kind) {
-    case 'active':
-      return `Active on ${status.value.host}`
     case 'blocked':
-      return "Can't run on this page"
+      return "Can't run on this page: Chrome keeps extensions off it."
     case 'failed':
       return "Couldn't start on this page. Reload it and try again; the page's console has details."
     default: {
-      const press = shortcut.value ? `, press ${shortcut.value}` : ''
-      return `Not active on this page. Click the toolbar icon${press} or right-click the page and choose "Annotate this page".`
+      const press = shortcut.value ? ` or press ${shortcut.value}` : ''
+      const menu = settings.value.contextMenu
+        ? ', or right-click the page and choose "Annotate this page"'
+        : ''
+      return `Click the toolbar icon${press} to annotate this page${menu}.`
     }
+  }
+})
+/**
+ * A page without the overlay that the panel can start it on: Chrome tells the panel its
+ * address only where the extension may run already (spec section 8).
+ */
+const startable = computed(() => {
+  const now = status.value
+  if (now.kind !== 'idle' || !now.url) return false
+  try {
+    siteOf(now.url)
+    return true
+  } catch {
+    return false
   }
 })
 
@@ -239,8 +257,16 @@ function rememberSite() {
     .catch(() => undefined)
 }
 
+/** The site whose Forget waits for its confirmation. */
+const forgetting = ref<string | null>(null)
+
 function forgetSite(origin: string) {
   toBackground({ type: 'site:forget', origin })
+}
+
+/** Annotate this page, from the panel: where Chrome lets the extension, without the toolbar. */
+function startOverlay() {
+  if (tabId.value !== undefined) void change({ type: 'tab:start', tabId: tabId.value })
 }
 
 function changeItem(
@@ -319,20 +345,23 @@ function setMode(next: unknown) {
 <template>
   <main class="flex h-screen flex-col bg-background text-sm text-foreground">
     <header class="space-y-3 border-b px-4 py-3">
-      <div data-testid="title-row" class="flex items-center gap-2">
+      <div data-testid="title-row" class="relative flex h-8 items-center gap-2">
         <h1 data-testid="panel-title" class="font-semibold">
           {{ showSettings ? 'Settings' : 'Edit' }}
         </h1>
-        <span
-          v-if="!showSettings && site"
-          data-testid="title-site"
-          class="min-w-0 truncate font-mono text-xs text-muted-foreground"
-          :title="site"
-          >{{ siteLabel(site) }}</span
+        <!-- In the middle of the row, kept clear of what sits at either side. -->
+        <div
+          class="absolute top-1/2 left-1/2 flex -translate-x-1/2 -translate-y-1/2 justify-center"
+          :class="showSettings ? 'w-[calc(100%-10rem)]' : 'w-[calc(100%-14rem)]'"
         >
-        <Badge v-if="!showSettings && count" data-testid="item-count" variant="secondary">{{
-          count
-        }}</Badge>
+          <SitePill
+            :status="status"
+            :remembered="remembered"
+            @start="startOverlay"
+            @remember="rememberSite"
+            @forget="forgetting = siteOrigin"
+          />
+        </div>
         <template v-if="!showSettings">
           <Button
             data-testid="undo"
@@ -476,58 +505,33 @@ function setMode(next: unknown) {
             + Deleted <span class="text-muted-foreground tabular-nums">{{ counts.deleted }}</span>
           </ToggleGroupItem>
         </ToggleGroup>
-        <p data-testid="tab-status" class="flex items-start gap-2 text-xs text-muted-foreground">
-          <span
-            class="mt-1 size-2 shrink-0 rounded-full"
-            :class="{
-              'bg-green-500': status.kind === 'active',
-              'bg-red-500': status.kind === 'blocked' || status.kind === 'failed',
-              'bg-muted-foreground/40': status.kind === 'idle',
-            }"
-          />
-          <span class="min-w-0 flex-1">{{ statusText }}</span>
-          <Button
-            v-if="siteOrigin && !remembered"
-            data-testid="remember-site"
-            variant="outline"
-            size="xs"
-            class="-my-1 shrink-0"
-            :title="`Load the overlay on every page of ${siteOrigin}`"
-            @click="rememberSite"
-          >
-            Always enable here
-          </Button>
-          <Button
-            v-else-if="siteOrigin"
-            data-testid="forget-site"
-            variant="ghost"
-            size="xs"
-            class="-my-1 shrink-0 text-muted-foreground"
-            :title="`Stop loading the overlay on ${siteOrigin} by itself`"
-            @click="forgetSite(siteOrigin)"
-          >
-            Forget this site
-          </Button>
-        </p>
-        <p v-if="siteError" data-testid="site-error" role="alert" class="text-xs text-destructive">
-          {{ siteError }}
-        </p>
       </template>
+      <p v-if="siteError" data-testid="site-error" role="alert" class="text-xs text-destructive">
+        {{ siteError }}
+      </p>
     </header>
 
     <SettingsView
       v-if="showSettings"
       :settings="settings"
       :shortcut="shortcut"
-      @forget="forgetSite"
+      @forget="(origin) => (forgetting = origin)"
     />
     <section v-else data-testid="list-area" class="flex-1 overflow-y-auto">
       <!-- Empty states sit in the middle of the list area. -->
       <div v-if="!site || !shown.length" class="flex min-h-full items-center justify-center p-6">
-        <div data-testid="empty-state" class="max-w-72 text-center text-muted-foreground">
-          <p v-if="!site" data-testid="no-site">
-            Feedback is kept per site. Start the overlay on a page to see the feedback of its site.
-          </p>
+        <div data-testid="empty-state" class="max-w-72 space-y-3 text-center text-muted-foreground">
+          <template v-if="!site">
+            <p data-testid="tab-status">
+              {{ startable ? 'The overlay is not running on this page yet.' : startText }}
+            </p>
+            <Button v-if="startable" data-testid="start-overlay-center" @click="startOverlay">
+              <PlusIcon /> Annotate this page
+            </Button>
+            <p data-testid="no-site" class="text-xs">
+              Feedback is kept per site. It shows here once the overlay runs on the page.
+            </p>
+          </template>
           <p v-else-if="!items.length">
             No feedback yet: pick an element, drag an area, or select text.
           </p>
@@ -602,5 +606,6 @@ function setMode(next: unknown) {
       @confirm="clearSite"
     />
     <CopyFallbackDialog :text="fallbackText" @close="fallbackText = null" />
+    <ForgetSiteDialog :origin="forgetting" @confirm="forgetSite" @close="forgetting = null" />
   </main>
 </template>
