@@ -44,6 +44,8 @@ describe('client-side navigation', () => {
     await session.page.keyboard.type(comment)
     await session.page.keyboard.press('Enter')
     await waitForItems(panel, count)
+    // Stored before the overlay hears back: Escape would only close the popover.
+    await waitInOverlay(session, POPOVER, false)
     await session.page.keyboard.press('Escape')
   }
 

@@ -2,10 +2,12 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { fakeBrowser } from 'wxt/testing/fake-browser'
 import { isBlocked, markBlocked } from '@/lib/background/tab-status'
 import { loadMissing } from '@/lib/background/anchor-status'
+import { loadSettings, SETTINGS_KEY } from '@/lib/settings'
 import { loadCollection } from '@/lib/collection/store'
 import background from '@/entrypoints/background'
 import { vueOrigins } from '@/lib/capture/origin-bridge'
 import { elementInput } from './helpers/collection'
+import { fakeSites } from './helpers/fake-sites'
 
 const tab = { id: 5, windowId: 1 } as Parameters<
   Parameters<typeof fakeBrowser.action.onClicked.addListener>[0]
@@ -15,6 +17,7 @@ const flush = () => new Promise((done) => setTimeout(done, 0))
 describe('background', () => {
   beforeEach(() => {
     fakeBrowser.reset()
+    fakeSites()
     vi.spyOn(fakeBrowser.sidePanel, 'open').mockResolvedValue(undefined)
     background.main()
   })
@@ -94,6 +97,7 @@ describe('background: code origins', () => {
 
   beforeEach(() => {
     fakeBrowser.reset()
+    fakeSites()
     background.main()
   })
 
@@ -166,6 +170,7 @@ describe('background: items not found', () => {
 
   beforeEach(async () => {
     fakeBrowser.reset()
+    fakeSites()
     background.main()
     for (const [id, url] of [
       ['a1', A],
@@ -196,6 +201,61 @@ describe('background: items not found', () => {
     expect((await loadMissing()).size).toBe(1)
     await send({ type: 'collection:clear' }, { id: fakeBrowser.runtime.id })
     expect((await loadMissing()).size).toBe(0)
+  })
+})
+
+describe('background: remembered sites', () => {
+  const A = 'http://localhost:3000'
+  const panel = { id: fakeBrowser.runtime.id }
+  let fake: ReturnType<typeof fakeSites>
+
+  beforeEach(() => {
+    fakeBrowser.reset()
+    fake = fakeSites([`${A}/*`])
+    background.main()
+  })
+
+  afterEach(() => vi.restoreAllMocks())
+
+  it('remembers and forgets a site for the panel', async () => {
+    expect(await send({ type: 'site:remember', origin: A }, panel)).toEqual({ ok: true })
+    expect((await loadSettings()).rememberedOrigins).toEqual([A])
+    expect(await send({ type: 'site:forget', origin: A }, panel)).toEqual({ ok: true })
+    expect((await loadSettings()).rememberedOrigins).toEqual([])
+  })
+
+  it('refuses site changes from a page', async () => {
+    expect(await send({ type: 'site:remember', origin: A }, { ...panel, tab })).toMatchObject({
+      ok: false,
+    })
+    expect((await loadSettings()).rememberedOrigins).toEqual([])
+  })
+
+  it('forgets a site whose access was revoked in chrome://extensions', async () => {
+    await send({ type: 'site:remember', origin: A }, panel)
+    fake.revoke(`${A}/*`)
+    await vi.waitFor(async () => expect((await loadSettings()).rememberedOrigins).toEqual([]))
+    expect(fake.state.scripts.size).toBe(0)
+  })
+
+  it('rewrites the registration after an update and starts the overlay in open tabs', async () => {
+    await fakeBrowser.storage.local.set({ [SETTINGS_KEY]: { rememberedOrigins: [A] } })
+    vi.spyOn(fakeBrowser.tabs, 'query').mockResolvedValue([{ id: 7 }, { id: 8 }] as never)
+    const inject = vi.spyOn(fakeBrowser.scripting, 'executeScript').mockResolvedValue([] as never)
+    await fakeBrowser.runtime.onInstalled.trigger({ reason: 'update' } as never)
+    await vi.waitFor(() => expect(inject).toHaveBeenCalledTimes(2))
+    expect(fakeBrowser.tabs.query).toHaveBeenCalledWith({ url: [`${A}/*`] })
+    expect(inject).toHaveBeenCalledWith({
+      target: { tabId: 7 },
+      files: ['/content-scripts/overlay.js'],
+    })
+    expect(fake.state.scripts.get('overlay')?.matches).toEqual([`${A}/*`])
+  })
+
+  it('rewrites the registration when the browser starts', async () => {
+    await fakeBrowser.storage.local.set({ [SETTINGS_KEY]: { rememberedOrigins: [A] } })
+    await fakeBrowser.runtime.onStartup.trigger()
+    await vi.waitFor(() => expect(fake.state.scripts.get('overlay')?.matches).toEqual([`${A}/*`]))
   })
 })
 

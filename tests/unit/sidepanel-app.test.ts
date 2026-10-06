@@ -3,6 +3,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { fakeBrowser } from 'wxt/testing/fake-browser'
 import App from '@/entrypoints/sidepanel/App.vue'
 import { MISSING_KEY } from '@/lib/background/anchor-status'
+import { SETTINGS_KEY } from '@/lib/settings'
 import { markBlocked } from '@/lib/background/tab-status'
 import type { Collection } from '@/lib/collection/model'
 import { addAnnotation, emptyCollection } from '@/lib/collection/ops'
@@ -10,6 +11,7 @@ import { COLLECTION_KEY } from '@/lib/collection/store'
 import { formatCollection } from '@/lib/format/markdown'
 import type { OverlayStatus } from '@/lib/messages'
 import { elementInput, page, snapshot } from './helpers/collection'
+import { fakeSites } from './helpers/fake-sites'
 
 const A = 'http://localhost:3000/a'
 const B = 'http://localhost:3000/b'
@@ -226,6 +228,107 @@ describe('side panel', () => {
     expect(fakeBrowser.tabs.sendMessage).toHaveBeenCalledWith(1, {
       type: 'overlay:set-pins',
       visible: true,
+    })
+  })
+
+  describe('sites', () => {
+    const ORIGIN = 'http://localhost:3000'
+    let fake: ReturnType<typeof fakeSites>
+
+    beforeEach(() => {
+      fake = fakeSites()
+    })
+
+    it('offers Always enable here on an active page and asks Chrome before anything else', async () => {
+      overlayReply = active
+      await render()
+      const calls: string[] = []
+      vi.mocked(fakeBrowser.permissions.request).mockImplementation((async () => {
+        calls.push('request')
+        return true
+      }) as never)
+      vi.mocked(fakeBrowser.runtime.sendMessage).mockImplementation((async (m: {
+        type: string
+      }) => {
+        calls.push(m.type)
+        return { ok: true }
+      }) as never)
+      byTestId('remember-site').click()
+      expect(calls).toEqual(['request'])
+      expect(fakeBrowser.permissions.request).toHaveBeenCalledWith({ origins: [`${ORIGIN}/*`] })
+      await flushPromises()
+      expect(fakeBrowser.runtime.sendMessage).toHaveBeenCalledWith({
+        type: 'site:remember',
+        origin: ORIGIN,
+      })
+    })
+
+    it('does not remember the site when Chrome is not granted access', async () => {
+      overlayReply = active
+      await render()
+      vi.mocked(fakeBrowser.permissions.request).mockResolvedValue(false as never)
+      byTestId('remember-site').click()
+      await flushPromises()
+      expect(fakeBrowser.runtime.sendMessage).not.toHaveBeenCalledWith(
+        expect.objectContaining({ type: 'site:remember' }),
+      )
+    })
+
+    it('offers Forget this site on a remembered site', async () => {
+      await fakeBrowser.storage.local.set({ [SETTINGS_KEY]: { rememberedOrigins: [ORIGIN] } })
+      overlayReply = active
+      await render()
+      expect(document.querySelector('[data-testid="remember-site"]')).toBeNull()
+      byTestId('forget-site').click()
+      await flushPromises()
+      expect(fakeBrowser.runtime.sendMessage).toHaveBeenCalledWith({
+        type: 'site:forget',
+        origin: ORIGIN,
+      })
+    })
+
+    it('offers nothing for an inactive tab or a file page', async () => {
+      await render()
+      expect(document.querySelector('[data-testid="remember-site"]')).toBeNull()
+      wrapper?.unmount()
+      overlayReply = { ...active, host: 'file', pageKey: 'file:///srv/app/index.html' }
+      await render()
+      expect(document.querySelector('[data-testid="remember-site"]')).toBeNull()
+      expect(fake.state.granted.size).toBe(0)
+    })
+
+    it('lists remembered sites in the settings and forgets one', async () => {
+      await fakeBrowser.storage.local.set({
+        [SETTINGS_KEY]: { rememberedOrigins: [ORIGIN, 'https://staging.example.com'] },
+      })
+      await render()
+      byTestId('open-settings').click()
+      await flushPromises()
+      const sites = [...document.querySelectorAll('[data-testid="site"]')].map(
+        (el) => el.textContent,
+      )
+      expect(sites).toEqual([
+        expect.stringContaining(ORIGIN),
+        expect.stringContaining('https://staging.example.com'),
+      ])
+      document
+        .querySelector<HTMLElement>('[data-testid="site"] [data-testid="remove-site"]')
+        ?.click()
+      await flushPromises()
+      expect(fakeBrowser.runtime.sendMessage).toHaveBeenCalledWith({
+        type: 'site:forget',
+        origin: ORIGIN,
+      })
+      byTestId('close-settings').click()
+      await flushPromises()
+      expect(document.querySelector('[data-testid="site"]')).toBeNull()
+    })
+
+    it('says when no site is remembered', async () => {
+      await render()
+      byTestId('open-settings').click()
+      await flushPromises()
+      expect(body()).toContain('No remembered sites yet')
     })
   })
 

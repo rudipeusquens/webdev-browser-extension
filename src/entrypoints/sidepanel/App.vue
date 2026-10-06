@@ -4,6 +4,7 @@ import {
   MapPinIcon,
   MapPinOffIcon,
   MousePointer2Icon,
+  SettingsIcon,
   SquareDashedIcon,
   SquareMousePointerIcon,
 } from '@lucide/vue'
@@ -16,16 +17,21 @@ import { ToggleGroup, ToggleGroupItem } from '@/components/ui/toggle-group'
 import { groupByPage } from '@/lib/collection/ops'
 import { formatCollection } from '@/lib/format/markdown'
 import { type BackgroundMessage, type Mode, MODES, type OverlayMessage } from '@/lib/messages'
+import { isSiteOrigin, originPattern } from '@/lib/settings'
 import ClearAllDialog from './ClearAllDialog.vue'
 import CopyFallbackDialog from './CopyFallbackDialog.vue'
 import ItemList from './ItemList.vue'
+import SettingsView from './SettingsView.vue'
 import { useActiveTab } from './use-active-tab'
 import { useMissing } from './use-missing'
+import { useSettings } from './use-settings'
 import { useCollection } from '@/composables/use-collection'
 
 const { collection } = useCollection()
 const { tabId, status, refresh } = useActiveTab()
 const { missing } = useMissing()
+const { settings } = useSettings()
+const showSettings = ref(false)
 
 const count = computed(() => collection.value.items.length)
 const groups = computed(() => {
@@ -35,6 +41,19 @@ const groups = computed(() => {
 })
 const mode = computed(() => (status.value.kind === 'active' ? status.value.mode : undefined))
 const pinsShown = computed(() => status.value.kind !== 'active' || status.value.pins)
+/** The origin of the active page, when it is a site that can be remembered. */
+const siteOrigin = computed(() => {
+  if (status.value.kind !== 'active') return null
+  try {
+    const { origin } = new URL(status.value.pageKey)
+    return isSiteOrigin(origin) ? origin : null
+  } catch {
+    return null
+  }
+})
+const remembered = computed(
+  () => !!siteOrigin.value && settings.value.rememberedOrigins.includes(siteOrigin.value),
+)
 const statusText = computed(() => {
   switch (status.value.kind) {
     case 'active':
@@ -76,6 +95,22 @@ async function copy() {
   copyTimer = setTimeout(() => (copyStatus.value = ''), 4000)
 }
 
+/** Always enable here: Chrome asks for access inside the click, then the site is remembered. */
+function rememberSite() {
+  const origin = siteOrigin.value
+  if (!origin) return
+  browser.permissions
+    .request({ origins: [originPattern(origin)] })
+    .then((granted) => {
+      if (granted) toBackground({ type: 'site:remember', origin })
+    })
+    .catch(() => undefined)
+}
+
+function forgetSite(origin: string) {
+  toBackground({ type: 'site:forget', origin })
+}
+
 function setPins(visible: boolean) {
   toOverlay({ type: 'overlay:set-pins', visible })
   void refresh()
@@ -95,6 +130,17 @@ function setMode(next: unknown) {
       <div class="flex items-center gap-2">
         <h1 class="font-semibold">Feedback</h1>
         <Badge v-if="count" data-testid="item-count" variant="secondary">{{ count }}</Badge>
+        <Button
+          data-testid="open-settings"
+          variant="ghost"
+          size="icon-sm"
+          class="ml-auto text-muted-foreground"
+          aria-label="Settings"
+          title="Settings"
+          @click="showSettings = true"
+        >
+          <SettingsIcon />
+        </Button>
       </div>
       <p data-testid="tab-status" class="flex items-start gap-2 text-xs text-muted-foreground">
         <span
@@ -105,7 +151,29 @@ function setMode(next: unknown) {
             'bg-muted-foreground/40': status.kind === 'idle',
           }"
         />
-        <span>{{ statusText }}</span>
+        <span class="min-w-0 flex-1">{{ statusText }}</span>
+        <Button
+          v-if="siteOrigin && !remembered"
+          data-testid="remember-site"
+          variant="outline"
+          size="xs"
+          class="-my-1 shrink-0"
+          :title="`Load the overlay on every page of ${siteOrigin}`"
+          @click="rememberSite"
+        >
+          Always enable here
+        </Button>
+        <Button
+          v-else-if="siteOrigin"
+          data-testid="forget-site"
+          variant="ghost"
+          size="xs"
+          class="-my-1 shrink-0 text-muted-foreground"
+          :title="`Stop loading the overlay on ${siteOrigin} by itself`"
+          @click="forgetSite(siteOrigin)"
+        >
+          Forget this site
+        </Button>
       </p>
       <div class="flex flex-wrap items-center gap-x-3 gap-y-2">
         <ToggleGroup
@@ -152,7 +220,13 @@ function setMode(next: unknown) {
       </div>
     </header>
 
-    <section class="flex-1 overflow-y-auto">
+    <SettingsView
+      v-if="showSettings"
+      :origins="settings.rememberedOrigins"
+      @forget="forgetSite"
+      @close="showSettings = false"
+    />
+    <section v-else class="flex-1 overflow-y-auto">
       <p v-if="!count" class="p-6 pt-12 text-center text-muted-foreground">
         No feedback yet: pick an element, drag an area, or select text.
       </p>
@@ -166,7 +240,7 @@ function setMode(next: unknown) {
       />
     </section>
 
-    <footer class="space-y-2 border-t p-3">
+    <footer v-if="!showSettings" class="space-y-2 border-t p-3">
       <div class="flex gap-2">
         <Button data-testid="copy-prompt" class="flex-1" :disabled="!count" @click="copy">
           <CopyIcon /> Copy as prompt

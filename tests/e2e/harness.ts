@@ -80,14 +80,35 @@ export interface Session {
   page: Page
 }
 
-export async function launch(): Promise<Session> {
+/**
+ * A copy of the build whose manifest grants `origins` when it is installed: Chrome's prompt
+ * for "Always enable here" cannot be automated, and with the access granted already,
+ * `permissions.request` answers without one. The shipped build stays as it is.
+ */
+async function buildWithHostPermissions(origins: string[]): Promise<string> {
+  const dir = await mkdtemp(join(tmpdir(), 'webdev-extension-'))
+  await cp(EXTENSION_DIR, dir, { recursive: true })
+  const path = join(dir, 'manifest.json')
+  const manifest = JSON.parse(await readFile(path, 'utf8')) as Record<string, unknown>
+  manifest.host_permissions = origins
+  await writeFile(path, JSON.stringify(manifest))
+  return dir
+}
+
+export async function launch(options: { hostPermissions?: string[] } = {}): Promise<Session> {
   // --no-sandbox: CI runners restrict user namespaces; the pages are our own fixtures.
   const browser = await puppeteer.launch({
     headless: true,
     enableExtensions: true,
     args: ['--no-sandbox'],
   })
-  const extensionId = await browser.installExtension(EXTENSION_DIR)
+  const dir = options.hostPermissions
+    ? await buildWithHostPermissions(options.hostPermissions)
+    : EXTENSION_DIR
+  if (dir !== EXTENSION_DIR) {
+    browser.once('disconnected', () => void rm(dir, { recursive: true, force: true }))
+  }
+  const extensionId = await browser.installExtension(dir)
   await browser.waitForTarget(
     (t) =>
       t.type() === 'service_worker' &&

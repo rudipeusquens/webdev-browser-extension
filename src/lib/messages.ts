@@ -3,6 +3,7 @@
 
 import type { CodeOrigin, PageInfo, Target } from './collection/model'
 import { LIMITS } from './collection/model'
+import { isSiteOrigin } from './settings'
 import {
   hasKeys,
   isAnnotationId,
@@ -35,7 +36,11 @@ export type AnchorMessage = {
   missing: string[]
 }
 
-export type BackgroundMessage = CollectionMessage | OriginMessage | AnchorMessage
+/** Side panel → background: remember or forget a site (Always enable here). */
+export type SiteMessage =
+  { type: 'site:remember'; origin: string } | { type: 'site:forget'; origin: string }
+
+export type BackgroundMessage = CollectionMessage | OriginMessage | AnchorMessage | SiteMessage
 
 /** Most ids one `anchors:report` lists in each of its lists. */
 const MAX_REPORTED = 1000
@@ -93,6 +98,9 @@ export function isBackgroundMessage(x: unknown): x is BackgroundMessage {
       return hasKeys(x, ['type', 'id']) && isAnnotationId(x.id)
     case 'collection:clear':
       return hasKeys(x, ['type'])
+    case 'site:remember':
+    case 'site:forget':
+      return hasKeys(x, ['type', 'origin']) && isSiteOrigin(x.origin)
     case 'anchors:report':
       return (
         hasKeys(x, ['type', 'pageKey', 'found', 'missing']) &&
