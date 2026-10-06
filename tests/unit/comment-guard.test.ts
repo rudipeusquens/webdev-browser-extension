@@ -11,6 +11,17 @@ describe('CommentGuard', () => {
   beforeEach(() => vi.useFakeTimers())
   afterEach(() => vi.useRealTimers())
 
+  it('takes an edit by the overlay itself, such as a dictated text, as the verified text', () => {
+    const guard = new CommentGuard('Fix this')
+    guard.beforeInput(before('insertText', 'x'))
+    guard.accept('Fix this and that.')
+    expect(guard.verified).toBe('Fix this and that.')
+    expect(guard.matches('Fix this and that.')).toBe(true)
+    // An announcement from before the overlay's edit covers nothing after it.
+    expect(guard.input(input('insertText', 'x'), 'Fix this and that.x')).toBe(false)
+    expect(guard.verified).toBe('Fix this and that.')
+  })
+
   it('accepts edits announced by a trusted beforeinput', () => {
     const guard = new CommentGuard('')
     guard.beforeInput(before('insertText'))

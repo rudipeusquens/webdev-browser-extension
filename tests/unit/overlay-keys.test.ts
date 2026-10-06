@@ -13,6 +13,7 @@ const key = (k: string, extra: Partial<KeyboardEvent> = {}) =>
     metaKey: false,
     isComposing: false,
     keyCode: 0,
+    code: '',
     ...extra,
   }) as KeyboardEvent
 
@@ -37,6 +38,26 @@ describe('popoverKey', () => {
   it('ignores untrusted events', () => {
     expect(popoverKey(key('Enter', { isTrusted: false }))).toBeNull()
     expect(popoverKey(key('Escape', { isTrusted: false }))).toBeNull()
+    expect(popoverKey(key('v', { code: 'KeyV', altKey: true, isTrusted: false }))).toBeNull()
+  })
+
+  it('starts and stops dictation on Alt+V, by where the key sits on the keyboard', () => {
+    expect(popoverKey(key('v', { code: 'KeyV', altKey: true }))).toBe('voice')
+    // macOS types a character with Option+V.
+    expect(popoverKey(key('√', { code: 'KeyV', altKey: true }))).toBe('voice')
+    expect(popoverKey(key('v', { code: 'KeyV' }))).toBeNull()
+  })
+
+  it('leaves Alt+V with other modifiers and during composition alone', () => {
+    for (const extra of [
+      { ctrlKey: true },
+      { metaKey: true },
+      { shiftKey: true },
+      { isComposing: true },
+      { keyCode: 229 },
+    ]) {
+      expect(popoverKey(key('v', { code: 'KeyV', altKey: true, ...extra }))).toBeNull()
+    }
   })
 })
 
