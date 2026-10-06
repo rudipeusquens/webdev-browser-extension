@@ -54,6 +54,19 @@ export type VoiceSettingsMessage =
   | { type: 'voice:key:remove' }
   | { type: 'voice:key:test' }
 
+/**
+ * Overlay → background, from a trusted click in the comment popover: open the microphone page
+ * (Grant), or the panel on its settings (Open settings).
+ */
+export type VoiceRequestMessage = { type: 'voice:grant' } | { type: 'voice:settings' }
+
+/**
+ * `storage.session` entry the background writes for **Open settings**: the panel of that window
+ * opens its settings, also when it opens only now.
+ */
+export const PANEL_VIEW_KEY = 'panelView'
+export type PanelView = { windowId: number; view: 'settings'; at: number }
+
 export type BackgroundMessage =
   | CollectionMessage
   | OriginMessage
@@ -62,6 +75,7 @@ export type BackgroundMessage =
   | GoToMessage
   | FailedMessage
   | VoiceSettingsMessage
+  | VoiceRequestMessage
 
 /** Most ids one `anchors:report` lists in each of its lists. */
 const MAX_REPORTED = 1000
@@ -143,6 +157,8 @@ export function isBackgroundMessage(x: unknown): x is BackgroundMessage {
     case 'overlay:failed':
     case 'voice:key:remove':
     case 'voice:key:test':
+    case 'voice:grant':
+    case 'voice:settings':
       return hasKeys(x, ['type'])
     case 'voice:set':
       return (
@@ -233,5 +249,15 @@ export function isOverlayStatus(x: unknown): x is OverlayStatus {
     isText(x.pageKey, 8192, 1) &&
     isMode(x.mode) &&
     typeof x.pins === 'boolean'
+  )
+}
+
+export function isPanelView(x: unknown): x is PanelView {
+  return (
+    hasKeys(x, ['windowId', 'view', 'at']) &&
+    Number.isInteger(x.windowId) &&
+    x.view === 'settings' &&
+    typeof x.at === 'number' &&
+    Number.isFinite(x.at)
   )
 }

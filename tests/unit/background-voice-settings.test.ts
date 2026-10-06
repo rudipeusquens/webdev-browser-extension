@@ -4,6 +4,7 @@ import background from '@/entrypoints/background'
 import { KEY_STORAGE, loadKey } from '@/lib/voice/key'
 import { DEFAULT_MODEL, loadVoiceSettings } from '@/lib/voice/settings'
 import { fakeContextMenus } from './helpers/fake-context-menus'
+import { fakePorts } from './helpers/fake-ports'
 import { fakeSites } from './helpers/fake-sites'
 
 // A well-formed but fake key, assembled at runtime so this file never contains one.
@@ -20,6 +21,7 @@ describe('background: voice settings from the panel', () => {
     fakeBrowser.reset()
     fakeSites()
     fakeContextMenus()
+    fakePorts()
     background.main()
   })
 

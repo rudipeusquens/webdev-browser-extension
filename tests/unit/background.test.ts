@@ -8,6 +8,7 @@ import background from '@/entrypoints/background'
 import { vueOrigins } from '@/lib/capture/origin-bridge'
 import { elementInput } from './helpers/collection'
 import { fakeContextMenus } from './helpers/fake-context-menus'
+import { fakePorts } from './helpers/fake-ports'
 import { fakeSites } from './helpers/fake-sites'
 
 const tab = { id: 5, windowId: 1 } as Parameters<
@@ -28,6 +29,7 @@ describe('background', () => {
     fakeContextMenus()
     noPanel()
     vi.spyOn(fakeBrowser.sidePanel, 'open').mockResolvedValue(undefined)
+    fakePorts()
     background.main()
   })
 
@@ -165,6 +167,7 @@ describe('background: code origins', () => {
     fakeBrowser.reset()
     fakeSites()
     fakeContextMenus()
+    fakePorts()
     background.main()
   })
 
@@ -239,6 +242,7 @@ describe('background: items not found', () => {
     fakeBrowser.reset()
     fakeSites()
     fakeContextMenus()
+    fakePorts()
     background.main()
     for (const [id, url] of [
       ['a1', A],
@@ -281,6 +285,7 @@ describe('background: remembered sites', () => {
     fakeBrowser.reset()
     fake = fakeSites([`${A}/*`])
     fakeContextMenus()
+    fakePorts()
     background.main()
   })
 
@@ -348,6 +353,7 @@ describe('background: go to a page of the collection', () => {
     fakeBrowser.reset()
     fakeSites()
     fakeContextMenus()
+    fakePorts()
     background.main()
     await send({ type: 'annotation:add', ...elementInput('a1', page) }, { ...panel, tab })
     await send(
@@ -390,6 +396,7 @@ describe('background: the page context menu', () => {
     fakeSites()
     menus = fakeContextMenus()
     vi.spyOn(fakeBrowser.sidePanel, 'open').mockResolvedValue(undefined)
+    fakePorts()
     background.main()
   })
 
