@@ -199,6 +199,26 @@ describe('background', () => {
     expect(await status()).toBe('open')
   })
 
+  it('undoes and redoes for the panel only', async () => {
+    const site = 'http://x.test'
+    const status = async () => (await loadSite(site)).items[0]?.status
+    await send(
+      { type: 'annotation:add', ...elementInput('a1', `${site}/`) },
+      pageSender(`${site}/`),
+    )
+    await send({ type: 'annotation:remove', site, id: 'a1' }, panelSender)
+    const undo = { type: 'history:undo', site }
+    expect(await send(undo, pageSender(`${site}/`))).toMatchObject({ ok: false })
+    expect(await status()).toBe('deleted')
+    expect(await send(undo, panelSender)).toEqual({ ok: true })
+    expect(await status()).toBe('open')
+    expect(await send({ type: 'history:redo', site }, pageSender(`${site}/`))).toMatchObject({
+      ok: false,
+    })
+    expect(await send({ type: 'history:redo', site }, panelSender)).toEqual({ ok: true })
+    expect(await status()).toBe('deleted')
+  })
+
   it('keeps the filter the panel chose, for every page to read', async () => {
     expect(
       await send({ type: 'view:set', filter: 'all' }, pageSender('http://x.test/')),

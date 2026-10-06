@@ -16,6 +16,19 @@ export function isMacPlatform(platform: string): boolean {
   return /^mac/i.test(platform)
 }
 
+/** The panel's own keys: Undo and Redo, with ⌘ on macOS and Ctrl elsewhere. */
+export function panelKey(
+  e: Pick<KeyboardEvent, 'key' | 'ctrlKey' | 'metaKey' | 'shiftKey' | 'altKey'>,
+  mac: boolean,
+): 'undo' | 'redo' | null {
+  const command = mac ? e.metaKey && !e.ctrlKey : e.ctrlKey && !e.metaKey
+  if (!command || e.altKey) return null
+  const key = e.key.toLowerCase()
+  if (key === 'z') return e.shiftKey ? 'redo' : 'undo'
+  if (key === 'y' && !mac && !e.shiftKey) return 'redo'
+  return null
+}
+
 /** The platform as the browser names it, for `isMacPlatform`. */
 export function currentPlatform(): string {
   const data = (navigator as { userAgentData?: { platform?: string } }).userAgentData
@@ -54,6 +67,13 @@ export function shortcutGroups(mac: boolean): ShortcutGroup[] {
         { keys: [shift('Enter')], action: 'New line' },
         { keys: ['Esc'], action: 'Cancel (a running dictation first)' },
         { keys: [alt('V')], action: 'Start or stop dictation' },
+      ],
+    },
+    {
+      title: 'In this panel',
+      rows: [
+        { keys: [mac ? '⌘Z' : 'Ctrl+Z'], action: 'Undo' },
+        { keys: mac ? ['⇧⌘Z'] : ['Ctrl+Shift+Z', 'Ctrl+Y'], action: 'Redo' },
       ],
     },
   ]

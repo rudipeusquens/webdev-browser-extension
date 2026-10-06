@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { pageShortcut, popoverKey, type ShortcutState } from '@/entrypoints/overlay.content/keys'
-import { isMacPlatform, shortcutGroups } from '@/lib/shortcuts'
+import { isMacPlatform, panelKey, shortcutGroups } from '@/lib/shortcuts'
 
 const key = (init: Partial<KeyboardEvent>) => ({
   isTrusted: true,
@@ -40,7 +40,16 @@ describe('the shortcut list', () => {
       'Element mode',
       'Area mode',
       'In a comment',
+      'In this panel',
     ])
+  })
+
+  it('names undo and redo in the panel, the way each platform writes them', () => {
+    expect(row(groups, 'In this panel', 'Undo').keys).toEqual(['Ctrl+Z'])
+    expect(row(groups, 'In this panel', 'Redo').keys).toEqual(['Ctrl+Shift+Z', 'Ctrl+Y'])
+    const mac = shortcutGroups(true)
+    expect(row(mac, 'In this panel', 'Undo').keys).toEqual(['⌘Z'])
+    expect(row(mac, 'In this panel', 'Redo').keys).toEqual(['⇧⌘Z'])
   })
 
   // Each row names a key and what it does; the overlay's handlers must do exactly that.
@@ -108,6 +117,21 @@ describe('the shortcut list', () => {
     expect(row(mac, 'In a comment', 'Start or stop dictation').keys).toEqual(['⌥V'])
     expect(row(mac, 'In a comment', 'New line').keys).toEqual(['⇧Enter'])
     expect(row(mac, 'On the page', 'Element mode').keys).toEqual(['E'])
+  })
+
+  it.each([
+    [false, key({ key: 'z', ctrlKey: true }), 'undo'],
+    [false, key({ key: 'Z', ctrlKey: true, shiftKey: true }), 'redo'],
+    [false, key({ key: 'y', ctrlKey: true }), 'redo'],
+    [false, key({ key: 'z', metaKey: true }), null],
+    [false, key({ key: 'z', ctrlKey: true, altKey: true }), null],
+    [false, key({ key: 'z' }), null],
+    [true, key({ key: 'z', metaKey: true }), 'undo'],
+    [true, key({ key: 'z', metaKey: true, shiftKey: true }), 'redo'],
+    [true, key({ key: 'y', metaKey: true }), null],
+    [true, key({ key: 'z', ctrlKey: true }), null],
+  ])('the panel keys on a Mac: %s, %j → %s', (mac, event, expected) => {
+    expect(panelKey(event, mac)).toBe(expected)
   })
 
   it('tells a Mac by its platform', () => {

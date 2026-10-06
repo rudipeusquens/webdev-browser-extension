@@ -321,6 +321,88 @@ describe('side panel', () => {
     })
   })
 
+  describe('undo and redo', () => {
+    const labels = (value: object) =>
+      fakeBrowser.storage.session.set({ [`historyLabels:${SITE}`]: value })
+    const sent = () => vi.mocked(fakeBrowser.runtime.sendMessage).mock.calls.map(([m]) => m)
+    const key = (init: KeyboardEventInit, target: EventTarget = document.body) =>
+      target.dispatchEvent(
+        new KeyboardEvent('keydown', { bubbles: true, cancelable: true, ...init }),
+      )
+
+    it('are disabled until there is a step, and name it', async () => {
+      overlayReply = active
+      await render(twoPages())
+      expect(byTestId('undo').hasAttribute('disabled')).toBe(true)
+      expect(byTestId('redo').hasAttribute('disabled')).toBe(true)
+      await labels({ undo: 'Delete item 2', redo: 'Mark 3 items done' })
+      await flushPromises()
+      expect(byTestId('undo').hasAttribute('disabled')).toBe(false)
+      expect(byTestId('undo').title).toBe('Undo: Delete item 2 (Ctrl+Z)')
+      expect(byTestId('redo').title).toBe('Redo: Mark 3 items done (Ctrl+Shift+Z)')
+      byTestId('undo').click()
+      byTestId('redo').click()
+      await flushPromises()
+      expect(sent()).toEqual([
+        { type: 'history:undo', site: SITE },
+        { type: 'history:redo', site: SITE },
+      ])
+    })
+
+    it('sit in the title row, before the gear', async () => {
+      overlayReply = active
+      await render(twoPages())
+      const row = byTestId('title-row')
+      expect(byTestId('undo').closest('[data-testid="title-row"]')).toBe(row)
+      expect(
+        byTestId('redo').compareDocumentPosition(byTestId('open-settings')) &
+          Node.DOCUMENT_POSITION_FOLLOWING,
+      ).toBeTruthy()
+    })
+
+    it('answer Ctrl+Z, Ctrl+Shift+Z and Ctrl+Y outside text fields', async () => {
+      overlayReply = active
+      await labels({ undo: 'Add item 1', redo: 'Add item 2' })
+      await render(twoPages())
+      key({ key: 'z', ctrlKey: true })
+      key({ key: 'Z', ctrlKey: true, shiftKey: true })
+      key({ key: 'y', ctrlKey: true })
+      await flushPromises()
+      expect(sent()).toEqual([
+        { type: 'history:undo', site: SITE },
+        { type: 'history:redo', site: SITE },
+        { type: 'history:redo', site: SITE },
+      ])
+      const field = document.createElement('input')
+      document.body.append(field)
+      key({ key: 'z', ctrlKey: true }, field)
+      key({ key: 'z', metaKey: true })
+      await flushPromises()
+      expect(sent()).toHaveLength(3)
+    })
+
+    it('take no keys while Settings is open', async () => {
+      overlayReply = active
+      await labels({ undo: 'Add item 1' })
+      await render(twoPages())
+      byTestId('open-settings').click()
+      await flushPromises()
+      expect(document.querySelector('[data-testid="undo"]')).toBeNull()
+      key({ key: 'z', ctrlKey: true })
+      await flushPromises()
+      expect(sent()).toEqual([])
+    })
+
+    it('say that Clear all can be undone', async () => {
+      overlayReply = active
+      await render(twoPages())
+      byTestId('clear-all').click()
+      await flushPromises()
+      expect(body()).toContain('Undo brings them back until the browser closes.')
+      expect(body()).not.toContain("can't be undone")
+    })
+  })
+
   describe('one site at a time', () => {
     const OTHER = 'http://localhost:5173'
     const onOther = () =>

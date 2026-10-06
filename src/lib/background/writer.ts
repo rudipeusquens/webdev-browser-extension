@@ -9,6 +9,7 @@ import { addAnnotation, clearAll, markCopied, setStatus, updateComment } from '.
 import { collectionKey, LEGACY_KEY, loadSite } from '../collection/store'
 import { isLegacyCollection } from '../collection/validate'
 import type { CollectionMessage, Reply } from '../messages'
+import { applyStep, forgetHistory, loadHistory, saveHistory, stepBetween } from './history'
 
 const GONE = 'This item no longer exists.'
 
@@ -43,6 +44,36 @@ function apply(c: Collection, msg: CollectionMessage, now: string): Collection |
   }
 }
 
+const plural = (n: number, word: string) => `${n} ${word}${n === 1 ? '' : 's'}`
+
+/** What Undo and Redo call the change `msg` made from `before` to `after`. */
+function labelOf(msg: CollectionMessage, before: Collection, after: Collection): string {
+  const item = (id: string) => {
+    const found = after.items.find((i) => i.id === id) ?? before.items.find((i) => i.id === id)
+    return `item ${found?.number ?? ''}`.trim()
+  }
+  switch (msg.type) {
+    case 'annotation:add':
+      return `Add ${item(msg.id)}`
+    case 'annotation:update':
+      return `Edit ${item(msg.id)}`
+    case 'annotation:remove':
+      return `Delete ${item(msg.id)}`
+    case 'annotation:restore':
+      return `Restore ${item(msg.id)}`
+    case 'annotation:reopen':
+      return `Reopen ${item(msg.id)}`
+    case 'collection:copied': {
+      const done = after.items.filter(
+        (i) => i.status === 'done' && before.items.find((b) => b.id === i.id)?.status === 'open',
+      ).length
+      return done > 0 ? `Mark ${plural(done, 'item')} done` : 'Copy as prompt'
+    }
+    case 'collection:clear':
+      return 'Clear all'
+  }
+}
+
 const isEmpty = (c: Collection) =>
   c.items.length === 0 &&
   Object.keys(c.pages).length === 0 &&
@@ -65,6 +96,31 @@ export function createWriter(now = () => new Date().toISOString()) {
     return run
   }
 
+  /** A new change: one more undo step, and nothing left to redo. */
+  async function record(site: string, step: ReturnType<typeof stepBetween>): Promise<void> {
+    if (!step) return
+    const h = await loadHistory(site)
+    await saveHistory(site, { undo: [...h.undo, step], redo: [] })
+  }
+
+  function move(site: string, from: 'undo' | 'redo'): Promise<Reply> {
+    const to = from === 'undo' ? 'redo' : 'undo'
+    return inOrder(async (): Promise<Reply> => {
+      const h = await loadHistory(site)
+      const step = h[from].at(-1)
+      if (!step) return { ok: false, error: `Nothing to ${from}.` }
+      const next = applyStep(await loadSite(site), step, from === 'undo' ? 'before' : 'after')
+      if (!next) {
+        await forgetHistory(site)
+        const done = from === 'undo' ? 'undone' : 'redone'
+        return { ok: false, error: `This changed in the meantime; it can no longer be ${done}.` }
+      }
+      await save(next)
+      await saveHistory(site, { ...h, [from]: h[from].slice(0, -1), [to]: [...h[to], step] })
+      return { ok: true }
+    }).catch((): Reply => ({ ok: false, error: 'Could not save.' }))
+  }
+
   return {
     /** Applies `msg` to the collection of `site`. */
     write(site: string, msg: CollectionMessage): Promise<Reply> {
@@ -72,10 +128,20 @@ export function createWriter(now = () => new Date().toISOString()) {
         const current = await loadSite(site)
         const next = apply(current, msg, now())
         if (typeof next === 'string') return { ok: false, error: next }
-        if (next !== current) await save(next)
+        if (next === current) return { ok: true }
+        await save(next)
+        // The change is saved; a history that cannot be kept only loses its undo.
+        await record(site, stepBetween(current, next, labelOf(msg, current, next))).catch(
+          () => undefined,
+        )
         return { ok: true }
       }).catch((): Reply => ({ ok: false, error: 'Could not save.' }))
     },
+
+    /** Puts back what the site's last change changed. */
+    undo: (site: string) => move(site, 'undo'),
+    /** Applies again what the last undo put back. */
+    redo: (site: string) => move(site, 'redo'),
 
     /**
      * Splits the collection of milestones 2–5 by site, before any write that comes after it.

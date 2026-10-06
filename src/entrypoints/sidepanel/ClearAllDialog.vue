@@ -26,7 +26,8 @@ const plural = (n: number, word: string) => `${n} ${word}${n === 1 ? '' : 's'}`
         <AlertDialogTitle>Clear all feedback?</AlertDialogTitle>
         <AlertDialogDescription>
           This removes {{ plural(items, 'item') }} on {{ plural(pages, 'page') }} of {{ site }},
-          done and deleted ones too. Numbering starts again at 1. This can't be undone.
+          done and deleted ones too. Numbering starts again at 1. Undo brings them back until the
+          browser closes.
         </AlertDialogDescription>
       </AlertDialogHeader>
       <AlertDialogFooter>

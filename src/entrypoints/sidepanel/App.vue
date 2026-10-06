@@ -2,15 +2,17 @@
 import {
   CopyIcon,
   MapPinIcon,
+  Redo2Icon,
   RepeatIcon,
   MapPinOffIcon,
   MousePointer2Icon,
   SettingsIcon,
   SquareDashedIcon,
   SquareMousePointerIcon,
+  Undo2Icon,
   XIcon,
 } from '@lucide/vue'
-import { computed, ref } from 'vue'
+import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
 import { browser } from 'wxt/browser'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
@@ -41,6 +43,8 @@ import { useSiteCollection } from '@/composables/use-site-collection'
 import { emptyCollection, pick } from '@/lib/collection/ops'
 import { type Filter, shows } from '@/lib/view'
 import { useView } from './use-view'
+import { useHistory } from './use-history'
+import { currentPlatform, isMacPlatform, panelKey } from '@/lib/shortcuts'
 import { siteLabel, siteOf } from '@/lib/collection/site'
 
 const { tabId, windowId, status, refresh } = useActiveTab()
@@ -65,6 +69,30 @@ const showSettings = ref(false)
 usePanelView(windowId, () => (showSettings.value = true))
 
 const { filter, choose } = useView()
+const { labels } = useHistory(site)
+const mac = isMacPlatform(currentPlatform())
+const undoKey = mac ? '⌘Z' : 'Ctrl+Z'
+const redoKey = mac ? '⇧⌘Z' : 'Ctrl+Shift+Z'
+
+function history(type: 'history:undo' | 'history:redo') {
+  if (site.value) toBackground({ type, site: site.value })
+}
+
+/** Ctrl+Z and Ctrl+Shift+Z (⌘ on macOS) in Edit, outside text fields; the page keeps its own. */
+function onKeydown(e: KeyboardEvent) {
+  if (showSettings.value || e.defaultPrevented) return
+  const target = e.target as HTMLElement | null
+  if (target?.closest?.('input, textarea, select, [contenteditable=""], [contenteditable="true"]'))
+    return
+  const action = panelKey(e, mac)
+  if (!action) return
+  e.preventDefault()
+  if (action === 'undo' ? labels.value.undo : labels.value.redo) {
+    history(action === 'undo' ? 'history:undo' : 'history:redo')
+  }
+}
+onMounted(() => window.addEventListener('keydown', onKeydown))
+onBeforeUnmount(() => window.removeEventListener('keydown', onKeydown))
 const items = computed(() => collection.value.items)
 const openIds = computed(() =>
   items.value
@@ -247,6 +275,36 @@ function setMode(next: unknown) {
         <Badge v-if="!showSettings && count" data-testid="item-count" variant="secondary">{{
           count
         }}</Badge>
+        <template v-if="!showSettings">
+          <Button
+            data-testid="undo"
+            variant="ghost"
+            size="icon-sm"
+            class="ml-auto text-muted-foreground"
+            :disabled="!labels.undo"
+            aria-label="Undo"
+            :title="
+              labels.undo ? `Undo: ${labels.undo} (${undoKey})` : `Nothing to undo (${undoKey})`
+            "
+            @click="history('history:undo')"
+          >
+            <Undo2Icon />
+          </Button>
+          <Button
+            data-testid="redo"
+            variant="ghost"
+            size="icon-sm"
+            class="text-muted-foreground"
+            :disabled="!labels.redo"
+            aria-label="Redo"
+            :title="
+              labels.redo ? `Redo: ${labels.redo} (${redoKey})` : `Nothing to redo (${redoKey})`
+            "
+            @click="history('history:redo')"
+          >
+            <Redo2Icon />
+          </Button>
+        </template>
         <Button
           v-if="showSettings"
           data-testid="close-settings"
@@ -264,7 +322,7 @@ function setMode(next: unknown) {
           data-testid="open-settings"
           variant="ghost"
           size="icon-sm"
-          class="ml-auto text-muted-foreground"
+          class="text-muted-foreground"
           aria-label="Settings"
           title="Settings"
           @click="showSettings = true"

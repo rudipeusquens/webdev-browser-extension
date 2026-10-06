@@ -142,4 +142,37 @@ describe('one collection per site', () => {
     expect(first?.nextNumber).toBe(3)
     await waitForListed(['Old old1'])
   })
+
+  it('undoes and redoes a deletion from another tab of the same site', async () => {
+    // Left by the last test: "Old old1" open on the first site, its overlay in session.page.
+    await waitForListed(['Old old1'])
+    await panel.click('[aria-label="Delete item 1"]')
+    await waitForListed([])
+    await panel.waitForSelector('[data-testid="undo"][title="Undo: Delete item 1 (Ctrl+Z)"]')
+
+    const second = await session.browser.newPage()
+    await second.goto(`${one.origin}/plain/text.html`)
+    await second.bringToFront()
+    await clickAction({ ...session, page: second })
+    await overlayMounted({ ...session, page: second })
+    await panel.waitForSelector('[data-testid="undo"]:not([disabled])')
+    await panel.click('[data-testid="undo"]')
+    await waitForListed(['Old old1'])
+    await panel.waitForSelector('[data-testid="redo"][title="Redo: Delete item 1 (Ctrl+Shift+Z)"]')
+    // The panel's own key, outside any field.
+    await panel.focus('body')
+    await panel.keyboard.down('Control')
+    await panel.keyboard.down('Shift')
+    await panel.keyboard.press('KeyZ')
+    await panel.keyboard.up('Shift')
+    await panel.keyboard.up('Control')
+    await waitForListed([])
+
+    await session.page.bringToFront()
+    await panel.waitForSelector('[data-testid="redo"][disabled]')
+    await panel.waitForSelector('[data-testid="undo"]:not([disabled])')
+    const first = await storedCollection(panel, one.origin)
+    expect(first?.items.map((i) => [i.id, i.status])).toEqual([['old1', 'deleted']])
+    await second.close()
+  })
 })

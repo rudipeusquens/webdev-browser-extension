@@ -28,7 +28,7 @@ import { VIEW_KEY } from '@/lib/view'
 const MENU_ENTRY = 'annotate'
 
 export default defineBackground(() => {
-  const { write, migrate } = createWriter()
+  const { write, migrate, undo, redo } = createWriter()
   // Queued before any write: the collection of milestones 2–5 becomes one per site.
   void migrate()
   const recordAnchors = createAnchorStore()
@@ -182,6 +182,12 @@ export default defineBackground(() => {
         return message.type === 'site:remember'
           ? sites.remember(message.origin)
           : sites.forget(message.origin)
+      case 'history:undo':
+      case 'history:redo':
+        if (!isPanelSender(sender)) {
+          return { ok: false, error: 'Undo and Redo are buttons of the panel.' } satisfies Reply
+        }
+        return message.type === 'history:undo' ? undo(message.site) : redo(message.site)
       case 'view:set':
         if (!isPanelSender(sender)) {
           return { ok: false, error: 'The filter is set in the panel.' } satisfies Reply

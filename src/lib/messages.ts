@@ -54,6 +54,10 @@ export type AnchorMessage = {
 export type SiteMessage =
   { type: 'site:remember'; origin: string } | { type: 'site:forget'; origin: string }
 
+/** Side panel → background: undo or redo the site's last change (spec section 5). */
+export type HistoryMessage =
+  { type: 'history:undo'; site: string } | { type: 'history:redo'; site: string }
+
 /** Side panel → background: list and pin these items from now on (spec section 5). */
 export type ViewMessage = { type: 'view:set'; filter: Filter }
 
@@ -88,6 +92,7 @@ export type BackgroundMessage =
   | OriginMessage
   | AnchorMessage
   | SiteMessage
+  | HistoryMessage
   | ViewMessage
   | GoToMessage
   | FailedMessage
@@ -205,6 +210,9 @@ export function isBackgroundMessage(x: unknown): x is BackgroundMessage {
       )
     case 'voice:key:save':
       return hasKeys(x, ['type', 'key']) && isApiKey(x.key)
+    case 'history:undo':
+    case 'history:redo':
+      return hasKeys(x, ['type', 'site']) && isSite(x.site)
     case 'view:set':
       return hasKeys(x, ['type', 'filter']) && isFilter(x.filter)
     case 'tab:go':
