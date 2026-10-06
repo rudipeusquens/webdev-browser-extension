@@ -39,6 +39,11 @@ describe('isMessage', () => {
     { type: 'anchors:report', pageKey: 'http://localhost:3000/', found: ['a1'], missing: [] },
     { type: 'anchors:report', pageKey: 'http://localhost:3000/', found: [], missing: ['a1', 'b2'] },
     { type: 'origin:read', selectors: Array.from({ length: 11 }, (_, i) => `#c${i}`) },
+    { type: 'voice:set', model: 'openai/gpt-4o-mini-transcribe', language: 'auto' },
+    { type: 'voice:set', model: 'vendor/model:free', language: 'de' },
+    { type: 'voice:key:save', key: 'test-key-123' },
+    { type: 'voice:key:remove' },
+    { type: 'voice:key:test' },
   ])('accepts $type', (message) => {
     expect(isMessage(message)).toBe(true)
   })
@@ -87,6 +92,16 @@ describe('isMessage', () => {
         missing: [],
       },
     ],
+    ['a model without a vendor', { type: 'voice:set', model: 'whisper', language: 'auto' }],
+    ['a language name', { type: 'voice:set', model: 'a/b', language: 'German' }],
+    [
+      'voice settings with an extra key',
+      { type: 'voice:set', model: 'a/b', language: 'en', key: 'k' },
+    ],
+    ['a key with spaces', { type: 'voice:key:save', key: 'my key is here' }],
+    ['a key that is too short', { type: 'voice:key:save', key: 'abc' }],
+    ['a key that is no string', { type: 'voice:key:save', key: 12345678 }],
+    ['a removal with a key', { type: 'voice:key:remove', key: 'test-key-123' }],
     ['null', null],
     ['a string', 'collection:clear'],
     ['an array', [{ type: 'collection:clear' }]],

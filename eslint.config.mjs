@@ -27,6 +27,46 @@ export default defineConfig(
   },
   // shadcn-vue components use single-word names (Button, Popover).
   { rules: { 'vue/multi-word-component-names': 'off' } },
+  // The overlay runs next to hostile pages and never touches the OpenRouter key (spec
+  // section 9): no key module, no key name, no read of all of storage.
+  {
+    files: ['src/entrypoints/overlay.content/**/*.{ts,vue}'],
+    rules: {
+      'no-restricted-imports': [
+        'error',
+        {
+          patterns: [
+            { regex: 'voice/key$', message: 'The overlay never reads the OpenRouter key.' },
+          ],
+        },
+      ],
+      'no-restricted-syntax': [
+        'error',
+        {
+          selector: 'Identifier[name=/openrouterKey/i]',
+          message: 'The overlay never reads the OpenRouter key.',
+        },
+        {
+          selector: 'Literal[value=/openrouterKey/i]',
+          message: 'The overlay never reads the OpenRouter key.',
+        },
+        {
+          selector: 'TemplateElement[value.raw=/openrouterKey/i]',
+          message: 'The overlay never reads the OpenRouter key.',
+        },
+        {
+          selector:
+            "CallExpression[callee.property.name='get'][callee.object.property.name='local'][arguments.length=0]",
+          message: 'Read named storage keys only: all of storage holds the OpenRouter key.',
+        },
+        {
+          selector:
+            "CallExpression[callee.property.name='get'][callee.object.property.name='local'][arguments.0.raw='null']",
+          message: 'Read named storage keys only: all of storage holds the OpenRouter key.',
+        },
+      ],
+    },
+  },
   // Copied shadcn-vue components declare optional props without defaults on purpose.
   {
     files: ['src/components/ui/**/*.vue'],

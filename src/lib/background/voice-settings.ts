@@ -1,0 +1,50 @@
+// The panel's voice settings and the API key (spec sections 8 and 9). Only the panel may
+// change them: the background checks the sender's URL, not just that it has no tab.
+
+import { browser, type Browser } from 'wxt/browser'
+import type { KeyTestReply, Reply, VoiceSettingsMessage } from '../messages'
+import { KEY_STORAGE, loadKey } from '../voice/key'
+import { checkKey, VoiceFailure } from '../voice/openrouter'
+import { VOICE_KEY } from '../voice/settings'
+
+/** A message from the extension's side panel. */
+export function isPanelSender(sender: Browser.runtime.MessageSender): boolean {
+  return (
+    !sender.tab &&
+    sender.id === browser.runtime.id &&
+    sender.url === browser.runtime.getURL('/sidepanel.html')
+  )
+}
+
+export async function testKey(check = checkKey): Promise<KeyTestReply> {
+  const key = await loadKey()
+  if (!key) return { ok: false, error: 'Add an OpenRouter API key first.' }
+  try {
+    return { ok: true, valid: await check(key) }
+  } catch (error) {
+    const unreachable =
+      error instanceof VoiceFailure && (error.code === 'offline' || error.code === 'timeout')
+    return {
+      ok: false,
+      error: unreachable ? 'Could not reach OpenRouter.' : 'OpenRouter could not check the key.',
+    }
+  }
+}
+
+export async function setVoice(message: VoiceSettingsMessage): Promise<Reply | KeyTestReply> {
+  switch (message.type) {
+    case 'voice:set':
+      await browser.storage.local.set({
+        [VOICE_KEY]: { model: message.model, language: message.language },
+      })
+      return { ok: true }
+    case 'voice:key:save':
+      await browser.storage.local.set({ [KEY_STORAGE]: message.key })
+      return { ok: true }
+    case 'voice:key:remove':
+      await browser.storage.local.remove(KEY_STORAGE)
+      return { ok: true }
+    case 'voice:key:test':
+      return testKey()
+  }
+}

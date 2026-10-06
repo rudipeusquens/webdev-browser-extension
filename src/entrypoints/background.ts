@@ -5,6 +5,7 @@ import { goTo } from '@/lib/background/go-to'
 import { readOrigins } from '@/lib/background/origins'
 import { createSites, OVERLAY_SCRIPT } from '@/lib/background/sites'
 import { clearBlocked, clearFailed, markBlocked, markFailed } from '@/lib/background/tab-status'
+import { isPanelSender, setVoice } from '@/lib/background/voice-settings'
 import { createWriter } from '@/lib/background/writer'
 import { loadCollection } from '@/lib/collection/store'
 import {
@@ -184,6 +185,14 @@ export default defineBackground(() => {
         }
         return markFailed(tabId).then(() => ({ ok: true }) satisfies Reply)
       }
+      case 'voice:set':
+      case 'voice:key:save':
+      case 'voice:key:remove':
+      case 'voice:key:test':
+        if (!isPanelSender(sender)) {
+          return { ok: false, error: 'Voice is set up in the panel.' } satisfies Reply
+        }
+        return setVoice(message)
       case 'collection:clear':
         return write(message).then(async (reply) => {
           if (reply.ok) await clearMissing().catch(() => undefined)
