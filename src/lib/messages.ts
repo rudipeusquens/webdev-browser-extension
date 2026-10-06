@@ -5,6 +5,7 @@ import type { CodeOrigin, PageInfo, Target } from './collection/model'
 import { LIMITS } from './collection/model'
 import { isSite } from './collection/site'
 import { isSiteOrigin } from './settings'
+import { type Filter, isFilter } from './view'
 import { isApiKey, isLanguage, isModelId } from './voice/settings'
 import {
   hasKeys,
@@ -53,6 +54,9 @@ export type AnchorMessage = {
 export type SiteMessage =
   { type: 'site:remember'; origin: string } | { type: 'site:forget'; origin: string }
 
+/** Side panel → background: list and pin these items from now on (spec section 5). */
+export type ViewMessage = { type: 'view:set'; filter: Filter }
+
 /** Side panel → background: open a page of the collection in a tab (Go to). */
 export type GoToMessage = { type: 'tab:go'; tabId: number; pageKey: string }
 
@@ -84,6 +88,7 @@ export type BackgroundMessage =
   | OriginMessage
   | AnchorMessage
   | SiteMessage
+  | ViewMessage
   | GoToMessage
   | FailedMessage
   | VoiceSettingsMessage
@@ -200,6 +205,8 @@ export function isBackgroundMessage(x: unknown): x is BackgroundMessage {
       )
     case 'voice:key:save':
       return hasKeys(x, ['type', 'key']) && isApiKey(x.key)
+    case 'view:set':
+      return hasKeys(x, ['type', 'filter']) && isFilter(x.filter)
     case 'tab:go':
       return (
         hasKeys(x, ['type', 'tabId', 'pageKey']) &&

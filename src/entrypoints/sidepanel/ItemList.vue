@@ -1,6 +1,8 @@
 <script setup lang="ts">
 import {
+  ArchiveRestoreIcon,
   ArrowUpRightIcon,
+  RotateCcwIcon,
   SquareDashedIcon,
   SquareMousePointerIcon,
   TextSelectIcon,
@@ -11,6 +13,7 @@ import { Button } from '@/components/ui/button'
 import type { PageGroup } from '@/lib/collection/ops'
 import { targetSummary } from '@/lib/format/summary'
 import { isSiteOrigin } from '@/lib/settings'
+import { STATUS_BADGE, STATUS_NAME } from '@/lib/status'
 
 defineProps<{
   groups: (PageGroup & { current: boolean })[]
@@ -19,6 +22,8 @@ defineProps<{
 }>()
 const emit = defineEmits<{
   remove: [id: string]
+  restore: [id: string]
+  reopen: [id: string]
   highlight: [id: string | null]
   reveal: [id: string]
   go: [pageKey: string]
@@ -92,11 +97,17 @@ const ICONS = { element: SquareMousePointerIcon, text: TextSelectIcon, area: Squ
         >
           <span
             data-testid="item-number"
-            class="mt-0.5 flex size-5 shrink-0 items-center justify-center rounded-full bg-blue-600 text-xs font-semibold text-white"
+            class="mt-0.5 flex size-5 shrink-0 items-center justify-center rounded-full text-xs font-semibold text-white"
+            :class="STATUS_BADGE[item.status]"
+            :title="STATUS_NAME[item.status]"
             >{{ item.number }}</span
           >
           <span class="min-w-0 flex-1">
-            <span class="line-clamp-2 break-words whitespace-pre-line">{{ item.comment }}</span>
+            <span
+              class="line-clamp-2 break-words whitespace-pre-line"
+              :class="item.status === 'deleted' && 'text-muted-foreground line-through'"
+              >{{ item.comment }}</span
+            >
             <span class="mt-0.5 flex items-center gap-1 text-xs text-muted-foreground">
               <component :is="ICONS[item.target.kind]" class="size-3 shrink-0" />
               <span class="truncate font-mono">{{ targetSummary(item.target) }}</span>
@@ -113,10 +124,37 @@ const ICONS = { element: SquareMousePointerIcon, text: TextSelectIcon, area: Squ
           </span>
         </button>
         <Button
+          v-if="item.status === 'done'"
+          data-testid="item-reopen"
+          variant="ghost"
+          size="icon-sm"
+          class="mt-1 shrink-0 text-muted-foreground"
+          :aria-label="`Reopen item ${item.number}`"
+          title="Reopen: the next Copy as prompt copies it again"
+          @click="emit('reopen', item.id)"
+        >
+          <RotateCcwIcon />
+        </Button>
+        <Button
+          v-if="item.status === 'deleted'"
+          data-testid="item-restore"
+          variant="ghost"
+          size="icon-sm"
+          class="mt-1 shrink-0 text-muted-foreground"
+          :aria-label="`Restore item ${item.number}`"
+          title="Restore as an open item"
+          @click="emit('restore', item.id)"
+        >
+          <ArchiveRestoreIcon />
+        </Button>
+        <Button
+          v-else
+          data-testid="item-delete"
           variant="ghost"
           size="icon-sm"
           class="mt-1 shrink-0 text-muted-foreground"
           :aria-label="`Delete item ${item.number}`"
+          title="Delete"
           @click="emit('remove', item.id)"
         >
           <Trash2Icon />

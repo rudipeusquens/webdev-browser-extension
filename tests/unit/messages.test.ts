@@ -28,6 +28,7 @@ describe('isMessage', () => {
     { type: 'annotation:restore', site: S, id: 'a1' },
     { type: 'annotation:reopen', site: S, id: 'a1' },
     { type: 'collection:copied', site: S, ids: ['a1', 'a2'] },
+    { type: 'view:set', filter: 'with-deleted' },
     { type: 'overlay:status' },
     { type: 'overlay:set-mode', mode: 'element' },
     { type: 'overlay:set-mode', mode: 'area' },
@@ -69,6 +70,8 @@ describe('isMessage', () => {
     ['a restore without its site', { type: 'annotation:restore', id: 'a1' }],
     ['a reopen without an id', { type: 'annotation:reopen', site: S }],
     ['a copy of nothing', { type: 'collection:copied', site: S, ids: [] }],
+    ['an unknown filter', { type: 'view:set', filter: 'done' }],
+    ['a filter with more', { type: 'view:set', filter: 'all', site: S }],
     ['a copy naming an id twice', { type: 'collection:copied', site: S, ids: ['a1', 'a1'] }],
     ['a copy with a bad id', { type: 'collection:copied', site: S, ids: ['a b'] }],
     [

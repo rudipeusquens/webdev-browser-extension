@@ -6,7 +6,7 @@ import { MISSING_KEY } from '@/lib/background/anchor-status'
 import { SETTINGS_KEY } from '@/lib/settings'
 import { markBlocked, markFailed } from '@/lib/background/tab-status'
 import type { Collection } from '@/lib/collection/model'
-import { addAnnotation, emptyCollection } from '@/lib/collection/ops'
+import { addAnnotation, emptyCollection, markCopied, pick, setStatus } from '@/lib/collection/ops'
 import { collectionKey } from '@/lib/collection/store'
 import { formatCollection } from '@/lib/format/markdown'
 import type { OverlayStatus } from '@/lib/messages'
@@ -139,7 +139,7 @@ describe('side panel', () => {
     await render(twoPages())
     byTestId('clear-all').click()
     await flushPromises()
-    expect(body()).toContain('2 items on 2 pages')
+    expect(body()).toContain('2 items on 2 pages of localhost:3000')
     byTestId('clear-cancel').click()
     await flushPromises()
     expect(fakeBrowser.runtime.sendMessage).not.toHaveBeenCalled()
@@ -171,6 +171,154 @@ describe('side panel', () => {
     await fakeBrowser.storage.local.set({ [collectionKey(SITE)]: twoPages() })
     await flushPromises()
     expect(document.querySelectorAll('[data-testid="item"]')).toHaveLength(2)
+  })
+
+  describe('statuses, copying and the filter', () => {
+    /** a1 open, a2 done, a3 deleted on A; b1 open on B (the active page). */
+    function mixed() {
+      let c = twoPages()
+      c = addAnnotation(c, elementInput('a2', A, 'Second on A'), 'T')
+      c = addAnnotation(c, elementInput('a3', A, 'Third on A'), 'T')
+      c = markCopied(c, ['a2'], 'T')
+      return setStatus(c, 'a3', 'deleted', 'T')
+    }
+    const comments = () =>
+      [...document.querySelectorAll('[data-testid="item"] .line-clamp-2')].map((e) =>
+        e.textContent?.trim(),
+      )
+    const sent = () => vi.mocked(fakeBrowser.runtime.sendMessage).mock.calls.map(([m]) => m)
+
+    it('copies only the open items, then marks exactly those done', async () => {
+      overlayReply = active
+      const c = mixed()
+      await render(c)
+      expect(byTestId('item-count').textContent).toBe('2')
+      byTestId('copy-prompt').click()
+      await flushPromises()
+      expect(writeText).toHaveBeenCalledWith(formatCollection(pick(c, new Set(['a1', 'b1']))))
+      expect(sent()).toContainEqual({ type: 'collection:copied', site: SITE, ids: ['a1', 'b1'] })
+      expect(byTestId('copy-status').textContent).toBe('Copied 2 items')
+    })
+
+    it('marks them done also when the clipboard fails and the text is offered', async () => {
+      overlayReply = active
+      writeText.mockRejectedValue(new DOMException('Document is not focused.'))
+      await render(mixed())
+      byTestId('copy-prompt').click()
+      await flushPromises()
+      expect(byTestId('copy-fallback-text')).toBeTruthy()
+      expect(sent()).toContainEqual({ type: 'collection:copied', site: SITE, ids: ['a1', 'b1'] })
+    })
+
+    it('cannot copy without open items', async () => {
+      overlayReply = active
+      await render(markCopied(twoPages(), ['a1', 'b1'], 'T'))
+      expect(byTestId('copy-prompt').hasAttribute('disabled')).toBe(true)
+    })
+
+    it('copies the last copy again, without what was deleted since, and changes nothing', async () => {
+      overlayReply = active
+      let c = markCopied(mixed(), ['a1', 'a2', 'a3'], 'T')
+      c = setStatus(c, 'a1', 'deleted', 'T')
+      await render(c)
+      const again = byTestId('copy-again')
+      expect(again.hasAttribute('disabled')).toBe(false)
+      expect(byTestId('copy-prompt').compareDocumentPosition(again)).toBe(
+        Node.DOCUMENT_POSITION_FOLLOWING,
+      )
+      expect(again.compareDocumentPosition(byTestId('clear-all'))).toBe(
+        Node.DOCUMENT_POSITION_FOLLOWING,
+      )
+      again.click()
+      await flushPromises()
+      expect(writeText).toHaveBeenCalledWith(formatCollection(pick(c, new Set(['a2']))))
+      expect(sent()).toEqual([])
+      expect(byTestId('copy-status').textContent).toBe('Copied 1 item again')
+    })
+
+    it('cannot copy again before a copy', async () => {
+      overlayReply = active
+      await render(twoPages())
+      expect(byTestId('copy-again').hasAttribute('disabled')).toBe(true)
+    })
+
+    it('shows open items first, then done ones with All, and deleted ones too', async () => {
+      overlayReply = active
+      await render(mixed())
+      expect(comments()).toEqual(['On B <b>not bold</b>', 'First on A'])
+      expect(byTestId('filter-open').textContent).toContain('2')
+      expect(byTestId('filter-all').textContent).toContain('3')
+      expect(byTestId('filter-with-deleted').textContent).toContain('1')
+      byTestId('filter-all').click()
+      await flushPromises()
+      expect(sent()).toContainEqual({ type: 'view:set', filter: 'all' })
+      expect(comments()).toEqual(['On B <b>not bold</b>', 'First on A', 'Second on A'])
+      byTestId('filter-with-deleted').click()
+      await flushPromises()
+      expect(comments()).toHaveLength(4)
+    })
+
+    it('follows the filter chosen in another panel', async () => {
+      overlayReply = active
+      await render(mixed())
+      await fakeBrowser.storage.local.set({ view: { filter: 'with-deleted' } })
+      await flushPromises()
+      expect(comments()).toHaveLength(4)
+      expect(byTestId('filter-with-deleted').getAttribute('data-state')).toBe('on')
+    })
+
+    it('colors numbers by status and strikes deleted comments through', async () => {
+      overlayReply = active
+      await fakeBrowser.storage.local.set({ view: { filter: 'with-deleted' } })
+      await render(mixed())
+      const numbers = [...document.querySelectorAll<HTMLElement>('[data-testid="item-number"]')]
+      const tone = (n: string) => numbers.find((e) => e.textContent === n)?.className ?? ''
+      expect(tone('1')).toContain('bg-blue-600')
+      expect(tone('3')).toContain('bg-green-700')
+      expect(tone('4')).toContain('bg-red-600')
+      const deleted = [...document.querySelectorAll('[data-testid="item"]')].find((e) =>
+        e.textContent?.includes('Third on A'),
+      )
+      expect(deleted?.querySelector('.line-through')).not.toBeNull()
+    })
+
+    it('offers Delete for open and done items, Reopen for done, Restore for deleted', async () => {
+      overlayReply = active
+      await fakeBrowser.storage.local.set({ view: { filter: 'with-deleted' } })
+      await render(mixed())
+      const button = (label: string) =>
+        document.querySelector<HTMLElement>(`[aria-label="${label}"]`)
+      expect(button('Delete item 1')).not.toBeNull()
+      expect(button('Delete item 3')).not.toBeNull()
+      expect(button('Delete item 4')).toBeNull()
+      expect(button('Reopen item 1')).toBeNull()
+      expect(button('Restore item 3')).toBeNull()
+      button('Reopen item 3')?.click()
+      button('Restore item 4')?.click()
+      button('Delete item 1')?.click()
+      await flushPromises()
+      expect(sent()).toEqual([
+        { type: 'annotation:reopen', site: SITE, id: 'a2' },
+        { type: 'annotation:restore', site: SITE, id: 'a3' },
+        { type: 'annotation:remove', site: SITE, id: 'a1' },
+      ])
+    })
+
+    it('says how many items the filter hides when it hides them all', async () => {
+      overlayReply = active
+      await render(markCopied(twoPages(), ['a1', 'b1'], 'T'))
+      expect(document.querySelector('[data-testid="item"]')).toBeNull()
+      expect(byTestId('filter-hides').textContent).toContain('2 items')
+      expect(body()).not.toContain('No feedback yet')
+    })
+
+    it('asks before clearing every item of the site', async () => {
+      overlayReply = active
+      await render(mixed())
+      byTestId('clear-all').click()
+      await flushPromises()
+      expect(body()).toContain('4 items on 2 pages of localhost:3000')
+    })
   })
 
   describe('one site at a time', () => {
@@ -788,7 +936,9 @@ describe('side panel', () => {
     expect(marked.map((e) => e.textContent)).toEqual([expect.stringContaining('First on A')])
     byTestId('copy-prompt').click()
     await flushPromises()
-    expect(writeText).toHaveBeenCalledWith(formatCollection(c, { missing: new Set(['a1']) }))
+    expect(writeText).toHaveBeenCalledWith(
+      formatCollection(pick(c, new Set(['a1', 'b1'])), { missing: new Set(['a1']) }),
+    )
 
     await fakeBrowser.storage.session.set({ [MISSING_KEY]: [] })
     await flushPromises()

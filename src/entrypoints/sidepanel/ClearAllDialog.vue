@@ -11,7 +11,8 @@ import {
 } from '@/components/ui/alert-dialog'
 import { buttonVariants } from '@/components/ui/button'
 
-defineProps<{ items: number; pages: number }>()
+/** `site`: the site's name, such as `localhost:3000`. */
+defineProps<{ items: number; pages: number; site: string }>()
 const open = defineModel<boolean>('open', { required: true })
 const emit = defineEmits<{ confirm: [] }>()
 
@@ -24,8 +25,8 @@ const plural = (n: number, word: string) => `${n} ${word}${n === 1 ? '' : 's'}`
       <AlertDialogHeader>
         <AlertDialogTitle>Clear all feedback?</AlertDialogTitle>
         <AlertDialogDescription>
-          This removes {{ plural(items, 'item') }} on {{ plural(pages, 'page') }}. Numbering starts
-          again at 1. This can't be undone.
+          This removes {{ plural(items, 'item') }} on {{ plural(pages, 'page') }} of {{ site }},
+          done and deleted ones too. Numbering starts again at 1. This can't be undone.
         </AlertDialogDescription>
       </AlertDialogHeader>
       <AlertDialogFooter>

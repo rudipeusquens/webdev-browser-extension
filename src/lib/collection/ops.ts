@@ -97,6 +97,15 @@ export function markCopied(c: Collection, ids: readonly string[], now: string): 
   }
 }
 
+/** The items with these ids and their pages, as a collection for the formatter. */
+export function pick(c: Collection, ids: ReadonlySet<string>): Collection {
+  const items = c.items.filter((item) => ids.has(item.id))
+  const pages = Object.fromEntries(
+    Object.entries(c.pages).filter(([key]) => items.some((item) => item.pageKey === key)),
+  )
+  return { ...c, pages, items }
+}
+
 /** Every item of the site goes, and its numbers start again at 1. */
 export function clearAll(c: Collection): Collection {
   return emptyCollection(c.site)

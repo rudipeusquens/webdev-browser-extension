@@ -7,6 +7,7 @@ import {
   groupByPage,
   markCopied,
   type NewAnnotation,
+  pick,
   setStatus,
   updateComment,
 } from '@/lib/collection/ops'
@@ -156,6 +157,17 @@ describe('clearAll', () => {
     const c = addAnnotation(cleared, elementInput('x', A), T2)
     expect(c.items[0]?.number).toBe(1)
     expect(c.nextNumber).toBe(2)
+  })
+})
+
+describe('pick', () => {
+  it('keeps the chosen items, their pages and their numbers', () => {
+    const c = build(elementInput('a1', A), elementInput('b1', B), elementInput('a2', A))
+    const picked = pick(c, new Set(['a2', 'zz']))
+    expect(picked.items.map((i) => [i.id, i.number])).toEqual([['a2', 3]])
+    expect(Object.keys(picked.pages)).toEqual([pageKey(A)])
+    expect(picked.site).toBe(SITE)
+    expect(c.items).toHaveLength(3)
   })
 })
 

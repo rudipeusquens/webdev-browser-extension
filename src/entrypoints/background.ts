@@ -22,6 +22,7 @@ import {
   type Reply,
 } from '@/lib/messages'
 import { isSiteOrigin, originPattern } from '@/lib/settings'
+import { VIEW_KEY } from '@/lib/view'
 
 /** The page's context menu entry: it activates the extension like the toolbar icon. */
 const MENU_ENTRY = 'annotate'
@@ -181,6 +182,13 @@ export default defineBackground(() => {
         return message.type === 'site:remember'
           ? sites.remember(message.origin)
           : sites.forget(message.origin)
+      case 'view:set':
+        if (!isPanelSender(sender)) {
+          return { ok: false, error: 'The filter is set in the panel.' } satisfies Reply
+        }
+        return browser.storage.local
+          .set({ [VIEW_KEY]: { filter: message.filter } })
+          .then(() => ({ ok: true }) satisfies Reply)
       case 'tab:go':
         if (sender.tab)
           return { ok: false, error: 'Pages are opened from the panel.' } satisfies Reply

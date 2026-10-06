@@ -2,6 +2,7 @@
 import {
   CopyIcon,
   MapPinIcon,
+  RepeatIcon,
   MapPinOffIcon,
   MousePointer2Icon,
   SettingsIcon,
@@ -9,7 +10,7 @@ import {
   SquareMousePointerIcon,
   XIcon,
 } from '@lucide/vue'
-import { computed, ref, watch } from 'vue'
+import { computed, ref } from 'vue'
 import { browser } from 'wxt/browser'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
@@ -37,7 +38,9 @@ import { usePanelToggle } from './use-panel-toggle'
 import { useSettings } from './use-settings'
 import { useShortcut } from './use-shortcut'
 import { useSiteCollection } from '@/composables/use-site-collection'
-import { emptyCollection } from '@/lib/collection/ops'
+import { emptyCollection, pick } from '@/lib/collection/ops'
+import { type Filter, shows } from '@/lib/view'
+import { useView } from './use-view'
 import { siteLabel, siteOf } from '@/lib/collection/site'
 
 const { tabId, windowId, status, refresh } = useActiveTab()
@@ -61,12 +64,37 @@ const showSettings = ref(false)
 // Open settings in a comment popover opens them here.
 usePanelView(windowId, () => (showSettings.value = true))
 
-const count = computed(() => collection.value.items.length)
+const { filter, choose } = useView()
+const items = computed(() => collection.value.items)
+const openIds = computed(() =>
+  items.value
+    .filter((item) => item.status === 'open')
+    .sort((a, b) => a.number - b.number)
+    .map((item) => item.id),
+)
+/** Open items: what the next Copy as prompt copies. */
+const count = computed(() => openIds.value.length)
+const counts = computed(() => ({
+  open: count.value,
+  all: items.value.filter((item) => shows(item, 'all')).length,
+  deleted: items.value.filter((item) => item.status === 'deleted').length,
+}))
+const shown = computed(() => items.value.filter((item) => shows(item, filter.value)))
+/** Items of the last copy that were not deleted since: what Copy again copies. */
+const againIds = computed(() => {
+  const kept = new Set(items.value.filter((i) => i.status !== 'deleted').map((i) => i.id))
+  return collection.value.lastCopy.filter((id) => kept.has(id))
+})
 const groups = computed(() => {
   const current = status.value.kind === 'active' ? status.value.pageKey : undefined
-  const all = groupByPage(collection.value).map((g) => ({ ...g, current: g.key === current }))
+  const all = groupByPage({ ...collection.value, items: shown.value }).map((g) => ({
+    ...g,
+    current: g.key === current,
+  }))
   return [...all.filter((g) => g.current), ...all.filter((g) => !g.current)]
 })
+const pageCount = computed(() => new Set(items.value.map((item) => item.pageKey)).size)
+const plural = (n: number, word: string) => `${n} ${word}${n === 1 ? '' : 's'}`
 const mode = computed(() => (status.value.kind === 'active' ? status.value.mode : undefined))
 const pinsShown = computed(() => status.value.kind !== 'active' || status.value.pins)
 /** The origin of the active page, when it is a site that can be remembered. */
@@ -102,8 +130,6 @@ const fallbackText = ref<string | null>(null)
 const confirmClear = ref(false)
 let copyTimer: ReturnType<typeof setTimeout> | undefined
 
-watch(collection, () => (copyStatus.value = ''))
-
 function toBackground(message: BackgroundMessage) {
   browser.runtime.sendMessage(message).catch(() => undefined)
 }
@@ -113,18 +139,37 @@ function toOverlay(message: OverlayMessage) {
   browser.tabs.sendMessage(tabId.value, message).catch(() => undefined)
 }
 
-async function copy() {
-  const text = formatCollection(collection.value, { missing: missing.value })
-  const n = count.value
+/**
+ * Writes the prompt of `ids` to the clipboard, or offers it for manual copying when the
+ * clipboard refuses. True when the text was written or offered.
+ */
+async function writePrompt(ids: string[], done: string): Promise<boolean> {
+  const text = formatCollection(pick(collection.value, new Set(ids)), { missing: missing.value })
   try {
     await navigator.clipboard.writeText(text)
   } catch {
     fallbackText.value = text
-    return
+    return true
   }
-  copyStatus.value = `Copied ${n} item${n === 1 ? '' : 's'}`
+  copyStatus.value = done
   clearTimeout(copyTimer)
   copyTimer = setTimeout(() => (copyStatus.value = ''), 4000)
+  return true
+}
+
+/** The open items; then exactly those become done (spec section 7). */
+async function copy() {
+  const ids = openIds.value
+  const current = site.value
+  if (!current || ids.length === 0) return
+  await writePrompt(ids, `Copied ${plural(ids.length, 'item')}`)
+  toBackground({ type: 'collection:copied', site: current, ids })
+}
+
+/** The last copy again, for a paste that went wrong; it changes nothing. */
+async function copyAgain() {
+  const ids = againIds.value
+  if (ids.length > 0) await writePrompt(ids, `Copied ${plural(ids.length, 'item')} again`)
 }
 
 const siteError = ref('')
@@ -149,8 +194,11 @@ function forgetSite(origin: string) {
   toBackground({ type: 'site:forget', origin })
 }
 
-function removeItem(id: string) {
-  if (site.value) toBackground({ type: 'annotation:remove', site: site.value, id })
+function change(
+  type: 'annotation:remove' | 'annotation:restore' | 'annotation:reopen',
+  id: string,
+) {
+  if (site.value) toBackground({ type, site: site.value, id })
 }
 
 function clearSite() {
@@ -167,6 +215,11 @@ useOverlayLines(tabId, status)
 function setPins(visible: boolean) {
   toOverlay({ type: 'overlay:set-pins', visible })
   void refresh()
+}
+
+function setFilter(next: unknown) {
+  // A single toggle group reports '' when the active item is clicked again.
+  if (next === 'open' || next === 'all' || next === 'with-deleted') choose(next as Filter)
 }
 
 function setMode(next: unknown) {
@@ -254,6 +307,41 @@ function setMode(next: unknown) {
             Pins
           </Toggle>
         </div>
+        <ToggleGroup
+          type="single"
+          variant="outline"
+          size="sm"
+          class="w-full"
+          aria-label="Show"
+          :model-value="filter"
+          :disabled="!site"
+          @update:model-value="setFilter"
+        >
+          <ToggleGroupItem
+            value="open"
+            data-testid="filter-open"
+            class="flex-1"
+            title="Open items only: what Copy as prompt copies"
+          >
+            Open <span class="text-muted-foreground tabular-nums">{{ counts.open }}</span>
+          </ToggleGroupItem>
+          <ToggleGroupItem
+            value="all"
+            data-testid="filter-all"
+            class="flex-1"
+            title="Open and done items"
+          >
+            All <span class="text-muted-foreground tabular-nums">{{ counts.all }}</span>
+          </ToggleGroupItem>
+          <ToggleGroupItem
+            value="with-deleted"
+            data-testid="filter-with-deleted"
+            class="flex-1"
+            title="Deleted items too"
+          >
+            + Deleted <span class="text-muted-foreground tabular-nums">{{ counts.deleted }}</span>
+          </ToggleGroupItem>
+        </ToggleGroup>
         <p data-testid="tab-status" class="flex items-start gap-2 text-xs text-muted-foreground">
           <span
             class="mt-1 size-2 shrink-0 rounded-full"
@@ -315,14 +403,24 @@ function setMode(next: unknown) {
       <p v-if="!site" data-testid="no-site" class="p-6 pt-12 text-center text-muted-foreground">
         Feedback is kept per site. Start the overlay on a page to see the feedback of its site.
       </p>
-      <p v-else-if="!count" class="p-6 pt-12 text-center text-muted-foreground">
+      <p v-else-if="!items.length" class="p-6 pt-12 text-center text-muted-foreground">
         No feedback yet: pick an element, drag an area, or select text.
+      </p>
+      <p
+        v-else-if="!shown.length"
+        data-testid="filter-hides"
+        class="p-6 pt-12 text-center text-muted-foreground"
+      >
+        Nothing open here. {{ plural(items.length, 'item') }}
+        {{ items.length === 1 ? 'is' : 'are' }} hidden by this filter.
       </p>
       <ItemList
         v-else
         :groups="groups"
         :missing="missing"
-        @remove="removeItem"
+        @remove="(id) => change('annotation:remove', id)"
+        @restore="(id) => change('annotation:restore', id)"
+        @reopen="(id) => change('annotation:reopen', id)"
         @highlight="(id) => toOverlay({ type: 'overlay:highlight', id })"
         @reveal="(id) => toOverlay({ type: 'overlay:reveal', id })"
         @go="goTo"
@@ -331,13 +429,28 @@ function setMode(next: unknown) {
 
     <footer v-if="!showSettings" class="space-y-2 border-t p-3">
       <div class="flex gap-2">
-        <Button data-testid="copy-prompt" class="flex-1" :disabled="!count" @click="copy">
+        <Button
+          data-testid="copy-prompt"
+          class="min-w-0 flex-1"
+          :disabled="!count"
+          title="Copy the open items; they become done"
+          @click="copy"
+        >
           <CopyIcon /> Copy as prompt
+        </Button>
+        <Button
+          data-testid="copy-again"
+          variant="outline"
+          :disabled="!againIds.length"
+          title="Copy the last copied items again; nothing changes"
+          @click="copyAgain"
+        >
+          <RepeatIcon /> Copy again
         </Button>
         <Button
           data-testid="clear-all"
           variant="outline"
-          :disabled="!count"
+          :disabled="!items.length"
           @click="confirmClear = true"
         >
           Clear all
@@ -350,8 +463,9 @@ function setMode(next: unknown) {
 
     <ClearAllDialog
       v-model:open="confirmClear"
-      :items="count"
-      :pages="groups.length"
+      :items="items.length"
+      :pages="pageCount"
+      :site="site ? siteLabel(site) : ''"
       @confirm="clearSite"
     />
     <CopyFallbackDialog :text="fallbackText" @close="fallbackText = null" />

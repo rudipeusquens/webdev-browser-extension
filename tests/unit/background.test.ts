@@ -199,6 +199,15 @@ describe('background', () => {
     expect(await status()).toBe('open')
   })
 
+  it('keeps the filter the panel chose, for every page to read', async () => {
+    expect(
+      await send({ type: 'view:set', filter: 'all' }, pageSender('http://x.test/')),
+    ).toMatchObject({ ok: false })
+    expect((await fakeBrowser.storage.local.get('view')).view).toBeUndefined()
+    expect(await send({ type: 'view:set', filter: 'all' }, panelSender)).toEqual({ ok: true })
+    expect((await fakeBrowser.storage.local.get('view')).view).toEqual({ filter: 'all' })
+  })
+
   it('refuses items for another site than the page that sends them', async () => {
     const message = { type: 'annotation:add', ...elementInput('a1', 'http://x.test/') }
     for (const sender of [
