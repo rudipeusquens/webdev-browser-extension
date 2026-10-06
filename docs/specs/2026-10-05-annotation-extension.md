@@ -614,13 +614,13 @@ Each spike answers one question before code depends on it; the answer goes into 
    a content script sent from a trusted click. Model comparison through the extension
    (`pnpm test:live`: Chrome's fake microphone plays the synthetic clips of
    `tests/fixtures/audio/`, 7 s each, the recorder sends Chrome's own WebM; language `auto`,
-   one run; cost from the direct API calls of the spike):
+   two runs; cost from the direct API calls of the spike):
 
    | Model                               | English words | German words | After stop | Cost per clip |
    | ----------------------------------- | ------------- | ------------ | ---------- | ------------- |
    | `openai/gpt-4o-mini-transcribe`     | 100 %         | 100 %        | 1.0 s      | $0.0002       |
-   | `openai/gpt-4o-transcribe`          | 100 %         | 100 %        | 1.1 s      | $0.0005       |
-   | `openai/whisper-large-v3-turbo`     | 100 %         | 100 %        | 5.1–5.4 s  | $0.00002      |
+   | `openai/gpt-4o-transcribe`          | 100 %         | 100 %        | 1.1–1.3 s  | $0.0005       |
+   | `openai/whisper-large-v3-turbo`     | 100 %         | 100 %        | 4.4–7.5 s  | $0.00002      |
    | `mistralai/voxtral-mini-transcribe` | 100 %         | 92 % ¹       | 0.5–0.6 s  | $0.00035      |
 
    ¹ "Anmeldebutton" for "Anmelde-Button". Clean synthetic speech does not separate the
