@@ -603,20 +603,22 @@ Each spike answers one question before code depends on it; the answer goes into 
    the microphone only after the extension's origin was granted it in a tab (until then
    `NotAllowedError`, without a device `NotFoundError`), then records
    `audio/webm;codecs=opus`. `sidePanel.open()` works while the background handles a message
-   a content script sent from a trusted click. Model comparison on the synthetic clips of
-   `tests/fixtures/audio/` (7 s each, language `auto`, one run, words that differ from the
-   script):
+   a content script sent from a trusted click. Model comparison through the extension
+   (`pnpm test:live`: Chrome's fake microphone plays the synthetic clips of
+   `tests/fixtures/audio/`, 7 s each, the recorder sends Chrome's own WebM; language `auto`,
+   one run; cost from the direct API calls of the spike):
 
-   | Model                               | English | German | Time (en / de) | Cost per clip |
-   | ----------------------------------- | ------- | ------ | -------------- | ------------- |
-   | `openai/gpt-4o-mini-transcribe`     | 0       | 0      | 2.0 / 0.9 s    | $0.0002       |
-   | `openai/gpt-4o-transcribe`          | 2 ¹     | 0      | 1.1 / 1.1 s    | $0.0005       |
-   | `openai/whisper-large-v3-turbo`     | 0       | 0      | 2.9 / 10.0 s   | $0.00002      |
-   | `mistralai/voxtral-mini-transcribe` | 0       | 1 ²    | 0.4 / 0.5 s    | $0.00035      |
+   | Model                               | English words | German words | After stop | Cost per clip |
+   | ----------------------------------- | ------------- | ------------ | ---------- | ------------- |
+   | `openai/gpt-4o-mini-transcribe`     | 100 %         | 100 %        | 1.0 s      | $0.0002       |
+   | `openai/gpt-4o-transcribe`          | 100 %         | 100 %        | 1.1 s      | $0.0005       |
+   | `openai/whisper-large-v3-turbo`     | 100 %         | 100 %        | 5.1–5.4 s  | $0.00002      |
+   | `mistralai/voxtral-mini-transcribe` | 100 %         | 92 % ¹       | 0.5–0.6 s  | $0.00035      |
 
-   ¹ "bigger, and", "signup" · ² "Anmeldebutton". Clean synthetic speech does not separate
-   the models; the default stays `openai/gpt-4o-mini-transcribe` (accurate, about a second,
-   cheap). The live test (`pnpm test:live`) repeats the comparison through the extension.
+   ¹ "Anmeldebutton" for "Anmelde-Button". Clean synthetic speech does not separate the
+   models; the default stays `openai/gpt-4o-mini-transcribe` (accurate, about a second after
+   stop, cheap). Real voices, accents and noise may rank them differently; the settings offer
+   all four and any other OpenRouter model id.
 
 **Facts milestone 4 relies on (2026-10-06, Chrome for Testing 154):** `activeTab` survives a
 reload and a same-origin navigation of the tab and ends with a cross-origin one or a reload of
@@ -642,11 +644,13 @@ src/lib/
   capture/                # selector, styles, snapshot, area, origin parsing
   collection/             # model and pure operations
   format/                 # Markdown formatter
-  voice/                  # OpenRouter client
+  voice/                  # OpenRouter client, recorder, settings, key, protocol
+  background/             # writer, sites, dictation coordinator, voice settings
   messages.ts             # typed messages between contexts
 src/components/ui/        # shadcn-vue (copied, not a dependency)
 tests/
   unit/ e2e/ fixtures/
+  live/                   # local only: dictation against the real API (pnpm test:live)
 ```
 
 ## 15. Delivery order

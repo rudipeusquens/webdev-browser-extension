@@ -1,0 +1,12 @@
+[
+  {
+    "id": "en-layout",
+    "language": "en",
+    "text": "Make the headline bigger and move the sign up button below the hero image. The card padding looks too tight on mobile."
+  },
+  {
+    "id": "de-layout",
+    "language": "de",
+    "text": "Mach die Überschrift größer und schieb den Anmelde-Button unter das Hero-Bild. Der Abstand in den Karten ist auf dem Handy zu eng."
+  }
+]
