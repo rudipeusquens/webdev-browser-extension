@@ -462,7 +462,7 @@ while a pin's popover is open, its entry stays marked.
   - Buttons: mode switch (Browse, Element, Area), **Pins** toggle that hides all pins (`P` on
     the page), and the filter **Open · All · + Deleted** with counts. The filter is one choice
     for the list and the pins of every tab, kept across restarts.
-  - Texts: tab status ("Active on localhost:3000", "Can't run on this page", "Couldn't start on
+  - Texts (in this order below the buttons): tab status ("Active on localhost:3000", "Can't run on this page", "Couldn't start on
     this page…", "Not active on this page…"); **Always enable here** (asks Chrome for access to
     the page's origin, then the overlay loads there by itself) / **Forget this site** (also
     gives the access back); the page keys.
@@ -475,9 +475,10 @@ while a pin's popover is open, its entry stays marked.
     opens that page in the tab, waits for the overlay and does the same there. Actions: Delete
     (open and done items), **Reopen** (done), **Restore** (deleted); **Go to** in the heading
     of another page.
-  - Footer: **Copy as prompt** (the site's open items, which then become done; toast "Copied 3
-    items"), **Copy again** (the items of the site's last copy that were not deleted since;
-    changes nothing), **Clear all** (every item of the site, after a confirmation; undoable).
+  - Footer: **Copy as prompt** on its own row (the site's open items, which then become done;
+    toast "Copied 3 items"), below it **Copy again** (the items of the site's last copy that
+    were not deleted since; changes nothing) and **Clear all** (every item of the site, after a
+    confirmation; undoable).
   - Without a site (the overlay does not answer on the tab), the view shows the status and how
     to activate, no list. Empty states: "No feedback yet: pick an element, drag an area, or
     select text."; when the filter hides every item, it says how many it hides.
