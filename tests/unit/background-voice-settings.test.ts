@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { fakeBrowser } from 'wxt/testing/fake-browser'
 import background from '@/entrypoints/background'
-import { KEY_STORAGE, loadKey } from '@/lib/voice/key'
+import { loadKey, storeKey } from '@/lib/voice/key'
 import { DEFAULT_MODEL, loadVoiceSettings } from '@/lib/voice/settings'
 import { fakeContextMenus } from './helpers/fake-context-menus'
 import { fakePorts } from './helpers/fake-ports'
@@ -40,6 +40,9 @@ describe('background: voice settings from the panel', () => {
   })
 
   it('saves and removes the key without ever answering with it', async () => {
+    const changes = vi.fn()
+    fakeBrowser.storage.onChanged.addListener(changes)
+    const broadcast = vi.spyOn(fakeBrowser.runtime, 'sendMessage')
     const saved = await send({ type: 'voice:key:save', key: KEY }, panel())
     expect(saved).toEqual({ ok: true })
     expect(await loadKey()).toBe(KEY)
@@ -47,6 +50,13 @@ describe('background: voice settings from the panel', () => {
     expect(removed).toEqual({ ok: true })
     expect(await loadKey()).toBeUndefined()
     expect(JSON.stringify([saved, removed])).not.toContain(KEY)
+    // Not through chrome.storage, whose change events reach every overlay.
+    expect(changes).not.toHaveBeenCalled()
+    // Open panels hear that the key changed, not what it is.
+    expect(broadcast.mock.calls).toEqual([
+      [{ type: 'voice:key:changed' }],
+      [{ type: 'voice:key:changed' }],
+    ])
   })
 
   it.each([
@@ -62,7 +72,7 @@ describe('background: voice settings from the panel', () => {
     ]) {
       expect(await send(message, sender)).toMatchObject({ ok: false })
     }
-    await fakeBrowser.storage.local.set({ [KEY_STORAGE]: KEY })
+    await storeKey(KEY)
     expect(await send({ type: 'voice:key:remove' }, sender)).toMatchObject({ ok: false })
     expect(await loadKey()).toBe(KEY)
     expect(await loadVoiceSettings()).toEqual({ model: DEFAULT_MODEL, language: 'auto' })
@@ -97,7 +107,7 @@ describe('background: voice settings from the panel', () => {
       [401, false],
       [403, false],
     ])('asks OpenRouter at no cost: %i means valid %s', async (status, valid) => {
-      await fakeBrowser.storage.local.set({ [KEY_STORAGE]: KEY })
+      await storeKey(KEY)
       const fetch = vi.spyOn(globalThis, 'fetch').mockResolvedValue(new Response('{}', { status }))
       const reply = await send({ type: 'voice:key:test' }, panel())
       expect(reply).toEqual({ ok: true, valid })
@@ -108,7 +118,7 @@ describe('background: voice settings from the panel', () => {
     })
 
     it('says when OpenRouter cannot be reached or fails', async () => {
-      await fakeBrowser.storage.local.set({ [KEY_STORAGE]: KEY })
+      await storeKey(KEY)
       vi.spyOn(globalThis, 'fetch').mockRejectedValueOnce(new TypeError(`Failed: ${KEY}`))
       const offline = await send({ type: 'voice:key:test' }, panel())
       expect(offline).toEqual({ ok: false, error: 'Could not reach OpenRouter.' })

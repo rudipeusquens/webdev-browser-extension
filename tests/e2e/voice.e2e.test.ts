@@ -2,6 +2,7 @@ import { readFile } from 'node:fs/promises'
 import { join } from 'node:path'
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest'
 import { FAKE_TEXT, startFakeOpenRouter } from './fake-openrouter'
+import { setKey } from './voice-helpers'
 import {
   clickAction,
   contentRealm,
@@ -30,9 +31,7 @@ const KEY = 'test-key-e2e-1234'
 interface ExtensionApi {
   storage: {
     local: {
-      get(key: string): Promise<Record<string, unknown>>
-      set(items: Record<string, unknown>): Promise<void>
-      remove(key: string): Promise<void>
+      get(key: string | null): Promise<Record<string, unknown>>
     }
   }
   runtime: { getContexts(filter: { contextTypes: string[] }): Promise<unknown[]> }
@@ -63,17 +62,8 @@ describe('dictating a comment', () => {
   beforeEach(async () => {
     fake.reset()
     await setMicrophone(s, 'granted')
-    await setKey(KEY)
+    await setKey(s, KEY)
   })
-
-  async function setKey(key: string | null) {
-    const worker = await serviceWorker(s)
-    await worker.evaluate(async (k) => {
-      const { storage } = (globalThis as unknown as { chrome: ExtensionApi }).chrome
-      if (k === null) await storage.local.remove('openrouterKey')
-      else await storage.local.set({ openrouterKey: k })
-    }, key)
-  }
 
   /** A fresh page with a fresh overlay and the comment popover open on the submit button. */
   async function popover() {
@@ -227,7 +217,7 @@ describe('dictating a comment', () => {
   })
 
   it('opens the panel settings when there is no key', async () => {
-    await setKey(null)
+    await setKey(s, null)
     await popover()
     await clickInOverlay(s, '[data-testid="overlay-mic"]')
     await waitForText(
@@ -258,7 +248,7 @@ describe('dictating a comment', () => {
   })
 
   it('sets up the key and the language in the panel', async () => {
-    await setKey(null)
+    await setKey(s, null)
     fake.validKeys.add(KEY)
     await s.page.goto(`${server.origin}/plain/`)
     await startOverlayAgain(s)
@@ -277,6 +267,8 @@ describe('dictating a comment', () => {
       '…1234',
     )
     expect(await panel.content()).not.toContain(KEY)
+    // Never in chrome.storage, which content scripts can read and whose changes reach them.
+    expect(await storageText()).not.toContain(KEY)
     await panel.click('[data-testid="voice-key-test"]')
     await panel.waitForSelector('[data-testid="voice-key-result"] ::-p-text(Key works.)')
     expect(fake.requests.find((r) => r.path === '/api/v1/key')?.authorization).toBe(`Bearer ${KEY}`)
@@ -304,6 +296,15 @@ describe('dictating a comment', () => {
     expect(overlay).not.toContain('openrouterKey')
     expect(overlay).not.toContain('openrouter.ai')
   })
+
+  /** Everything in chrome.storage.local, as JSON. */
+  async function storageText(): Promise<string> {
+    const worker = await serviceWorker(s)
+    return worker.evaluate(async () => {
+      const { storage } = (globalThis as unknown as { chrome: ExtensionApi }).chrome
+      return JSON.stringify(await storage.local.get(null))
+    })
+  }
 
   /** The comments of the stored collection, once there is one. */
   async function savedComments(): Promise<string[]> {

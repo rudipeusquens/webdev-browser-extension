@@ -3,7 +3,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { fakeBrowser } from 'wxt/testing/fake-browser'
 import App from '@/entrypoints/sidepanel/App.vue'
 import { PANEL_VIEW_KEY } from '@/lib/messages'
-import { KEY_STORAGE } from '@/lib/voice/key'
+import { deleteKey, storeKey } from '@/lib/voice/key'
 import { VOICE_KEY } from '@/lib/voice/settings'
 
 // A well-formed but fake key, assembled at runtime so this file never contains one.
@@ -22,6 +22,21 @@ const byTestId = (id: string) => {
   return el
 }
 
+/** Lets IndexedDB answer: it takes a few tasks, more than one flushPromises. */
+async function settle() {
+  for (let i = 0; i < 10; i++) await flushPromises()
+}
+
+/** The background tells open panels that the key changed. */
+async function keyChanged(sender: object = { id: fakeBrowser.runtime.id }) {
+  await fakeBrowser.runtime.onMessage.trigger(
+    { type: 'voice:key:changed' },
+    sender,
+    () => undefined,
+  )
+  await settle()
+}
+
 async function render() {
   wrapper = mount(App, { attachTo: document.body })
   await flushPromises()
@@ -31,7 +46,7 @@ async function render() {
 async function openSettings() {
   await render()
   byTestId('open-settings').click()
-  await flushPromises()
+  await settle()
 }
 
 async function type(id: string, value: string) {
@@ -102,13 +117,20 @@ describe('side panel: voice settings', () => {
     it('shows only masked once stored, and follows changes', async () => {
       await openSettings()
       expect(find('voice-key-masked')).toBeNull()
-      await fakeBrowser.storage.local.set({ [KEY_STORAGE]: KEY })
-      await flushPromises()
+      await storeKey(KEY)
+      await keyChanged()
       expect(byTestId('voice-key-masked').textContent).toBe('sk-or-v1-…77ab')
       expect(document.body.innerHTML).not.toContain(KEY)
       expect(find('voice-key-input')).toBeNull()
-      await fakeBrowser.storage.local.remove(KEY_STORAGE)
-      await flushPromises()
+      await deleteKey()
+      await keyChanged()
+      expect(find('voice-key-masked')).toBeNull()
+    })
+
+    it('ignores change notices from elsewhere', async () => {
+      await openSettings()
+      await storeKey(KEY)
+      await keyChanged({ id: 'another-extension' })
       expect(find('voice-key-masked')).toBeNull()
     })
 
@@ -117,7 +139,7 @@ describe('side panel: voice settings', () => {
       [{ ok: true, valid: false }, 'Invalid API key.'],
       [{ ok: false, error: 'Could not reach OpenRouter.' }, 'Could not reach OpenRouter.'],
     ])('is tested on request: %j', async (reply, text) => {
-      await fakeBrowser.storage.local.set({ [KEY_STORAGE]: KEY })
+      await storeKey(KEY)
       await openSettings()
       sendMessage.mockResolvedValueOnce(reply as never)
       byTestId('voice-key-test').click()
@@ -127,7 +149,7 @@ describe('side panel: voice settings', () => {
     })
 
     it('is removed through the background', async () => {
-      await fakeBrowser.storage.local.set({ [KEY_STORAGE]: KEY })
+      await storeKey(KEY)
       await openSettings()
       byTestId('voice-key-remove').click()
       await flushPromises()

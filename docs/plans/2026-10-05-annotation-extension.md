@@ -2936,12 +2936,12 @@ commit.
   keeps the service worker alive (Chrome 114+ counts port messages).
 - **One session at a time.** A `start` from another popover ends the running session; that
   popover shows "Recording stopped: another one started."
-- **Storage:** voice settings under their own key `voice` (`{ model, language }`), the API
-  key under `openrouterKey`, both in `storage.local` and written only by the background.
-  Separate keys keep a malformed value from resetting the remembered sites, and keep the key
-  out of the `settings` object the panel and the overlay read. The ESLint rule forbids the
-  overlay entrypoint to reference `openrouterKey`, import `@/lib/voice/key` or call
-  `storage.local.get()` without keys.
+- **Storage:** voice settings under their own key `voice` (`{ model, language }`) in
+  `storage.local`, so a malformed value never resets the remembered sites. The API key lives in
+  the extension origin's IndexedDB (changed after the final review: `storage.local` and its
+  change events reach content scripts). Both are written only by the background. The ESLint
+  rule forbids the overlay entrypoint to reference `openrouterKey` or import
+  `@/lib/voice/key`.
 - **Panel requests** (`voice:set`, `voice:key:save`, `voice:key:remove`, `voice:key:test`)
   are accepted only from the side panel's own URL. **Overlay requests** (`voice:grant`,
   `voice:settings`) only from the top frame of a tab; `voice:settings` opens the panel on its

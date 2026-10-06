@@ -11,6 +11,7 @@ import {
   startFixtureServer,
   startOverlayAgain,
 } from '../e2e/harness'
+import { setKey } from '../e2e/voice-helpers'
 import {
   clickInOverlay,
   markElement,
@@ -114,11 +115,7 @@ describe.skipIf(!KEY)('dictation with the real API', async () => {
         args: [`--use-file-for-fake-audio-capture=${resolve(AUDIO, `${clip.id}.wav`)}%noloop`],
       })
       try {
-        const worker = await serviceWorker(s)
-        await worker.evaluate(async (k: string) => {
-          const { storage } = (globalThis as unknown as { chrome: ExtensionApi }).chrome
-          await storage.local.set({ openrouterKey: k })
-        }, KEY)
+        await setKey(s, KEY)
         // The toolbar click grants the tab activeTab; each dictation starts a fresh overlay.
         await s.page.goto(`${server.origin}/plain/`)
         await clickAction(s)

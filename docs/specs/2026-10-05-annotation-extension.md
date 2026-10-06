@@ -195,7 +195,9 @@ interface VoiceSettings {
   model: string // default "openai/gpt-4o-mini-transcribe"
   language: 'auto' | string // ISO-639-1
 }
-type OpenRouterKey = string // storage key "openrouterKey"; never inside `settings`
+// Not in chrome.storage: IndexedDB of the extension origin, database
+// "webdev-browser-extension", store "secrets", record "openrouterKey".
+type OpenRouterKey = string
 ```
 
 Anchor status (found or missing) is not part of the collection: each overlay reports which
@@ -414,13 +416,15 @@ select-parent), ClickUp and Air comment pins with a side list.
 - **Provider:** OpenRouter, `POST https://openrouter.ai/api/v1/audio/transcriptions`, JSON body
   `{ model, input_audio: { data: <base64>, format: "webm" }, language?, provider: { data_collection: "deny" } }`,
   header `Authorization: Bearer <key>`. Response `{ text, usage }`.
-- **Key:** bring your own; entered in settings, stored in `chrome.storage.local`, never synced,
-  never sent anywhere but the `Authorization` header to `openrouter.ai`, never shown in full
-  after saving, never written to logs or the clipboard. The background and the settings view
-  read it; the recorder gets it for one dictation over its own port. `storage.local` is
-  technically readable by content scripts, so the overlay code must never access the key; an
-  ESLint `no-restricted-syntax` rule for the overlay entrypoint enforces that (no
-  `openrouterKey`, no import of the key module, no `storage.local.get()` without keys). **Test** calls `GET https://openrouter.ai/api/v1/key` (no cost) and shows
+- **Key:** bring your own; entered in settings, stored in the extension origin's IndexedDB,
+  never synced, never sent anywhere but the `Authorization` header to `openrouter.ai`, never
+  shown in full after saving, never written to logs or the clipboard. Not in
+  `chrome.storage`: content scripts can read `storage.local` and receive its change events,
+  but they cannot open the extension's IndexedDB. The background writes it (from the panel's
+  requests) and tells open panels that it changed, never what it is; the settings view reads
+  it to show it masked; the recorder gets it for one dictation over its own port. An ESLint
+  `no-restricted-syntax` / `no-restricted-imports` rule keeps the overlay entrypoint away
+  from it (no `openrouterKey`, no import of the key module). **Test** calls `GET https://openrouter.ai/api/v1/key` (no cost) and shows
   valid/invalid.
 - **Model:** default `openai/gpt-4o-mini-transcribe`; the settings offer a short list
   (`openai/gpt-4o-mini-transcribe`, `openai/gpt-4o-transcribe`,
@@ -517,7 +521,9 @@ select-parent), ClickUp and Air comment pins with a side list.
   `voice:grant` and `voice:settings` only from the top frame of a tab. OpenRouter's error
   text is shown as text only, cut to one line. Requests go only to `openrouter.ai`; test
   builds rewrite that origin in a copy of the build, and the launch fails when nothing was
-  rewritten.
+  rewritten. Known limit: a compromised renderer, which the threat model leaves out, could open
+  the popover's port without a click and dictate with the developer's key; it still never
+  gets the key.
 - **No remote code:** everything is bundled; no `eval`, no remotely loaded scripts.
 
 ## 12. Testing

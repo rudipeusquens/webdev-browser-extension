@@ -129,6 +129,13 @@ export interface OverlayStatus {
 
 export type Reply = { ok: true } | { ok: false; error: string }
 
+/** Background → side panels: the key was saved or removed; read it again (never its value). */
+export type KeyChanged = { type: 'voice:key:changed' }
+
+export function isKeyChanged(x: unknown): x is KeyChanged {
+  return hasKeys(x, ['type']) && x.type === 'voice:key:changed'
+}
+
 /** The background's reply to `voice:key:test`. */
 export type KeyTestReply = { ok: true; valid: boolean } | { ok: false; error: string }
 

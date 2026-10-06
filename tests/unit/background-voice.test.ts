@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { fakeBrowser } from 'wxt/testing/fake-browser'
 import background from '@/entrypoints/background'
-import { KEY_STORAGE } from '@/lib/voice/key'
+import { deleteKey, storeKey } from '@/lib/voice/key'
 import { DEFAULT_MODEL, VOICE_KEY } from '@/lib/voice/settings'
 import { fakeContextMenus } from './helpers/fake-context-menus'
 import {
@@ -17,19 +17,28 @@ import { fakeSites } from './helpers/fake-sites'
 const KEY = 'sk-or-v1-' + '0a1b'.repeat(16)
 const OTHER_KEY = 'sk-or-v1-' + '9f8e'.repeat(16)
 
-const flush = () => vi.advanceTimersByTimeAsync(0)
+/** Lets pending work settle: IndexedDB's tasks run on real setImmediate, timers are fake. */
+async function flush() {
+  for (let i = 0; i < 20; i++) {
+    await new Promise((done) => setImmediate(done))
+    await vi.advanceTimersByTimeAsync(0)
+  }
+}
 
 describe('background: dictation', () => {
   let ports: ReturnType<typeof fakePorts>
 
   beforeEach(async () => {
-    vi.useFakeTimers()
+    // IndexedDB (fake-indexeddb) schedules its work with setImmediate: that stays real.
+    vi.useFakeTimers({
+      toFake: ['setTimeout', 'clearTimeout', 'setInterval', 'clearInterval', 'Date'],
+    })
     fakeBrowser.reset()
     fakeSites()
     fakeContextMenus()
     ports = fakePorts()
     background.main()
-    await fakeBrowser.storage.local.set({ [KEY_STORAGE]: KEY })
+    await storeKey(KEY)
   })
 
   afterEach(() => {
@@ -54,7 +63,7 @@ describe('background: dictation', () => {
   }
 
   it('asks for a key before it opens anything', async () => {
-    await fakeBrowser.storage.local.remove(KEY_STORAGE)
+    await deleteKey()
     const overlay = popover()
     overlay.receive({ type: 'start' })
     await flush()
@@ -124,10 +133,8 @@ describe('background: dictation', () => {
   it('reads the key and settings again for a retry', async () => {
     const { overlay, recorder } = await started()
     recorder.receive({ state: 'failed', error: 'invalid-key', retry: true })
-    await fakeBrowser.storage.local.set({
-      [KEY_STORAGE]: OTHER_KEY,
-      [VOICE_KEY]: { model: 'c/d', language: 'fr' },
-    })
+    await storeKey(OTHER_KEY)
+    await fakeBrowser.storage.local.set({ [VOICE_KEY]: { model: 'c/d', language: 'fr' } })
     overlay.receive({ type: 'retry' })
     await flush()
     expect(recorder.posted.at(-1)).toEqual({
@@ -139,7 +146,7 @@ describe('background: dictation', () => {
   it('says so when the key is gone at a retry, and keeps the audio', async () => {
     const { overlay, recorder } = await started()
     recorder.receive({ state: 'failed', error: 'invalid-key', retry: true })
-    await fakeBrowser.storage.local.remove(KEY_STORAGE)
+    await deleteKey()
     overlay.receive({ type: 'retry' })
     await flush()
     expect(overlay.posted.at(-1)).toEqual({ state: 'failed', error: 'no-key', retry: true })
@@ -236,9 +243,12 @@ describe('background: dictation', () => {
     ports.connects = false
     const overlay = popover()
     overlay.receive({ type: 'start' })
+    // The key is read and the document created; then the wait runs.
+    await flush()
     await vi.advanceTimersByTimeAsync(4_999)
     expect(overlay.posted).toEqual([])
     await vi.advanceTimersByTimeAsync(1)
+    await flush()
     expect(overlay.posted).toEqual([{ state: 'failed', error: 'mic-failed', retry: false }])
     expect(ports.exists).toBe(false)
   })

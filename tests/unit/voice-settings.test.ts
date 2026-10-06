@@ -1,7 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { fakeBrowser } from 'wxt/testing/fake-browser'
 import { loadSettings, SETTINGS_KEY } from '@/lib/settings'
-import { isApiKey, KEY_STORAGE, loadKey, maskKey } from '@/lib/voice/key'
+import { deleteKey, isApiKey, KEY_DB, loadKey, maskKey, storeKey } from '@/lib/voice/key'
 import {
   DEFAULT_MODEL,
   isLanguage,
@@ -50,7 +50,6 @@ describe('voice settings', () => {
     const seen = vi.fn()
     const stop = watchVoiceSettings(seen)
     await fakeBrowser.storage.local.set({ [SETTINGS_KEY]: { rememberedOrigins: [] } })
-    await fakeBrowser.storage.local.set({ [KEY_STORAGE]: KEY })
     await fakeBrowser.storage.session.set({ [VOICE_KEY]: { model: 'a/b', language: 'en' } })
     expect(seen).not.toHaveBeenCalled()
     await fakeBrowser.storage.local.set({ [VOICE_KEY]: { model: 'a/b', language: 'en' } })
@@ -133,19 +132,45 @@ describe('the API key', () => {
     expect(maskKey(KEY)).not.toContain(KEY.slice(9, -4))
   })
 
-  it('loads a stored key and nothing malformed', async () => {
+  it('is stored, loaded and deleted', async () => {
     expect(await loadKey()).toBeUndefined()
-    await fakeBrowser.storage.local.set({ [KEY_STORAGE]: KEY })
+    await storeKey(KEY)
     expect(await loadKey()).toBe(KEY)
-    await fakeBrowser.storage.local.set({ [KEY_STORAGE]: 'a b' })
+    await storeKey('another-key-9876')
+    expect(await loadKey()).toBe('another-key-9876')
+    await deleteKey()
     expect(await loadKey()).toBeUndefined()
-    await fakeBrowser.storage.local.set({ [KEY_STORAGE]: 42 })
+    await deleteKey()
+  })
+
+  it('loads nothing malformed', async () => {
+    await rawPut('a b')
+    expect(await loadKey()).toBeUndefined()
+    await rawPut(42)
     expect(await loadKey()).toBeUndefined()
   })
 
-  it('lives outside the settings object', async () => {
-    await fakeBrowser.storage.local.set({ [KEY_STORAGE]: KEY })
+  // Content scripts can read chrome.storage.local and get its change events; they cannot open
+  // the extension origin's IndexedDB.
+  it('never goes through chrome.storage', async () => {
+    const changes = vi.fn()
+    fakeBrowser.storage.onChanged.addListener(changes)
+    await storeKey(KEY)
+    await deleteKey()
+    expect(changes).not.toHaveBeenCalled()
+    expect(JSON.stringify(await fakeBrowser.storage.local.get(null))).not.toContain(KEY)
     expect(JSON.stringify(await loadSettings())).not.toContain(KEY)
     expect(JSON.stringify(await loadVoiceSettings())).not.toContain(KEY)
   })
 })
+
+/** Writes `value` where the key lives, bypassing the shape check of storeKey. */
+async function rawPut(value: unknown) {
+  const open = indexedDB.open(KEY_DB.name, KEY_DB.version)
+  open.onupgradeneeded = () => open.result.createObjectStore(KEY_DB.store)
+  const db = await new Promise<IDBDatabase>((done) => (open.onsuccess = () => done(open.result)))
+  const tx = db.transaction(KEY_DB.store, 'readwrite')
+  tx.objectStore(KEY_DB.store).put(value, KEY_DB.record)
+  await new Promise((done) => (tx.oncomplete = done))
+  db.close()
+}

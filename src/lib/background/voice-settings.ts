@@ -2,8 +2,8 @@
 // change them: the background checks the sender's URL, not just that it has no tab.
 
 import { browser, type Browser } from 'wxt/browser'
-import type { KeyTestReply, Reply, VoiceSettingsMessage } from '../messages'
-import { KEY_STORAGE, loadKey } from '../voice/key'
+import type { KeyChanged, KeyTestReply, Reply, VoiceSettingsMessage } from '../messages'
+import { deleteKey, loadKey, storeKey } from '../voice/key'
 import { checkKey, VoiceFailure } from '../voice/openrouter'
 import { VOICE_KEY } from '../voice/settings'
 
@@ -31,6 +31,13 @@ export async function testKey(check = checkKey): Promise<KeyTestReply> {
   }
 }
 
+/** Open panels show the key masked: they hear that it changed, never what it is. */
+function announceKey() {
+  browser.runtime
+    .sendMessage({ type: 'voice:key:changed' } satisfies KeyChanged)
+    .catch(() => undefined)
+}
+
 export async function setVoice(message: VoiceSettingsMessage): Promise<Reply | KeyTestReply> {
   switch (message.type) {
     case 'voice:set':
@@ -39,10 +46,12 @@ export async function setVoice(message: VoiceSettingsMessage): Promise<Reply | K
       })
       return { ok: true }
     case 'voice:key:save':
-      await browser.storage.local.set({ [KEY_STORAGE]: message.key })
+      await storeKey(message.key)
+      announceKey()
       return { ok: true }
     case 'voice:key:remove':
-      await browser.storage.local.remove(KEY_STORAGE)
+      await deleteKey()
+      announceKey()
       return { ok: true }
     case 'voice:key:test':
       return testKey()

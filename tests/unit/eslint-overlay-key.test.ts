@@ -23,8 +23,7 @@ describe('the overlay key guard', () => {
     ['destructures the key', 'export const { openrouterKey } = (globalThis as any).stored'],
     ['imports the key module', "export { loadKey } from '@/lib/voice/key'"],
     ['imports it relatively', "import { loadKey } from '../../lib/voice/key'\nvoid loadKey"],
-    ['reads all of storage', 'void (globalThis as any).browser.storage.local.get()'],
-    ['reads all of storage with null', 'void (globalThis as any).browser.storage.local.get(null)'],
+    ['imports it with its extension', "export { loadKey } from '@/lib/voice/key.ts'"],
   ])(
     'fails when the overlay %s',
     async (_, code) => {

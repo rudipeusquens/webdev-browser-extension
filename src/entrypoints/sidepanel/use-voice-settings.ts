@@ -2,8 +2,9 @@
 // masked, and the extension's microphone permission. The background writes all of it.
 
 import { onBeforeUnmount, onMounted, type Ref, ref, shallowRef } from 'vue'
-import { browser } from 'wxt/browser'
-import { KEY_STORAGE, loadKey, maskKey } from '@/lib/voice/key'
+import { browser, type Browser } from 'wxt/browser'
+import { isKeyChanged } from '@/lib/messages'
+import { loadKey, maskKey } from '@/lib/voice/key'
 import {
   defaultVoiceSettings,
   loadVoiceSettings,
@@ -31,8 +32,9 @@ export function useVoiceSettings(): {
     const key = await loadKey().catch(() => undefined)
     maskedKey.value = key ? maskKey(key) : null
   }
-  const onKey = (changes: Record<string, unknown>, area: string) => {
-    if (area === 'local' && KEY_STORAGE in changes) void readKey()
+  // The background announces every change of the key to open panels.
+  const onKey = (message: unknown, sender: Browser.runtime.MessageSender) => {
+    if (sender.id === browser.runtime.id && isKeyChanged(message)) void readKey()
   }
 
   onMounted(async () => {
@@ -40,7 +42,7 @@ export function useVoiceSettings(): {
       changed = true
       voice.value = next
     })
-    browser.storage.onChanged.addListener(onKey)
+    browser.runtime.onMessage.addListener(onKey)
     void readKey()
     const loaded = await loadVoiceSettings()
     // A change that arrived while loading is newer than what was loaded.
@@ -58,7 +60,7 @@ export function useVoiceSettings(): {
 
   onBeforeUnmount(() => {
     stop?.()
-    browser.storage.onChanged.removeListener(onKey)
+    browser.runtime.onMessage.removeListener(onKey)
     if (permission) permission.onchange = null
   })
 
