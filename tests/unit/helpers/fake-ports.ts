@@ -80,8 +80,9 @@ export const recorderSender = (path = '/offscreen.html'): Browser.runtime.Messag
 
 /**
  * `runtime.onConnect`, `offscreen.*` and `runtime.getContexts` as Chrome has them (WXT's fake
- * browser implements none): a created offscreen document connects its recorder port a task
- * later, unless `connects` is off; closing it closes that port.
+ * browser implements none): a created offscreen document connects its recorder port before
+ * `createDocument` resolves, as in Chrome, unless `connects` is off; closing it closes that
+ * port.
  */
 export function fakePorts() {
   const connect = event<[FakePort]>()
@@ -105,11 +106,10 @@ export function fakePorts() {
     state.exists = true
     state.created.push(parameters)
     if (!state.connects) return
-    setTimeout(() => {
-      const port = fakePort('recorder', recorderSender())
-      state.recorder = port
-      state.connect(port)
-    })
+    // In Chrome the document's script connects before createDocument() resolves.
+    const port = fakePort('recorder', recorderSender())
+    state.recorder = port
+    state.connect(port)
   }) as never)
   vi.spyOn(fakeBrowser.offscreen, 'closeDocument').mockImplementation((async () => {
     if (!state.exists) throw new Error('No current offscreen document.')

@@ -157,7 +157,7 @@ describe('CommentPopover: dictation', () => {
     expect(save()).toBeDefined()
     await receive({ state: 'transcribing' })
     expect(get('overlay-voice-status').text()).toContain('Transcribing…')
-    expect(get('overlay-mic').attributes('disabled')).toBeDefined()
+    expect(get('overlay-mic').attributes('aria-disabled')).toBe('true')
     expect(save()).toBeDefined()
     await receive({ state: 'done', text: 'and taller.', atLimit: false })
     expect(save()).toBeUndefined()
@@ -196,6 +196,37 @@ describe('CommentPopover: dictation', () => {
     await receive({ state: 'recording', limit: 120_000 })
     press(card, { key: '√', code: 'KeyV', altKey: true })
     expect(port?.posted.at(-1)).toEqual({ type: 'stop' })
+  })
+
+  // A disabled button loses the focus to the page, where Escape closes the whole comment.
+  it('keeps the focus on the mic button while it starts and transcribes', async () => {
+    const { get, receive } = open()
+    const mic = get('overlay-mic').element as HTMLButtonElement
+    // The popover focuses its field a tick after it opens.
+    await nextTick()
+    await nextTick()
+    mic.focus()
+    click(mic)
+    await nextTick()
+    expect(mic.disabled).toBe(false)
+    expect(mic.getAttribute('aria-disabled')).toBe('true')
+    await receive({ state: 'recording', limit: 120_000 })
+    await receive({ state: 'transcribing' })
+    expect(mic.disabled).toBe(false)
+    expect(document.activeElement).toBe(mic)
+    click(mic)
+    expect(port?.posted).toEqual([{ type: 'start' }])
+  })
+
+  it('moves the focus to the field when Retry goes away', async () => {
+    const { get, field, receive } = open()
+    click(get('overlay-mic').element)
+    await receive({ state: 'failed', error: 'offline', retry: true })
+    const retry = get('overlay-voice-retry').element as HTMLElement
+    retry.focus()
+    click(retry)
+    await nextTick()
+    expect(document.activeElement).toBe(field())
   })
 
   it('offers Retry after a failed request', async () => {

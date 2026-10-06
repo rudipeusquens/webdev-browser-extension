@@ -4,7 +4,9 @@ import { computed } from 'vue'
 import { Button } from '@/components/ui/button'
 import type { VoiceState } from '@/lib/voice/protocol'
 
-// The mic button next to Save: a quiet icon until it records, then a red stop button.
+// The mic button next to Save: a quiet icon until it records, then a red stop button. While
+// the microphone starts or the text is transcribed it only looks disabled: a disabled button
+// would drop the focus to the page, where Escape closes the whole comment.
 const props = defineProps<{ state: VoiceState['state'] }>()
 
 const waiting = computed(() => props.state === 'starting' || props.state === 'transcribing')
@@ -23,12 +25,13 @@ const label = computed(() => {
     :aria-label="label"
     :title="label"
     :aria-pressed="state === 'recording'"
-    :disabled="waiting"
-    :class="
+    :aria-disabled="waiting || undefined"
+    :class="[
       state === 'recording'
         ? 'bg-red-600 text-white hover:bg-red-600/90 hover:text-white'
-        : 'text-muted-foreground'
-    "
+        : 'text-muted-foreground',
+      waiting && 'cursor-default opacity-50 hover:bg-transparent',
+    ]"
   >
     <LoaderCircleIcon v-if="waiting" class="animate-spin" />
     <SquareIcon v-else-if="state === 'recording'" class="size-3 fill-current" />

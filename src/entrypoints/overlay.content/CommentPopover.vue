@@ -108,6 +108,12 @@ function dictate() {
   voice.toggle()
 }
 
+/** Retry goes away once clicked: the focus goes to the field, not to the page. */
+function retry() {
+  voice.retry()
+  field.value?.focus({ preventScroll: true })
+}
+
 // Sent inside the trusted click: the background may open the panel only within it.
 function ask(message: BackgroundMessage) {
   browser.runtime.sendMessage(message).catch(() => undefined)
@@ -225,7 +231,7 @@ onBeforeUnmount(() => resizes.disconnect())
         data-testid="overlay-voice-retry"
         variant="outline"
         size="xs"
-        @click="onButton($event, voice.retry)"
+        @click="onButton($event, retry)"
       >
         Retry
       </Button>

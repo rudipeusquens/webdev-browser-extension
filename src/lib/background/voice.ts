@@ -68,26 +68,33 @@ export function createVoice() {
 
   /** A fresh recorder document and its port, or nothing when it does not connect in time. */
   async function openRecorder(): Promise<Port | undefined> {
-    await inOrder(async () => {
-      if (await hasDocument()) await browser.offscreen.closeDocument()
-      await browser.offscreen.createDocument({
-        url: DOCUMENT,
-        reasons: ['USER_MEDIA' as never],
-        justification: 'Records the microphone while the developer dictates a comment.',
-      })
-    })
-    return new Promise((resolve) => {
-      const accept = (port?: Port) => {
+    let accept: (port?: Port) => void = () => undefined
+    const connected = new Promise<Port | undefined>((resolve) => {
+      accept = (port) => {
         clearTimeout(timer)
         if (waiting === accept) waiting = undefined
         resolve(port)
       }
       const timer = setTimeout(accept, CONNECT_TIMEOUT)
-      // An earlier wait is over: its document was replaced.
-      const earlier = waiting
-      waiting = accept
-      earlier?.()
     })
+    // The wait starts before the document exists: its script connects before
+    // createDocument() resolves. An earlier wait is over: its document is replaced.
+    const earlier = waiting
+    waiting = accept
+    earlier?.()
+    try {
+      await inOrder(async () => {
+        if (await hasDocument()) await browser.offscreen.closeDocument()
+        await browser.offscreen.createDocument({
+          url: DOCUMENT,
+          reasons: ['USER_MEDIA' as never],
+          justification: 'Records the microphone while the developer dictates a comment.',
+        })
+      })
+    } catch {
+      accept()
+    }
+    return connected
   }
 
   /** The recorder of `s` goes, with its document; `s` keeps its popover. */
