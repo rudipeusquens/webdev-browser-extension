@@ -190,7 +190,12 @@ describe('dictating a comment', () => {
     await popover()
     await record(600)
     await s.page.keyboard.press('Escape')
-    await waitForText('[data-testid="overlay-voice-status"]', 'Enter to save')
+    // Idle again: the status line says nothing.
+    for (let i = 0; i < 100; i++) {
+      if ((await overlayText(s, '[data-testid="overlay-voice-status"]'))?.trim() === '') break
+      await sleep(100)
+    }
+    expect((await overlayText(s, '[data-testid="overlay-voice-status"]'))?.trim()).toBe('')
     await sleep(300)
     expect(fake.transcriptions()).toHaveLength(0)
     expect(await offscreenDocuments()).toBe(0)

@@ -20,6 +20,12 @@ describe('pins and editing', () => {
   beforeAll(async () => {
     server = await startFixtureServer()
     session = await launch()
+    await session.browser
+      .defaultBrowserContext()
+      .overridePermissions(`chrome-extension://${session.extensionId}`, [
+        'clipboard-read',
+        'clipboard-sanitized-write',
+      ])
   })
 
   beforeEach(async () => {
@@ -140,5 +146,82 @@ describe('pins and editing', () => {
       return r.top >= 0 && r.bottom <= innerHeight
     })
     expect(visible).toBe(true)
+  })
+
+  /** The pins on the page: number and color classes. */
+  async function pinsShown() {
+    const realm = await contentRealm(session)
+    return realm.evaluate(() =>
+      [
+        ...(globalThis.__webdevOverlay?.shadow?.querySelectorAll('[data-testid="overlay-pin"]') ??
+          []),
+      ].map((pin) => ({ number: pin.textContent?.trim(), className: pin.className })),
+    )
+  }
+
+  async function waitForPins(expected: { number: string; color: string }[]) {
+    let last: Awaited<ReturnType<typeof pinsShown>> = []
+    for (let i = 0; i < 50; i++) {
+      last = await pinsShown()
+      const now = last.map((p) => ({
+        number: p.number ?? '',
+        color: /bg-(blue|green|red)-\d+/.exec(p.className)?.[0] ?? '',
+      }))
+      if (JSON.stringify(now) === JSON.stringify(expected)) return
+      await sleep(100)
+    }
+    expect(last).toEqual(expected)
+  }
+
+  async function outlineColors() {
+    const realm = await contentRealm(session)
+    return realm.evaluate(() =>
+      [
+        ...(globalThis.__webdevOverlay?.shadow?.querySelectorAll(
+          '[data-testid="overlay-outline"]',
+        ) ?? []),
+      ].map((o) => /border-(blue|green|red)-\d+/.exec(o.className)?.[0]),
+    )
+  }
+
+  it('pins only what the filter shows, in the color of its status', async () => {
+    await save(BUTTON, 'Wider')
+    await waitForPins([{ number: '1', color: 'bg-blue-600' }])
+    await panel.click('[data-testid="copy-prompt"]')
+    await panel.waitForSelector('::-p-text(Copied 1 item)')
+    // Done: the filter Open shows no pin and no outline for it.
+    await waitForPins([])
+    expect(await outlineColors()).toEqual([])
+    await panel.click('[data-testid="filter-all"]')
+    await waitForPins([{ number: '1', color: 'bg-green-700' }])
+    expect(await outlineColors()).toEqual(['border-green-700'])
+    await panel.click('[data-testid="filter-open"]')
+    await waitForPins([])
+  })
+
+  it('deletes from the popover; + Deleted shows the item in red', async () => {
+    await save(BUTTON, 'Wider')
+    await waitForPins([{ number: '1', color: 'bg-blue-600' }])
+    const pin = await pinCenter()
+    await session.page.mouse.click(pin?.x ?? 0, pin?.y ?? 0)
+    await waitInOverlay(session, '[data-testid="overlay-delete"]')
+    const realm = await contentRealm(session)
+    const at = await realm.evaluate(() => {
+      const r = globalThis.__webdevOverlay?.shadow
+        ?.querySelector('[data-testid="overlay-delete"]')
+        ?.getBoundingClientRect()
+      return r && { x: r.x + r.width / 2, y: r.y + r.height / 2 }
+    })
+    await session.page.mouse.click(at?.x ?? 0, at?.y ?? 0)
+    await waitInOverlay(session, '[data-testid="overlay-popover"]', false)
+    await waitForPins([])
+    const c = await storedCollection(panel)
+    expect(c?.items.map((i) => i.status)).toEqual(['deleted'])
+    await panel.click('[data-testid="filter-with-deleted"]')
+    await waitForPins([{ number: '1', color: 'bg-red-600' }])
+    await panel.waitForSelector('[data-testid="item-number"].bg-red-600')
+    await panel.click('[data-testid="item-restore"]')
+    await waitForPins([{ number: '1', color: 'bg-blue-600' }])
+    await panel.click('[data-testid="filter-open"]')
   })
 })

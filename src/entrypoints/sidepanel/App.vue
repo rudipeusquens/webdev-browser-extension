@@ -428,10 +428,11 @@ function setMode(next: unknown) {
     </section>
 
     <footer v-if="!showSettings" class="space-y-2 border-t p-3">
-      <div class="flex gap-2">
+      <!-- Two rows: three labels do not fit side by side in a narrow panel. -->
+      <div class="grid grid-cols-2 gap-2">
         <Button
           data-testid="copy-prompt"
-          class="min-w-0 flex-1"
+          class="col-span-2"
           :disabled="!count"
           title="Copy the open items; they become done"
           @click="copy"

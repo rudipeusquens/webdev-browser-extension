@@ -142,16 +142,16 @@ describe('pin outlines', () => {
     await clickInOverlay(session, '[data-testid="overlay-chip"]')
     await saveComment(1)
     await session.page.evaluate(() => getSelection()?.removeAllRanges())
-    expect(await marked('webdev-pins')).toEqual(['Line one'])
+    expect(await marked('webdev-pins-open')).toEqual(['Line one'])
     // Painted: the text looks different with the pins hidden.
     const area = await box('#textbox')
     const shot = () => session.page.screenshot({ clip: area, encoding: 'base64' })
     const shaded = await shot()
     await session.page.keyboard.press('p')
-    expect(await marked('webdev-pins')).toEqual([])
+    expect(await marked('webdev-pins-open')).toEqual([])
     expect(await shot()).not.toBe(shaded)
     await session.page.keyboard.press('p')
-    expect(await marked('webdev-pins')).toEqual(['Line one'])
+    expect(await marked('webdev-pins-open')).toEqual(['Line one'])
   })
 
   it('shades a text stronger while its pin is hovered', async () => {
@@ -161,11 +161,11 @@ describe('pin outlines', () => {
     const pin = await overlayCenter(session, '[data-testid="overlay-pin"]')
     await session.page.mouse.move(pin.x, pin.y)
     await sleep(150)
-    expect(await marked('webdev-pins-strong')).toEqual(['Line one'])
-    expect(await marked('webdev-pins')).toEqual([])
+    expect(await marked('webdev-pins-open-strong')).toEqual(['Line one'])
+    expect(await marked('webdev-pins-open')).toEqual([])
     await session.page.mouse.move(700, 700)
     await sleep(150)
-    expect(await marked('webdev-pins')).toEqual(['Line one'])
+    expect(await marked('webdev-pins-open')).toEqual(['Line one'])
   })
 
   it('hides the outlines with the pins', async () => {
