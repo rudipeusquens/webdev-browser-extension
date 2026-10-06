@@ -292,6 +292,12 @@ const outlines = computed(() => {
     return [{ id: item.id, strong, tone, dashed: item.target.kind === 'area', style }]
   })
 })
+/** The status of the pin being edited, now: the panel may change it while its popover is open. */
+const editStatus = computed(() => {
+  const edit = draft.value?.edit
+  if (!edit) return undefined
+  return collection.value?.items.find((item) => item.id === edit.id)?.status ?? edit.status
+})
 const highlight = computed(() => {
   void frame.value
   const item = pageItems.value.find((i) => i.id === highlighted.value)
@@ -299,7 +305,7 @@ const highlight = computed(() => {
   const rect = placement?.rect()
   // A target without a box (not rendered) has nothing to outline.
   if (!item || !rect || rect.width === 0 || rect.height === 0) return null
-  return { rect, label: `Pin ${item.number}` }
+  return { rect, label: `Pin ${item.number}`, status: item.status }
 })
 
 // Pinned texts are shaded by the browser: set again when what is pinned, hovered or edited
@@ -908,6 +914,7 @@ onBeforeUnmount(() => {
       v-if="highlight && !draft"
       :rect="highlight.rect"
       :label="highlight.label"
+      :status="highlight.status"
       testid="overlay-highlight"
     />
     <button
@@ -925,11 +932,12 @@ onBeforeUnmount(() => {
     >
       {{ pin.number }}
     </button>
-    <TextHighlight v-if="draftText" :boxes="draftText.lines" />
+    <TextHighlight v-if="draftText" :boxes="draftText.lines" :status="editStatus" />
     <HoverBox
       v-else-if="draftRect"
       :rect="draftRect"
       :tone="draft?.kind === 'area' ? 'area' : 'selected'"
+      :status="editStatus"
     />
     <HoverBox
       v-if="dragRect"
