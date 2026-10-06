@@ -80,15 +80,21 @@ export const recorderSender = (path = '/offscreen.html'): Browser.runtime.Messag
 
 /**
  * `runtime.onConnect`, `offscreen.*` and `runtime.getContexts` as Chrome has them (WXT's fake
- * browser implements none): a created offscreen document connects its recorder port before
- * `createDocument` resolves, as in Chrome, unless `connects` is off; closing it closes that
- * port.
+ * browser implements none). A created offscreen document loads: its script connects its
+ * recorder port after `connectAfter` ms, before `createDocument` resolves (after `loadTime`
+ * ms), as in Chrome, unless `connects` is off. Closing a document closes its port, and a
+ * document closed while it loads never connects. `dies` makes the next recorder port close
+ * right after it connected.
  */
 export function fakePorts() {
   const connect = event<[FakePort]>()
+  let document = 0
   const state = {
     exists: false,
     connects: true,
+    dies: false,
+    connectAfter: 30,
+    loadTime: 60,
     created: [] as Browser.offscreen.CreateParameters[],
     closed: 0,
     /** The recorder port of the current document. */
@@ -99,21 +105,33 @@ export function fakePorts() {
   vi.spyOn(fakeBrowser.runtime.onConnect, 'addListener').mockImplementation(
     connect.addListener as never,
   )
-  vi.spyOn(fakeBrowser.offscreen, 'createDocument').mockImplementation((async (
+  vi.spyOn(fakeBrowser.offscreen, 'createDocument').mockImplementation(((
     parameters: Browser.offscreen.CreateParameters,
   ) => {
-    if (state.exists) throw new Error('Only a single offscreen document may be created.')
+    if (state.exists) {
+      return Promise.reject(new Error('Only a single offscreen document may be created.'))
+    }
     state.exists = true
     state.created.push(parameters)
-    if (!state.connects) return
-    // In Chrome the document's script connects before createDocument() resolves.
-    const port = fakePort('recorder', recorderSender())
-    state.recorder = port
-    state.connect(port)
+    const mine = ++document
+    if (state.connects) {
+      setTimeout(() => {
+        if (document !== mine || !state.exists) return
+        const port = fakePort('recorder', recorderSender(`/${parameters.url}`))
+        state.recorder = port
+        state.connect(port)
+        if (state.dies) {
+          state.dies = false
+          port.close()
+        }
+      }, state.connectAfter)
+    }
+    return new Promise((done) => setTimeout(done, state.loadTime))
   }) as never)
   vi.spyOn(fakeBrowser.offscreen, 'closeDocument').mockImplementation((async () => {
     if (!state.exists) throw new Error('No current offscreen document.')
     state.exists = false
+    document++
     state.closed++
     state.recorder?.close()
   }) as never)

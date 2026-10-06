@@ -30,11 +30,13 @@ interface Session {
   run: number
 }
 
-const post = (port: Port | undefined, message: VoiceState | RecorderCommand) => {
+/** Whether `message` went out; false when that side is gone. */
+const post = (port: Port | undefined, message: VoiceState | RecorderCommand): boolean => {
   try {
     port?.postMessage(message)
+    return port !== undefined
   } catch {
-    // That side is gone; its disconnect cleans up.
+    return false
   }
 }
 
@@ -48,8 +50,13 @@ async function readRequest(): Promise<TranscribeRequest | undefined> {
 export function createVoice() {
   /** The session that owns the recorder document. */
   let current: Session | undefined
-  /** Takes the port of the recorder document that was opened last; nothing ends the wait. */
-  let waiting: ((port?: Port) => void) | undefined
+  /**
+   * The recorder document that was opened last and has not connected yet: its URL, and what
+   * takes its port (nothing ends the wait).
+   */
+  let waiting: { url: string; accept: (port?: Port) => void } | undefined
+  /** Numbers the documents, so each port is matched to the document that was opened for it. */
+  let documents = 0
   /** Document changes one at a time: Chrome allows a single offscreen document. */
   let queue: Promise<unknown> = Promise.resolve()
   const inOrder = (task: () => Promise<void>) => {
@@ -68,11 +75,12 @@ export function createVoice() {
 
   /** A fresh recorder document and its port, or nothing when it does not connect in time. */
   async function openRecorder(): Promise<Port | undefined> {
+    const url = `${DOCUMENT}?n=${++documents}`
     let accept: (port?: Port) => void = () => undefined
     const connected = new Promise<Port | undefined>((resolve) => {
       accept = (port) => {
         clearTimeout(timer)
-        if (waiting === accept) waiting = undefined
+        if (waiting?.accept === accept) waiting = undefined
         resolve(port)
       }
       const timer = setTimeout(accept, CONNECT_TIMEOUT)
@@ -80,13 +88,13 @@ export function createVoice() {
     // The wait starts before the document exists: its script connects before
     // createDocument() resolves. An earlier wait is over: its document is replaced.
     const earlier = waiting
-    waiting = accept
-    earlier?.()
+    waiting = { url: browser.runtime.getURL(`/${url}` as '/offscreen.html'), accept }
+    earlier?.accept()
     try {
       await inOrder(async () => {
         if (await hasDocument()) await browser.offscreen.closeDocument()
         await browser.offscreen.createDocument({
-          url: DOCUMENT,
+          url,
           reasons: ['USER_MEDIA' as never],
           justification: 'Records the microphone while the developer dictates a comment.',
         })
@@ -158,7 +166,11 @@ export function createVoice() {
     }
     s.recorder = recorder
     listen(s, recorder)
-    post(recorder, { type: 'start', request })
+    // A recorder that is gone before its start, its disconnect unseen, ends the dictation.
+    if (!post(recorder, { type: 'start', request })) {
+      dropRecorder(s)
+      post(s.overlay, { state: 'failed', error: 'mic-failed', retry: false })
+    }
   }
 
   async function retry(s: Session) {
@@ -200,15 +212,15 @@ export function createVoice() {
     })
   }
 
+  /** Only the document opened last, while its dictation waits for it. */
   function connectRecorder(recorder: Port) {
     const { sender } = recorder
-    const ours =
-      sender?.id === browser.runtime.id && sender.url === browser.runtime.getURL(`/${DOCUMENT}`)
-    if (!ours || !waiting) {
+    const pending = waiting
+    if (sender?.id !== browser.runtime.id || sender.tab || !pending || sender.url !== pending.url) {
       recorder.disconnect()
       return
     }
-    waiting(recorder)
+    pending.accept(recorder)
   }
 
   return {

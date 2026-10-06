@@ -53,11 +53,17 @@ describe('background: dictation', () => {
     return port
   }
 
+  /** Lets the recorder document load and connect. */
+  async function loaded() {
+    await flush()
+    await vi.advanceTimersByTimeAsync(100)
+    await flush()
+  }
+
   async function started(tabId = 5) {
     const overlay = popover(tabId)
     overlay.receive({ type: 'start' })
-    await flush()
-    await flush()
+    await loaded()
     const recorder = ports.recorder as FakePort
     return { overlay, recorder }
   }
@@ -76,7 +82,7 @@ describe('background: dictation', () => {
     const { recorder } = await started()
     expect(ports.created).toEqual([
       {
-        url: 'offscreen.html',
+        url: expect.stringMatching(/^offscreen\.html\?/),
         reasons: ['USER_MEDIA'],
         justification: expect.stringMatching(/microphone/i),
       },
@@ -162,8 +168,7 @@ describe('background: dictation', () => {
     expect(ports.exists).toBe(false)
     expect(overlay.posted).toHaveLength(1)
     overlay.receive({ type: 'start' })
-    await flush()
-    await flush()
+    await loaded()
     expect(ports.created).toHaveLength(2)
     expect(ports.recorder?.posted[0]).toMatchObject({ type: 'start' })
   })
@@ -199,20 +204,21 @@ describe('background: dictation', () => {
     const overlay = popover()
     overlay.receive({ type: 'start' })
     overlay.close()
-    await flush()
-    await flush()
+    await loaded()
     expect(ports.recorder?.posted ?? []).toEqual([])
     expect(ports.exists).toBe(false)
   })
 
   it('closes a recorder left from before', async () => {
-    await fakeBrowser.offscreen.createDocument({
+    const leftOver = fakeBrowser.offscreen.createDocument({
       url: 'offscreen.html',
       reasons: ['USER_MEDIA'],
       justification: 'left over',
     })
-    await flush()
+    await vi.advanceTimersByTimeAsync(100)
+    await leftOver
     const stale = ports.recorder as FakePort
+    expect(stale.disconnected).toBe(true)
     const { recorder } = await started()
     expect(ports.closed).toBe(1)
     expect(recorder).not.toBe(stale)
@@ -229,6 +235,48 @@ describe('background: dictation', () => {
     second.recorder.receive({ state: 'transcribing' })
     expect(first.overlay.posted.at(-1)).toMatchObject({ state: 'failed', error: 'taken' })
     expect(second.overlay.posted).toEqual([{ state: 'transcribing' }])
+  })
+
+  // The review found these: a recorder document connects while it loads, and must reach the
+  // dictation that opened it, not whichever waits next.
+  it('starts again cleanly when cancelled while the recorder loads', async () => {
+    const overlay = popover()
+    overlay.receive({ type: 'start' })
+    await flush()
+    overlay.receive({ type: 'cancel' })
+    overlay.receive({ type: 'start' })
+    await loaded()
+    await loaded()
+    const recorder = ports.recorder as FakePort
+    expect(recorder.disconnected).toBe(false)
+    expect(recorder.posted).toEqual([
+      { type: 'start', request: { key: KEY, model: DEFAULT_MODEL, language: 'auto' } },
+    ])
+    expect(ports.exists).toBe(true)
+    recorder.receive({ state: 'recording', limit: 120_000 })
+    expect(overlay.posted.at(-1)).toEqual({ state: 'recording', limit: 120_000 })
+  })
+
+  it('gives the recorder to the popover that started last while one loads', async () => {
+    const first = popover(5)
+    first.receive({ type: 'start' })
+    await flush()
+    const second = popover(6)
+    second.receive({ type: 'start' })
+    await loaded()
+    await loaded()
+    expect(first.posted).toEqual([{ state: 'failed', error: 'taken', retry: false }])
+    const recorder = ports.recorder as FakePort
+    expect(recorder.posted).toEqual([{ type: 'start', request: expect.anything() }])
+    recorder.receive({ state: 'recording', limit: 120_000 })
+    expect(second.posted).toEqual([{ state: 'recording', limit: 120_000 }])
+  })
+
+  it('says so when the recorder dies before it gets its start', async () => {
+    ports.dies = true
+    const { overlay } = await started()
+    expect(overlay.posted).toEqual([{ state: 'failed', error: 'mic-failed', retry: false }])
+    expect(ports.exists).toBe(false)
   })
 
   it('tells the popover when the recorder goes away by itself', async () => {
