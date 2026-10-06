@@ -8,6 +8,7 @@ import { pathToFileURL } from 'node:url'
 const PERMISSIONS = [
   'activeTab',
   'clipboardWrite',
+  'contextMenus',
   'offscreen',
   'scripting',
   'sidePanel',

@@ -31,7 +31,8 @@ that starts it) once the spike results of milestone 1 are recorded in the spec.
   and `GET https://openrouter.ai/api/v1/key`, voice audio only, with
   `provider: { data_collection: "deny" }`. No host permission for `openrouter.ai`.
 - Permissions exactly: `activeTab`, `scripting`, `storage`, `sidePanel`, `offscreen`,
-  `clipboardWrite`; optional host permissions `http://*/*`, `https://*/*`; no
+  `clipboardWrite`, `contextMenus` (added after milestone 4 for **Annotate this page**);
+  optional host permissions `http://*/*`, `https://*/*`; no
   `host_permissions`.
 - State in `chrome.storage.local` only, never `sync`; the background is the only writer.
 - Page-derived strings are untrusted: no `v-html`, no `eval`, no remote code; caps: visible

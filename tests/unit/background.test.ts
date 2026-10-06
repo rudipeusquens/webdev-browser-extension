@@ -7,6 +7,7 @@ import { loadCollection } from '@/lib/collection/store'
 import background from '@/entrypoints/background'
 import { vueOrigins } from '@/lib/capture/origin-bridge'
 import { elementInput } from './helpers/collection'
+import { fakeContextMenus } from './helpers/fake-context-menus'
 import { fakeSites } from './helpers/fake-sites'
 
 const tab = { id: 5, windowId: 1 } as Parameters<
@@ -18,6 +19,7 @@ describe('background', () => {
   beforeEach(() => {
     fakeBrowser.reset()
     fakeSites()
+    fakeContextMenus()
     vi.spyOn(fakeBrowser.sidePanel, 'open').mockResolvedValue(undefined)
     background.main()
   })
@@ -98,6 +100,7 @@ describe('background: code origins', () => {
   beforeEach(() => {
     fakeBrowser.reset()
     fakeSites()
+    fakeContextMenus()
     background.main()
   })
 
@@ -171,6 +174,7 @@ describe('background: items not found', () => {
   beforeEach(async () => {
     fakeBrowser.reset()
     fakeSites()
+    fakeContextMenus()
     background.main()
     for (const [id, url] of [
       ['a1', A],
@@ -212,6 +216,7 @@ describe('background: remembered sites', () => {
   beforeEach(() => {
     fakeBrowser.reset()
     fake = fakeSites([`${A}/*`])
+    fakeContextMenus()
     background.main()
   })
 
@@ -257,6 +262,18 @@ describe('background: remembered sites', () => {
     await fakeBrowser.runtime.onStartup.trigger()
     await vi.waitFor(() => expect(fake.state.scripts.get('overlay')?.matches).toEqual([`${A}/*`]))
   })
+
+  it('rewrites the registration even when the context menu cannot be written', async () => {
+    vi.spyOn(fakeBrowser.contextMenus, 'removeAll').mockImplementation(() => {
+      throw new Error('contextMenus is not available')
+    })
+    await fakeBrowser.storage.local.set({ [SETTINGS_KEY]: { rememberedOrigins: [A] } })
+    await fakeBrowser.runtime.onStartup.trigger().catch(() => undefined)
+    await fakeBrowser.runtime.onInstalled
+      .trigger({ reason: 'update' } as never)
+      .catch(() => undefined)
+    await vi.waitFor(() => expect(fake.state.scripts.get('overlay')?.matches).toEqual([`${A}/*`]))
+  })
 })
 
 describe('background: go to a page of the collection', () => {
@@ -266,6 +283,7 @@ describe('background: go to a page of the collection', () => {
   beforeEach(async () => {
     fakeBrowser.reset()
     fakeSites()
+    fakeContextMenus()
     background.main()
     await send({ type: 'annotation:add', ...elementInput('a1', page) }, { ...panel, tab })
     await send(
@@ -297,6 +315,73 @@ describe('background: go to a page of the collection', () => {
       expect(await send({ type: 'tab:go', tabId: 9, pageKey }, sender)).toMatchObject({ ok: false })
     }
     expect(fakeBrowser.tabs.update).not.toHaveBeenCalled()
+  })
+})
+
+describe('background: the page context menu', () => {
+  let menus: ReturnType<typeof fakeContextMenus>
+
+  beforeEach(() => {
+    fakeBrowser.reset()
+    fakeSites()
+    menus = fakeContextMenus()
+    vi.spyOn(fakeBrowser.sidePanel, 'open').mockResolvedValue(undefined)
+    background.main()
+  })
+
+  afterEach(() => vi.restoreAllMocks())
+
+  it('offers "Annotate this page" on pages once installed, and still once after an update', async () => {
+    await fakeBrowser.runtime.onInstalled.trigger({ reason: 'install' } as never)
+    await flush()
+    await fakeBrowser.runtime.onInstalled.trigger({ reason: 'update' } as never)
+    await flush()
+    expect([...menus.entries.values()]).toEqual([
+      {
+        id: 'annotate',
+        title: 'Annotate this page',
+        contexts: ['page', 'frame', 'selection', 'link', 'editable', 'image', 'video', 'audio'],
+        documentUrlPatterns: ['http://*/*', 'https://*/*', 'file:///*'],
+      },
+    ])
+    expect(menus.duplicates).toEqual([])
+  })
+
+  it('writes the entry again when the browser starts', async () => {
+    // Chrome restores it from its own storage; a lost one comes back with the next start.
+    await fakeBrowser.runtime.onStartup.trigger()
+    await flush()
+    expect([...menus.entries.keys()]).toEqual(['annotate'])
+  })
+
+  it('opens the panel before anything is awaited and injects the overlay', async () => {
+    const inject = vi.spyOn(fakeBrowser.scripting, 'executeScript').mockResolvedValue([] as never)
+    menus.click('annotate', tab)
+    // Synchronously, inside the click: Chrome refuses sidePanel.open() after an await.
+    expect(fakeBrowser.sidePanel.open).toHaveBeenCalledWith({ windowId: 1 })
+    await flush()
+    expect(inject).toHaveBeenCalledWith({
+      target: { tabId: 5 },
+      files: ['/content-scripts/overlay.js'],
+    })
+  })
+
+  it('ignores other entries and clicks outside a tab', async () => {
+    const inject = vi.spyOn(fakeBrowser.scripting, 'executeScript')
+    menus.click('other', tab)
+    menus.click('annotate', undefined)
+    await flush()
+    expect(fakeBrowser.sidePanel.open).not.toHaveBeenCalled()
+    expect(inject).not.toHaveBeenCalled()
+  })
+
+  it('injects nothing for a page that is not in a tab', async () => {
+    // Chrome reports tab id -1 for a frame in another extension's panel, for example.
+    const inject = vi.spyOn(fakeBrowser.scripting, 'executeScript')
+    menus.click('annotate', { ...tab, id: -1 })
+    await flush()
+    expect(inject).not.toHaveBeenCalled()
+    expect(await isBlocked(-1)).toBe(false)
   })
 })
 

@@ -6,7 +6,15 @@ import { checkManifest } from './check-manifest.mjs'
 const valid = () => ({
   manifest_version: 3,
   minimum_chrome_version: '116',
-  permissions: ['storage', 'activeTab', 'scripting', 'offscreen', 'clipboardWrite', 'sidePanel'],
+  permissions: [
+    'storage',
+    'activeTab',
+    'scripting',
+    'offscreen',
+    'clipboardWrite',
+    'sidePanel',
+    'contextMenus',
+  ],
   optional_host_permissions: ['https://*/*', 'http://*/*'],
   commands: { _execute_action: { suggested_key: { default: 'Alt+Shift+A' } } },
   side_panel: { default_path: 'sidepanel.html' },

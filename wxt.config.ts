@@ -12,7 +12,14 @@ export default defineConfig({
     description:
       'Mark elements, text and areas on a page and copy them as a prompt for an AI coding agent.',
     minimum_chrome_version: '116',
-    permissions: ['activeTab', 'scripting', 'storage', 'offscreen', 'clipboardWrite'],
+    permissions: [
+      'activeTab',
+      'scripting',
+      'storage',
+      'offscreen',
+      'clipboardWrite',
+      'contextMenus',
+    ],
     optional_host_permissions: ['http://*/*', 'https://*/*'],
     action: { default_title: 'Annotate this page' },
     commands: {
