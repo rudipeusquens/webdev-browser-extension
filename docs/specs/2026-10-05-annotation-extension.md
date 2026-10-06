@@ -357,7 +357,9 @@ context after a reload), else at its container; an area keeps its place inside i
 Pins that would cover each other move aside. Clicking a pin opens its popover for editing. A
 missing target shows no pin; its panel entry is marked "Not found". Each pinned target is marked as
 well: a 2 px line just outside an element, dashed around an area, light shading behind the
-lines of a text (a text not found again is marked by its pin only). The line is left off on a
+lines of a text, drawn by the browser (CSS Custom Highlight API: nothing moves while the page
+scrolls; a text not found again, or inside one of the page's shadow roots, is marked by its pin
+only). The line is left off on a
 side where a scroll container or the viewport cuts the target, so a cut target does not look
 smaller than it is. Hovering a pin draws its marking stronger; the item being edited shows the
 popover's marking instead. Markings never take the pointer, and the **Pins** toggle and `P`
@@ -463,7 +465,10 @@ select-parent), ClickUp and Air comment pins with a side list.
   redirect them. Named images and forms also shadow members of `document`, but only in the
   page's own world: Chrome keeps the content script's view of `document` intact (E2E-tested).
   Page text is never read with `innerText` or `Selection.toString()` (section 6), so no form
-  field value reaches a snapshot.
+  field value reaches a snapshot. The shading of pinned texts is the one thing the overlay puts into
+  the page itself: a style sheet adopted by the document with `::highlight(webdev-pins…)` rules,
+  and highlights of those names in `CSS.highlights`. They hold no page data the page does not
+  have; the page can see and remove them, which only removes the shading.
 - **Comment field:** while it has focus, `document.execCommand()` called by the page edits it
   despite the closed shadow root, with trusted `input` events. The overlay accepts only edits
   announced by a trusted `beforeinput` of the same type and text, restores the developer's own

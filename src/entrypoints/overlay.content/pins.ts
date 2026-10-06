@@ -232,14 +232,6 @@ export function linesOf(range: Range, viewportHeight: number): { rect: Rect; lin
   return { rect, lines }
 }
 
-/** The parts of `boxes` (the lines of a selected text) that lie inside `bounds`. */
-export function clipBoxes(boxes: Rect[], bounds: Rect): Rect[] {
-  return boxes.flatMap((box) => {
-    const inside = box.width > 0 && box.height > 0 ? intersect(box, bounds) : null
-    return inside ? [inside] : []
-  })
-}
-
 /** The part of the viewport that `clippers` let through, or null when nothing is visible. */
 export function visibleBounds(clippers: Element[], viewport: Rect): Rect | null {
   let bounds: Rect | null = viewport

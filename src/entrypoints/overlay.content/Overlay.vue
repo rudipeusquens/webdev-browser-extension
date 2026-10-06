@@ -38,7 +38,6 @@ import {
   clippersOf,
   isLiveRange,
   type LiveAnchor,
-  clipBoxes,
   linesOf,
   outlineBox,
   pinPositions,
@@ -51,6 +50,7 @@ import { rectBetween } from './place'
 import SelectionChip from './SelectionChip.vue'
 import TextHighlight from './TextHighlight.vue'
 import { usePage } from './use-page'
+import { createTextMarks, pageSurface } from './text-marks'
 import { useTracking } from './use-tracking'
 
 const props = defineProps<{ host: HTMLElement; layer: Layer }>()
@@ -218,9 +218,7 @@ const shown = computed(() => {
     const placement = placements.value.get(item.id)
     if (!placement) return []
     const bounds = visibleBounds(clippers.value.get(item.id) ?? [], viewport)
-    // A text is measured once, before anything is written: its box for the pin, its lines.
-    const text = placement.range ? linesOf(placement.range, viewport.height) : undefined
-    return [{ item, placement, rect: text?.rect ?? placement.rect(), lines: text?.lines, bounds }]
+    return [{ item, rect: placement.rect(), bounds }]
   })
 })
 const pins = computed(() => {
@@ -233,24 +231,22 @@ const pins = computed(() => {
     top: `${y}px`,
   }))
 })
-type Outline = { id: string; strong: boolean } & (
-  { lines: Rect[] } | { lines?: undefined; dashed: boolean; style: Record<string, string> }
-)
+// A pin that goes away under the pointer (hidden, scrolled out of its box) gets no mouseleave.
+watch(pins, (current) => {
+  if (hoveredPin.value && !current.some((pin) => pin.id === hoveredPin.value)) {
+    hoveredPin.value = null
+  }
+})
 
 /**
- * What marks each pinned target: a line around an element or an area, the lines of a text.
- * The item being edited has the popover's own marking.
+ * The line around each pinned element or area. Texts are shaded by the browser instead
+ * (text-marks.ts). The item being edited has the popover's own marking.
  */
 const outlines = computed(() => {
   const editing = draft.value?.edit?.id
-  return shown.value.flatMap(({ item, rect, lines, bounds }): Outline[] => {
-    if (item.id === editing || !bounds) return []
-    // Only a pin that is drawn can be under the pointer (one scrolled away got no mouseleave).
-    const strong = item.id === hoveredPin.value && pins.value.some((pin) => pin.id === item.id)
-    if (item.target.kind === 'text') {
-      // A text not found again has its pin at its container, and no lines.
-      return lines ? [{ id: item.id, strong, lines: clipBoxes(lines, bounds) }] : []
-    }
+  return shown.value.flatMap(({ item, rect, bounds }) => {
+    if (item.id === editing || !bounds || item.target.kind === 'text') return []
+    const strong = item.id === hoveredPin.value
     const box = outlineBox(rect, bounds)
     if (!box) return []
     const side = (on: boolean) => (on ? '2px' : '0')
@@ -276,6 +272,28 @@ const highlight = computed(() => {
   if (!item || !rect || rect.width === 0 || rect.height === 0) return null
   return { rect, label: `Item ${item.number}` }
 })
+
+// Pinned texts are shaded by the browser: set again when what is pinned, hovered or edited
+// changes (a text found again changes the placements), never while the page scrolls.
+const textMarks = createTextMarks(pageSurface(document))
+watch(
+  [placements, pinsShown, hoveredPin, () => draft.value?.edit?.id],
+  () => {
+    const normal: Range[] = []
+    const strong: Range[] = []
+    const editing = draft.value?.edit?.id
+    if (pinsShown.value) {
+      for (const item of pageItems.value) {
+        const range = placements.value.get(item.id)?.range
+        // A text not found again has its pin at its container, and no shading.
+        if (!range || item.id === editing) continue
+        ;(item.id === hoveredPin.value ? strong : normal).push(range)
+      }
+    }
+    textMarks.set(normal, strong)
+  },
+  { immediate: true },
+)
 
 watch(collection, (current) => pruneLive(live, current.items))
 
@@ -749,6 +767,7 @@ onMounted(() => {
 })
 
 onBeforeUnmount(() => {
+  textMarks.stop()
   clearTimeout(hoverTimer)
   clearTimeout(reanchorTimer)
   anchors.stop()
@@ -778,15 +797,7 @@ onBeforeUnmount(() => {
       @contextmenu.prevent
     />
     <template v-for="outline in outlines" :key="outline.id">
-      <TextHighlight
-        v-if="outline.lines"
-        :boxes="outline.lines"
-        :tone="outline.strong ? 'strong' : 'pin'"
-        testid="overlay-pin-lines"
-        line-testid="overlay-pin-text"
-      />
       <div
-        v-else
         data-testid="overlay-outline"
         :data-strong="outline.strong"
         class="pointer-events-none fixed top-0 left-0 z-[2147483647] rounded-[3px] will-change-transform"

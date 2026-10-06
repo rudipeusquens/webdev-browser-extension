@@ -2,20 +2,13 @@
 import { computed } from 'vue'
 import type { Rect } from '@/lib/collection/model'
 
-// Draws lines measured beforehand (pins.ts, linesOf): measuring here, while the overlay is
-// being written, would force a layout on every frame.
-const props = withDefaults(
-  defineProps<{
-    /** The lines to shade, in viewport coordinates. */
-    boxes: Rect[]
-    /** selected: the text being commented; pin: a saved item; strong: its pin is hovered. */
-    tone?: 'selected' | 'pin' | 'strong'
-    testid?: string
-    /** Test id of each line box. */
-    lineTestid?: string
-  }>(),
-  { tone: 'selected', testid: 'overlay-text-highlight', lineTestid: undefined },
-)
+// The lines of the text being commented, measured beforehand (pins.ts, linesOf): measuring
+// here, while the overlay is being written, would force a layout on every frame. Saved texts
+// are shaded by the browser instead (text-marks.ts).
+const props = defineProps<{
+  /** The lines to shade, in viewport coordinates. */
+  boxes: Rect[]
+}>()
 
 // The lines move as one: when the page scrolls, only the block's transform changes and the
 // lines inside keep their places, so the browser moves them without drawing them again.
@@ -36,18 +29,10 @@ const lines = computed(() =>
 <template>
   <div
     v-if="boxes.length"
-    :data-testid="testid"
+    data-testid="overlay-text-highlight"
     class="pointer-events-none fixed top-0 left-0 z-[2147483647] will-change-transform"
     :style="{ transform: `translate(${origin.x}px, ${origin.y}px)` }"
   >
-    <div
-      v-for="(line, i) in lines"
-      :key="i"
-      :data-testid="lineTestid"
-      :data-strong="tone === 'strong'"
-      class="absolute"
-      :class="tone === 'pin' ? 'bg-blue-600/15' : 'bg-blue-600/25'"
-      :style="line"
-    />
+    <div v-for="(line, i) in lines" :key="i" class="absolute bg-blue-600/25" :style="line" />
   </div>
 </template>

@@ -1,6 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import {
-  clipBoxes,
   linesOf,
   outlineBox,
   clippersOf,
@@ -319,27 +318,6 @@ describe('outlineBox', () => {
   it('is null for a target that is out of sight or has no box', () => {
     expect(outlineBox({ x: 10, y: 900, width: 50, height: 50 }, viewport)).toBeNull()
     expect(outlineBox({ x: 10, y: 10, width: 0, height: 50 }, viewport)).toBeNull()
-  })
-})
-
-describe('clipBoxes', () => {
-  const bounds: Rect = { x: 40, y: 200, width: 300, height: 60 }
-
-  it('keeps the parts of text lines inside the bounds and drops the rest', () => {
-    expect(
-      clipBoxes(
-        [
-          { x: 41, y: 190, width: 100, height: 20 },
-          { x: 41, y: 230, width: 400, height: 20 },
-          { x: 41, y: 300, width: 100, height: 20 },
-          { x: 41, y: 240, width: 0, height: 20 },
-        ],
-        bounds,
-      ),
-    ).toEqual([
-      { x: 41, y: 200, width: 100, height: 10 },
-      { x: 41, y: 230, width: 299, height: 20 },
-    ])
   })
 })
 
