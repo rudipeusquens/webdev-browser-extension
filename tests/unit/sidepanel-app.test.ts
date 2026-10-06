@@ -13,7 +13,7 @@ import { elementInput, page, snapshot } from './helpers/collection'
 
 const A = 'http://localhost:3000/a'
 const B = 'http://localhost:3000/b'
-const active: OverlayStatus = { host: 'localhost:3000', pageKey: B, mode: 'browse' }
+const active: OverlayStatus = { host: 'localhost:3000', pageKey: B, mode: 'browse', pins: true }
 
 function twoPages(): Collection {
   let c = addAnnotation(emptyCollection(), elementInput('a1', A, 'First on A'), 'T')
@@ -198,6 +198,35 @@ describe('side panel', () => {
   it('disables the mode switch while the page is not active', async () => {
     await render()
     expect(byTestId('mode-element').hasAttribute('disabled')).toBe(true)
+    expect(byTestId('toggle-pins').hasAttribute('disabled')).toBe(true)
+  })
+
+  it('hides and shows the pins from the panel', async () => {
+    overlayReply = active
+    await render()
+    const toggle = byTestId('toggle-pins')
+    expect(toggle.getAttribute('aria-pressed')).toBe('true')
+    toggle.click()
+    await flushPromises()
+    expect(fakeBrowser.tabs.sendMessage).toHaveBeenCalledWith(1, {
+      type: 'overlay:set-pins',
+      visible: false,
+    })
+    // The overlay hid them and tells the panel.
+    overlayReply = { ...active, pins: false }
+    await fakeBrowser.runtime.onMessage.trigger(
+      { type: 'overlay:changed' },
+      { id: fakeBrowser.runtime.id },
+      () => undefined,
+    )
+    await flushPromises()
+    expect(toggle.getAttribute('aria-pressed')).toBe('false')
+    toggle.click()
+    await flushPromises()
+    expect(fakeBrowser.tabs.sendMessage).toHaveBeenCalledWith(1, {
+      type: 'overlay:set-pins',
+      visible: true,
+    })
   })
 
   it('marks items that were not found and copies the prompt with them', async () => {

@@ -1,10 +1,12 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import {
+  clippersOf,
   type LiveAnchor,
   pinPosition,
   pinPositions,
   placeItems,
   pruneLive,
+  visibleBounds,
 } from '@/entrypoints/overlay.content/pins'
 import type { Annotation, Rect, Target } from '@/lib/collection/model'
 import { snapshot } from './helpers/collection'
@@ -157,8 +159,40 @@ describe('pruneLive', () => {
   })
 })
 
+describe('clippers and visible bounds', () => {
+  const viewport = { x: 0, y: 0, width: 1000, height: 800 }
+
+  it('are the whole viewport for an element nothing clips', () => {
+    expect(clippersOf($('#save'))).toEqual([])
+    expect(visibleBounds([], viewport)).toEqual(viewport)
+  })
+
+  it('are the part of the viewport inside every ancestor that clips its overflow', () => {
+    document.body.innerHTML =
+      '<div id="outer" style="overflow: hidden"><div id="mid"><div id="box" style="overflow-y: auto">' +
+      '<p id="row">Row</p></div></div></div>'
+    boxes.set($('#outer'), { x: 50, y: 50, width: 500, height: 500 })
+    boxes.set($('#box'), { x: 100, y: 100, width: 600, height: 80 })
+    const clippers = clippersOf($('#row'))
+    expect(clippers).toEqual([$('#box'), $('#outer')])
+    expect(visibleBounds(clippers, viewport)).toEqual({ x: 100, y: 100, width: 450, height: 80 })
+  })
+
+  it("leave out the ancestors of a fixed element, and the element's own overflow", () => {
+    document.body.innerHTML =
+      '<div id="box" style="overflow: auto"><header id="head" style="position: fixed; overflow: hidden">Head</header></div>'
+    expect(clippersOf($('#head'))).toEqual([])
+  })
+
+  it('are empty when a clipping ancestor is off-screen', () => {
+    document.body.innerHTML = '<div id="box" style="overflow: auto"><p id="row">Row</p></div>'
+    boxes.set($('#box'), { x: 100, y: 900, width: 200, height: 80 })
+    expect(visibleBounds(clippersOf($('#row')), viewport)).toBeNull()
+  })
+})
+
 describe('pinPosition', () => {
-  const viewport = { width: 1000, height: 800 }
+  const viewport = { x: 0, y: 0, width: 1000, height: 800 }
 
   it('centers the pin on the top-right corner', () => {
     expect(pinPosition({ x: 100, y: 100, width: 200, height: 40 }, viewport)).toEqual({
@@ -179,21 +213,34 @@ describe('pinPosition', () => {
     expect(pinPosition({ x: 100, y: 900, width: 100, height: 40 }, viewport)).toBeNull()
     expect(pinPosition({ x: -300, y: 100, width: 100, height: 40 }, viewport)).toBeNull()
   })
+
+  it('hides the pin of a target scrolled out of its container', () => {
+    const box = { x: 100, y: 100, width: 200, height: 80 }
+    expect(pinPosition({ x: 110, y: 200, width: 100, height: 20 }, box)).toBeNull()
+    expect(pinPosition({ x: 110, y: 60, width: 100, height: 20 }, box)).toBeNull()
+  })
+
+  it('keeps the pin of a target half inside its container within the container', () => {
+    const box = { x: 100, y: 100, width: 200, height: 80 }
+    expect(pinPosition({ x: 110, y: 90, width: 300, height: 20 }, box)).toEqual({ x: 276, y: 104 })
+  })
+
+  it('gives no pin to a target without a box (not rendered)', () => {
+    expect(pinPosition({ x: 0, y: 0, width: 0, height: 0 }, viewport)).toBeNull()
+    expect(pinPosition({ x: 300, y: 300, width: 0, height: 20 }, viewport)).toBeNull()
+  })
 })
 
 describe('pinPositions', () => {
-  const viewport = { width: 1000, height: 800 }
+  const bounds = { x: 0, y: 0, width: 1000, height: 800 }
   const same = { x: 100, y: 100, width: 200, height: 40 }
 
   it('moves pins that would cover each other to the left', () => {
-    const pins = pinPositions(
-      [
-        { id: 'a', rect: same },
-        { id: 'b', rect: same },
-        { id: 'c', rect: same },
-      ],
-      viewport,
-    )
+    const pins = pinPositions([
+      { id: 'a', rect: same, bounds },
+      { id: 'b', rect: same, bounds },
+      { id: 'c', rect: same, bounds },
+    ])
     expect(pins).toEqual([
       { id: 'a', x: 290, y: 90 },
       { id: 'b', x: 268, y: 90 },
@@ -202,7 +249,10 @@ describe('pinPositions', () => {
   })
 
   it('drops pins of targets outside the viewport', () => {
-    const pins = pinPositions([{ id: 'a', rect: { ...same, y: -500 } }], viewport)
+    const pins = pinPositions([
+      { id: 'a', rect: { ...same, y: -500 }, bounds },
+      { id: 'b', rect: same, bounds: null },
+    ])
     expect(pins).toEqual([])
   })
 })

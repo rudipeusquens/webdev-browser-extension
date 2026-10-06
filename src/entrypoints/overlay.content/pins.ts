@@ -1,7 +1,14 @@
 // Where the items of the current page are now: pins, the highlight, revealing and editing
 // all work from these placements.
 
-import { isConnected, queryFirst, rectOf } from '@/lib/capture/dom'
+import {
+  isConnected,
+  MAX_DEPTH,
+  ownerDocumentOf,
+  parentOf,
+  queryFirst,
+  rectOf,
+} from '@/lib/capture/dom'
 import { rangeContainer } from '@/lib/capture/text'
 import type { Annotation, Rect } from '@/lib/collection/model'
 
@@ -97,37 +104,82 @@ const SIZE = 20
 const EDGE = 4
 const GAP = 2
 
-/** Top-left of a pin centered on the target's top-right corner; null when it is off-screen. */
-export function pinPosition(
-  rect: Rect,
-  viewport: { width: number; height: number },
-): { x: number; y: number } | null {
+const CLIPPING = /hidden|scroll|auto|clip|overlay/
+
+/**
+ * The ancestors of `el` that clip its overflow, innermost first: scroll containers and
+ * `overflow: hidden` boxes. A fixed element ends the walk (it is placed against the
+ * viewport); `body` and `html` do too (their overflow is the viewport's).
+ */
+export function clippersOf(el: Element): Element[] {
+  const doc = ownerDocumentOf(el)
+  const view = doc.defaultView
+  const clippers: Element[] = []
+  let node: Element | null = el
+  for (let depth = 0; node && view && depth < MAX_DEPTH; depth++) {
+    const style = view.getComputedStyle(node)
+    // The shorthand too: happy-dom (unit tests) does not expand it.
+    const overflow = `${style.overflow} ${style.overflowX} ${style.overflowY}`
+    if (node !== el && CLIPPING.test(overflow)) {
+      clippers.push(node)
+    }
+    if (style.position === 'fixed') break
+    node = parentOf(node)
+    if (node === doc.body || node === doc.documentElement) break
+  }
+  return clippers
+}
+
+function intersect(a: Rect, b: Rect): Rect | null {
+  const x = Math.max(a.x, b.x)
+  const y = Math.max(a.y, b.y)
+  const right = Math.min(a.x + a.width, b.x + b.width)
+  const bottom = Math.min(a.y + a.height, b.y + b.height)
+  return right > x && bottom > y ? { x, y, width: right - x, height: bottom - y } : null
+}
+
+/** The part of the viewport that `clippers` let through, or null when nothing is visible. */
+export function visibleBounds(clippers: Element[], viewport: Rect): Rect | null {
+  let bounds: Rect | null = viewport
+  for (const clipper of clippers) {
+    bounds = bounds && intersect(bounds, boxOf(clipper))
+  }
+  return bounds
+}
+
+/**
+ * Top-left of a pin centered on the target's top-right corner, kept inside `bounds` (the
+ * visible part of the viewport); null when no part of the target is visible there or the
+ * target has no box (not rendered).
+ */
+export function pinPosition(rect: Rect, bounds: Rect): { x: number; y: number } | null {
+  if (rect.width === 0 || rect.height === 0) return null
   const outside =
-    rect.y + rect.height < 0 ||
-    rect.y > viewport.height ||
-    rect.x + rect.width < 0 ||
-    rect.x > viewport.width
+    rect.y + rect.height <= bounds.y ||
+    rect.y >= bounds.y + bounds.height ||
+    rect.x + rect.width <= bounds.x ||
+    rect.x >= bounds.x + bounds.width
   if (outside) return null
-  const clamp = (value: number, max: number) => Math.max(EDGE, Math.min(value, max - SIZE - EDGE))
+  const clamp = (value: number, start: number, size: number) =>
+    Math.max(start + EDGE, Math.min(value, start + size - SIZE - EDGE))
   return {
-    x: clamp(rect.x + rect.width - SIZE / 2, viewport.width),
-    y: clamp(rect.y - SIZE / 2, viewport.height),
+    x: clamp(rect.x + rect.width - SIZE / 2, bounds.x, bounds.width),
+    y: clamp(rect.y - SIZE / 2, bounds.y, bounds.height),
   }
 }
 
 /** Pin positions for the targets on screen; a pin that would cover another moves left. */
 export function pinPositions(
-  pins: { id: string; rect: Rect }[],
-  viewport: { width: number; height: number },
+  pins: { id: string; rect: Rect; bounds: Rect | null }[],
 ): { id: string; x: number; y: number }[] {
   const placed: { id: string; x: number; y: number }[] = []
-  for (const { id, rect } of pins) {
-    const at = pinPosition(rect, viewport)
-    if (!at) continue
+  for (const { id, rect, bounds } of pins) {
+    const at = bounds && pinPosition(rect, bounds)
+    if (!at || !bounds) continue
     const covers = () =>
       placed.some((p) => Math.abs(p.x - at.x) < SIZE && Math.abs(p.y - at.y) < SIZE)
     for (let tries = 0; covers() && tries < pins.length; tries++) {
-      at.x = Math.max(EDGE, at.x - SIZE - GAP)
+      at.x = Math.max(bounds.x + EDGE, at.x - SIZE - GAP)
     }
     placed.push({ id, ...at })
   }

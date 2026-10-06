@@ -1,0 +1,48 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <title>Layout fixture</title>
+    <style>
+      body {
+        margin: 0;
+        font-family: sans-serif;
+      }
+      #head {
+        position: sticky;
+        top: 0;
+        height: 48px;
+        width: 300px;
+        background: #eee;
+      }
+      #list {
+        margin: 200px 0 0 40px;
+        width: 300px;
+        height: 120px;
+        overflow: auto;
+        border: 1px solid #ccc;
+      }
+      #list p {
+        margin: 0;
+        height: 40px;
+      }
+      .tall {
+        height: 3000px;
+      }
+    </style>
+  </head>
+  <body>
+    <header id="head">Sticky header</header>
+    <div id="list">
+      <p id="row-1">Row 1</p>
+      <p id="row-2"><span>Row 2</span></p>
+      <p id="row-3">Row 3</p>
+      <p id="row-4">Row 4</p>
+      <p id="row-5">Row 5</p>
+      <p id="row-6">Row 6</p>
+      <p id="row-7">Row 7</p>
+      <p id="row-8">Row 8</p>
+    </div>
+    <div class="tall"></div>
+  </body>
+</html>

@@ -22,6 +22,7 @@ describe('isMessage', () => {
     { type: 'overlay:highlight', id: 'a1' },
     { type: 'overlay:highlight', id: null },
     { type: 'overlay:reveal', id: 'a1' },
+    { type: 'overlay:set-pins', visible: false },
     { type: 'overlay:changed' },
     { type: 'origin:read', selectors: ['#save'] },
     { type: 'anchors:report', pageKey: 'http://localhost:3000/', found: ['a1'], missing: [] },
@@ -38,6 +39,7 @@ describe('isMessage', () => {
     ['an empty comment', { type: 'annotation:update', id: 'a1', comment: '  \n ' }],
     ['a comment over 5000', { type: 'annotation:update', id: 'a1', comment: 'x'.repeat(5001) }],
     ['an unknown mode', { type: 'overlay:set-mode', mode: 'text' }],
+    ['pins that are not a boolean', { type: 'overlay:set-pins', visible: 'no' }],
     ['an invalid target', { ...add, target: { kind: 'element', element: { selector: 'x' } } }],
     ['an invalid page', { ...add, page: page('chrome://settings/') }],
     ['an extra key', { type: 'collection:clear', all: true }],
@@ -85,8 +87,14 @@ describe('message groups', () => {
 
 describe('isOverlayStatus', () => {
   it('checks the reply to overlay:status', () => {
-    const status = { host: 'localhost:3000', pageKey: 'http://localhost:3000/', mode: 'browse' }
+    const status = {
+      host: 'localhost:3000',
+      pageKey: 'http://localhost:3000/',
+      mode: 'browse',
+      pins: true,
+    }
     expect(isOverlayStatus(status)).toBe(true)
+    expect(isOverlayStatus({ ...status, pins: 'yes' })).toBe(false)
     expect(isOverlayStatus({ ...status, mode: 'x' })).toBe(false)
     expect(isOverlayStatus({ ...status, host: 'x'.repeat(300) })).toBe(false)
     expect(isOverlayStatus(undefined)).toBe(false)

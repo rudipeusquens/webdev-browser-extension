@@ -1,9 +1,17 @@
 <script setup lang="ts">
-import { CopyIcon, MousePointer2Icon, SquareDashedIcon, SquareMousePointerIcon } from '@lucide/vue'
+import {
+  CopyIcon,
+  MapPinIcon,
+  MapPinOffIcon,
+  MousePointer2Icon,
+  SquareDashedIcon,
+  SquareMousePointerIcon,
+} from '@lucide/vue'
 import { computed, ref, watch } from 'vue'
 import { browser } from 'wxt/browser'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
+import { Toggle } from '@/components/ui/toggle'
 import { ToggleGroup, ToggleGroupItem } from '@/components/ui/toggle-group'
 import { groupByPage } from '@/lib/collection/ops'
 import { formatCollection } from '@/lib/format/markdown'
@@ -26,6 +34,7 @@ const groups = computed(() => {
   return [...all.filter((g) => g.current), ...all.filter((g) => !g.current)]
 })
 const mode = computed(() => (status.value.kind === 'active' ? status.value.mode : undefined))
+const pinsShown = computed(() => status.value.kind !== 'active' || status.value.pins)
 const statusText = computed(() => {
   switch (status.value.kind) {
     case 'active':
@@ -65,6 +74,11 @@ async function copy() {
   copyStatus.value = `Copied ${n} item${n === 1 ? '' : 's'}`
   clearTimeout(copyTimer)
   copyTimer = setTimeout(() => (copyStatus.value = ''), 4000)
+}
+
+function setPins(visible: boolean) {
+  toOverlay({ type: 'overlay:set-pins', visible })
+  void refresh()
 }
 
 function setMode(next: unknown) {
@@ -112,6 +126,20 @@ function setMode(next: unknown) {
             <SquareDashedIcon /> Area
           </ToggleGroupItem>
         </ToggleGroup>
+        <Toggle
+          data-testid="toggle-pins"
+          variant="outline"
+          size="sm"
+          :model-value="pinsShown"
+          :disabled="status.kind !== 'active'"
+          :aria-label="pinsShown ? 'Hide pins' : 'Show pins'"
+          :title="pinsShown ? 'Hide pins on the page' : 'Show pins on the page'"
+          @update:model-value="setPins"
+        >
+          <MapPinIcon v-if="pinsShown" />
+          <MapPinOffIcon v-else />
+          Pins
+        </Toggle>
         <p
           v-if="status.kind === 'active'"
           class="flex items-center gap-1 text-xs text-muted-foreground"

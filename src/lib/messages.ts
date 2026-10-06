@@ -52,6 +52,7 @@ export type OverlayMessage =
   | { type: 'overlay:set-mode'; mode: Mode }
   | { type: 'overlay:highlight'; id: string | null }
   | { type: 'overlay:reveal'; id: string }
+  | { type: 'overlay:set-pins'; visible: boolean }
 
 /** Overlay → side panel: something the panel shows has changed; ask again. */
 export type PanelMessage = { type: 'overlay:changed' }
@@ -63,6 +64,8 @@ export interface OverlayStatus {
   host: string
   pageKey: string
   mode: Mode
+  /** Whether the pins are shown. */
+  pins: boolean
 }
 
 export type Reply = { ok: true } | { ok: false; error: string }
@@ -121,6 +124,8 @@ export function isOverlayMessage(x: unknown): x is OverlayMessage {
       return hasKeys(x, ['type', 'id']) && (x.id === null || isAnnotationId(x.id))
     case 'overlay:reveal':
       return hasKeys(x, ['type', 'id']) && isAnnotationId(x.id)
+    case 'overlay:set-pins':
+      return hasKeys(x, ['type', 'visible']) && typeof x.visible === 'boolean'
     default:
       return false
   }
@@ -136,9 +141,10 @@ export function isMessage(x: unknown): x is Message {
 
 export function isOverlayStatus(x: unknown): x is OverlayStatus {
   return (
-    hasKeys(x, ['host', 'pageKey', 'mode']) &&
+    hasKeys(x, ['host', 'pageKey', 'mode', 'pins']) &&
     isText(x.host, 255, 1) &&
     isText(x.pageKey, 8192, 1) &&
-    isMode(x.mode)
+    isMode(x.mode) &&
+    typeof x.pins === 'boolean'
   )
 }

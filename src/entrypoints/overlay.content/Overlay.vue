@@ -31,7 +31,16 @@ import { newId } from './ids'
 import { type Origins, readOrigins, sourcesOf, within, withOrigins } from './origins'
 import { pageShortcut } from './keys'
 import { forwardsWheel, isEditable, pickAt, scrollableAncestor, TargetPath } from './picker'
-import { boxOf, isLiveRange, type LiveAnchor, pinPositions, placeItems, pruneLive } from './pins'
+import {
+  boxOf,
+  clippersOf,
+  isLiveRange,
+  type LiveAnchor,
+  pinPositions,
+  placeItems,
+  pruneLive,
+  visibleBounds,
+} from './pins'
 import type { Layer } from './top-layer'
 import { rectBetween } from './place'
 import SelectionChip from './SelectionChip.vue'
@@ -86,6 +95,8 @@ const path = shallowRef<TargetPath | null>(null)
 const hovered = shallowRef<Element | null>(null)
 const draft = shallowRef<Draft | null>(null)
 const highlighted = ref<string | null>(null)
+// The panel can hide the pins, until it shows them again or the overlay restarts.
+const pinsShown = ref(true)
 // The page's selection the Comment chip offers to comment on (browse mode), and the
 // character the chip sits under.
 const chip = shallowRef<{ range: Range; anchor: Range } | null>(null)
@@ -172,15 +183,25 @@ const placements = computed(() => {
   void layout.value
   return placeItems(pageItems.value, live, document)
 })
+// The scroll containers and clipping boxes around each target: looked up with the
+// placements, measured on every frame.
+const clippers = computed(() => {
+  const found = new Map<string, Element[]>()
+  for (const [id, placement] of placements.value) found.set(id, clippersOf(placement.el))
+  return found
+})
 const pins = computed(() => {
   void frame.value
-  const viewport = { width: window.innerWidth, height: window.innerHeight }
+  if (!pinsShown.value) return []
+  const viewport = { x: 0, y: 0, width: window.innerWidth, height: window.innerHeight }
   const numbers = new Map(pageItems.value.map((item) => [item.id, item.number]))
   const onPage = pageItems.value.flatMap((item) => {
     const placement = placements.value.get(item.id)
-    return placement ? [{ id: item.id, rect: placement.rect() }] : []
+    if (!placement) return []
+    const bounds = visibleBounds(clippers.value.get(item.id) ?? [], viewport)
+    return [{ id: item.id, rect: placement.rect(), bounds }]
   })
-  return pinPositions(onPage, viewport).map(({ id, x, y }) => ({
+  return pinPositions(onPage).map(({ id, x, y }) => ({
     id,
     number: numbers.get(id),
     left: `${x}px`,
@@ -191,7 +212,10 @@ const highlight = computed(() => {
   void frame.value
   const item = pageItems.value.find((i) => i.id === highlighted.value)
   const placement = item && placements.value.get(item.id)
-  return item && placement ? { rect: placement.rect(), label: `Item ${item.number}` } : null
+  const rect = placement?.rect()
+  // A target without a box (not rendered) has nothing to outline.
+  if (!item || !rect || rect.width === 0 || rect.height === 0) return null
+  return { rect, label: `Item ${item.number}` }
 })
 
 watch(collection, (current) => pruneLive(live, current.items))
@@ -590,6 +614,7 @@ function onKeydown(e: KeyboardEvent) {
 const status = (): OverlayStatus => ({
   host: location.host || location.protocol.replace(':', ''),
   pageKey: page.value,
+  pins: pinsShown.value,
   mode: mode.value,
 })
 
@@ -605,6 +630,10 @@ const onMessage: Parameters<typeof browser.runtime.onMessage.addListener>[0] = (
       return
     case 'overlay:set-mode':
       setMode(message.mode)
+      sendResponse({ ok: true } satisfies Reply)
+      return
+    case 'overlay:set-pins':
+      pinsShown.value = message.visible
       sendResponse({ ok: true } satisfies Reply)
       return
     case 'overlay:highlight':
