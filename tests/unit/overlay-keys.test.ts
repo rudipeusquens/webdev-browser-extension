@@ -41,7 +41,13 @@ describe('popoverKey', () => {
 })
 
 describe('pageShortcut', () => {
-  const idle = { mode: 'browse', hovering: false, drafting: false, editableFocus: false } as const
+  const idle = {
+    mode: 'browse',
+    hovering: false,
+    drafting: false,
+    dragging: false,
+    editableFocus: false,
+  } as const
   const picking = { ...idle, mode: 'element', hovering: true } as const
 
   it('switches modes with E and Escape', () => {
@@ -49,6 +55,23 @@ describe('pageShortcut', () => {
     expect(pageShortcut(key('E'), idle)).toEqual({ mode: 'element' })
     expect(pageShortcut(key('Escape'), picking)).toEqual({ mode: 'browse' })
     expect(pageShortcut(key('Escape'), idle)).toBeNull()
+  })
+
+  it('switches to area mode with A', () => {
+    expect(pageShortcut(key('a'), idle)).toEqual({ mode: 'area' })
+    expect(pageShortcut(key('A'), picking)).toEqual({ mode: 'area' })
+    expect(pageShortcut(key('a'), { ...idle, drafting: true })).toBeNull()
+    expect(pageShortcut(key('a'), { ...idle, editableFocus: true })).toBeNull()
+    expect(pageShortcut(key('a', { ctrlKey: true }), idle)).toBeNull()
+    expect(pageShortcut(key('e'), { ...idle, mode: 'area' })).toEqual({ mode: 'element' })
+  })
+
+  it('cancels a drag on Escape before leaving area mode', () => {
+    const area = { ...idle, mode: 'area' } as const
+    expect(pageShortcut(key('Escape'), { ...area, dragging: true })).toBe('cancel')
+    expect(pageShortcut(key('Escape'), area)).toEqual({ mode: 'browse' })
+    expect(pageShortcut(key('Enter'), area)).toBeNull()
+    expect(pageShortcut(key('ArrowUp'), { ...area, hovering: true })).toBeNull()
   })
 
   it('walks and selects while hovering in element mode', () => {

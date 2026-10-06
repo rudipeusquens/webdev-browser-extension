@@ -11,3 +11,23 @@ body {
   /* Tall enough to scroll the marked elements around. */
   min-height: 2400px;
 }
+.features {
+  /* Room around the cards: an area drawn around them stays inside the section. */
+  display: flex;
+  gap: 16px;
+  padding: 32px;
+}
+.card {
+  width: 120px;
+  padding: 12px;
+  border: 1px solid #ccc;
+}
+.contents {
+  display: contents;
+}
+.pick {
+  padding: 32px;
+}
+#listbox {
+  width: 160px;
+}

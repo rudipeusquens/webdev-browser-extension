@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it } from 'vitest'
-import { isEditable, pickAt, TargetPath } from '@/entrypoints/overlay.content/picker'
+import { forwardsWheel, isEditable, pickAt, TargetPath } from '@/entrypoints/overlay.content/picker'
 
 const $ = (selector: string) => {
   const el = document.querySelector(selector)
@@ -87,5 +87,23 @@ describe('isEditable', () => {
 
   it('handles no element', () => {
     expect(isEditable(null)).toBe(false)
+  })
+})
+
+describe('forwardsWheel', () => {
+  // Plain objects: happy-dom's WheelEvent ignores modifier keys.
+  const wheel = (keys: { ctrlKey?: boolean; metaKey?: boolean }) => ({
+    ctrlKey: false,
+    metaKey: false,
+    ...keys,
+  })
+
+  it('scrolls for plain wheel turns', () => {
+    expect(forwardsWheel(wheel({}))).toBe(true)
+  })
+
+  it('leaves zooming with Ctrl or Cmd to the browser', () => {
+    expect(forwardsWheel(wheel({ ctrlKey: true }))).toBe(false)
+    expect(forwardsWheel(wheel({ metaKey: true }))).toBe(false)
   })
 })

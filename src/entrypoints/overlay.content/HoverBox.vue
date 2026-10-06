@@ -3,7 +3,13 @@ import { computed } from 'vue'
 import type { Rect } from '@/lib/collection/model'
 
 const props = withDefaults(
-  defineProps<{ rect: Rect; label?: string; tone?: 'hover' | 'selected'; testid?: string }>(),
+  defineProps<{
+    rect: Rect
+    label?: string
+    /** hover: outlined element; selected: the item being commented; area: a dragged area. */
+    tone?: 'hover' | 'selected' | 'area'
+    testid?: string
+  }>(),
   { label: undefined, tone: 'hover', testid: 'overlay-hover' },
 )
 
@@ -21,7 +27,11 @@ const labelInside = computed(() => props.rect.y < 24)
   <div
     :data-testid="testid"
     class="pointer-events-none fixed z-[2147483647] rounded-[2px] outline-2 outline-blue-600"
-    :class="tone === 'selected' ? 'bg-blue-600/5 outline-solid' : 'bg-blue-600/10 outline-solid'"
+    :class="{
+      'bg-blue-600/10 outline-solid': tone === 'hover',
+      'bg-blue-600/5 outline-solid': tone === 'selected',
+      'bg-blue-600/5 outline-dashed': tone === 'area',
+    }"
     :style="box"
   >
     <span

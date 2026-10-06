@@ -24,6 +24,8 @@ export interface ShortcutState {
   hovering: boolean
   /** The comment popover is open. */
   drafting: boolean
+  /** An area is being dragged. */
+  dragging: boolean
   /** Focus is in a page field. */
   editableFocus: boolean
 }
@@ -34,11 +36,12 @@ export type Shortcut = { mode: Mode } | 'up' | 'down' | 'select' | 'cancel'
 export function pageShortcut(e: Key, state: ShortcutState): Shortcut | null {
   if (!e.isTrusted || e.ctrlKey || e.metaKey || e.altKey || state.editableFocus) return null
   if (e.key === 'Escape') {
-    if (state.drafting) return 'cancel'
+    if (state.drafting || state.dragging) return 'cancel'
     return state.mode === 'browse' ? null : { mode: 'browse' }
   }
   if (state.drafting) return null
   if (e.key === 'e' || e.key === 'E') return { mode: 'element' }
+  if (e.key === 'a' || e.key === 'A') return { mode: 'area' }
   if (state.mode !== 'element' || !state.hovering) return null
   if (e.key === 'ArrowUp') return 'up'
   if (e.key === 'ArrowDown') return 'down'

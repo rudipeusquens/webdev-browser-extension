@@ -88,3 +88,59 @@ export async function markElement(s: Session, selector: string) {
   await s.page.mouse.click(x, y)
   await waitInOverlay(s, '[data-testid="overlay-popover"]')
 }
+
+/** Center of the first element matching `selector` inside the overlay, once it is there. */
+export async function overlayCenter(s: Session, selector: string) {
+  await waitInOverlay(s, selector)
+  // Let positions settle after the element appeared.
+  await sleep(100)
+  const realm = await contentRealm(s)
+  const center = await realm.evaluate((sel) => {
+    const r = globalThis.__webdevOverlay?.shadow?.querySelector(sel)?.getBoundingClientRect()
+    return r && { x: r.x + r.width / 2, y: r.y + r.height / 2 }
+  }, selector)
+  if (!center) throw new Error(`${selector} has no box`)
+  return center
+}
+
+/** A real click on an element inside the overlay. */
+export async function clickInOverlay(s: Session, selector: string) {
+  const { x, y } = await overlayCenter(s, selector)
+  await s.page.mouse.click(x, y)
+}
+
+/** Viewport points just inside the first and last character of `needle` in `selector`. */
+export async function textEnds(page: Page, selector: string, needle: string) {
+  return page.$eval(
+    selector,
+    (el, text) => {
+      const walker = document.createTreeWalker(el, NodeFilter.SHOW_TEXT)
+      for (let node = walker.nextNode(); node; node = walker.nextNode()) {
+        const at = (node as Text).data.indexOf(text)
+        if (at < 0) continue
+        const range = document.createRange()
+        range.setStart(node, at)
+        range.setEnd(node, at + 1)
+        const first = range.getBoundingClientRect()
+        range.setStart(node, at + text.length - 1)
+        range.setEnd(node, at + text.length)
+        const last = range.getBoundingClientRect()
+        return {
+          start: { x: first.left + 1, y: first.top + first.height / 2 },
+          end: { x: last.right - 1, y: last.top + last.height / 2 },
+        }
+      }
+      throw new Error(`no text ${text}`)
+    },
+    needle,
+  )
+}
+
+/** Selects `needle` inside `selector` by dragging the mouse across it. */
+export async function dragSelect(page: Page, selector: string, needle: string) {
+  const { start, end } = await textEnds(page, selector, needle)
+  await page.mouse.move(start.x, start.y)
+  await page.mouse.down()
+  await page.mouse.move(end.x, end.y, { steps: 8 })
+  await page.mouse.up()
+}

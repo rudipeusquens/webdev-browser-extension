@@ -4,18 +4,24 @@ import type { ElementSnapshot, PageInfo } from '../collection/model'
 import { LIMITS } from '../collection/model'
 import { pageKey } from '../collection/page-key'
 import { clean, collapse, truncate } from '../text'
-import { attributesOf, ownerDocumentOf, rectOf, tagOf, textOf } from './dom'
+import { attributesOf, ownerDocumentOf, rectOf, tagOf } from './dom'
+import { shownText } from './reader'
 import { buildSelector } from './selector'
 import { pickStyles } from './styles'
 
 const FORM_FIELDS = new Set(['input', 'textarea', 'select'])
+// Their attributes are the values a select offers (`value`, `label`, `selected`).
+const OPTIONS = new Set(['option', 'optgroup', 'datalist'])
 const isFormField = (el: Element) => FORM_FIELDS.has(tagOf(el))
 
-export function openingTag(el: Element): string {
+function recordedAttributes(el: Element): Attr[] {
+  if (OPTIONS.has(tagOf(el))) return []
   const all = attributesOf(el)
-  const attributes = isFormField(el)
-    ? all.filter((a) => a.name === 'type' || a.name === 'name')
-    : all
+  return isFormField(el) ? all.filter((a) => a.name === 'type' || a.name === 'name') : all
+}
+
+export function openingTag(el: Element): string {
+  const attributes = recordedAttributes(el)
   const parts = attributes.map(({ name, value }) =>
     value === ''
       ? name
@@ -25,10 +31,10 @@ export function openingTag(el: Element): string {
   return `<${truncate([tagOf(el), ...parts].join(' '), LIMITS.tag - 2)}>`
 }
 
-/** Rendered text, never the value or options of a form field. */
+/** Text the element shows, never the value or options of a form field. */
 export function visibleText(el: Element): string {
-  if (isFormField(el)) return ''
-  return clean(textOf(el), LIMITS.text)
+  const view = ownerDocumentOf(el).defaultView
+  return isFormField(el) || !view ? '' : shownText(el, view, LIMITS.text)
 }
 
 export function snapshotElement(el: Element): ElementSnapshot {

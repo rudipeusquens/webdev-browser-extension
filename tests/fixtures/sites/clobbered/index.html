@@ -1,0 +1,25 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <title>Clobbered fixture</title>
+  </head>
+  <body>
+    <h1>Named elements</h1>
+    <p id="intro">Images and forms with these names shadow members of the document.</p>
+    <section class="features">
+      <div class="card">One</div>
+      <div class="card">Two</div>
+    </section>
+    <button type="button" id="action">Do something</button>
+    <!-- Named controls shadow their form's own properties, in every world. -->
+    <form id="named-form">
+      <input name="childNodes" /><input name="parentNode" /><input name="nextSibling" /><input
+        name="ownerDocument"
+      />
+      <p id="in-form">Inside the form text</p>
+    </form>
+    <p id="after-form">After it</p>
+    <script src="clobber.js"></script>
+  </body>
+</html>

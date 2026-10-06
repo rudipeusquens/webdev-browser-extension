@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { XIcon } from '@lucide/vue'
-import { computed, nextTick, onMounted, ref, useTemplateRef } from 'vue'
+import { computed, nextTick, onBeforeUnmount, onMounted, ref, useTemplateRef } from 'vue'
 import { Button } from '@/components/ui/button'
 import type { Rect } from '@/lib/collection/model'
 import { CommentGuard } from './comment-guard'
@@ -71,11 +71,21 @@ function onButton(e: MouseEvent, action: () => void) {
   if (e.isTrusted) action()
 }
 
+function measure() {
+  if (card.value) size.value = { width: card.value.offsetWidth, height: card.value.offsetHeight }
+}
+
+// The card grows with the comment, a warning or an error: placed again, Save stays visible.
+const resizes = new ResizeObserver(measure)
+
 onMounted(async () => {
   await nextTick()
-  if (card.value) size.value = { width: card.value.offsetWidth, height: card.value.offsetHeight }
+  measure()
+  if (card.value) resizes.observe(card.value)
   field.value?.focus({ preventScroll: true })
 })
+
+onBeforeUnmount(() => resizes.disconnect())
 </script>
 
 <template>

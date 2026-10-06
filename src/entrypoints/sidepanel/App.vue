@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { CopyIcon, MousePointer2Icon, SquareMousePointerIcon } from '@lucide/vue'
+import { CopyIcon, MousePointer2Icon, SquareDashedIcon, SquareMousePointerIcon } from '@lucide/vue'
 import { computed, ref, watch } from 'vue'
 import { browser } from 'wxt/browser'
 import { Badge } from '@/components/ui/badge'
@@ -7,7 +7,7 @@ import { Button } from '@/components/ui/button'
 import { ToggleGroup, ToggleGroupItem } from '@/components/ui/toggle-group'
 import { groupByPage } from '@/lib/collection/ops'
 import { formatCollection } from '@/lib/format/markdown'
-import type { BackgroundMessage, Mode, OverlayMessage } from '@/lib/messages'
+import { type BackgroundMessage, type Mode, MODES, type OverlayMessage } from '@/lib/messages'
 import ClearAllDialog from './ClearAllDialog.vue'
 import CopyFallbackDialog from './CopyFallbackDialog.vue'
 import ItemList from './ItemList.vue'
@@ -67,8 +67,8 @@ async function copy() {
 
 function setMode(next: unknown) {
   // A single toggle group reports '' when the active item is clicked again.
-  if (next !== 'browse' && next !== 'element') return
-  toOverlay({ type: 'overlay:set-mode', mode: next satisfies Mode })
+  if (!MODES.includes(next as Mode)) return
+  toOverlay({ type: 'overlay:set-mode', mode: next as Mode })
   void refresh()
 }
 </script>
@@ -91,7 +91,7 @@ function setMode(next: unknown) {
         />
         <span>{{ statusText }}</span>
       </p>
-      <div class="flex items-center gap-3">
+      <div class="flex flex-wrap items-center gap-x-3 gap-y-2">
         <ToggleGroup
           type="single"
           variant="outline"
@@ -106,13 +106,17 @@ function setMode(next: unknown) {
           <ToggleGroupItem value="element" data-testid="mode-element" aria-label="Element mode">
             <SquareMousePointerIcon /> Element
           </ToggleGroupItem>
+          <ToggleGroupItem value="area" data-testid="mode-area" aria-label="Area mode">
+            <SquareDashedIcon /> Area
+          </ToggleGroupItem>
         </ToggleGroup>
         <p
           v-if="status.kind === 'active'"
           class="flex items-center gap-1 text-xs text-muted-foreground"
-          title="On the page: E for element mode, Esc for browse mode"
+          title="On the page: E for element mode, A for area mode, Esc for browse mode"
         >
           <kbd class="rounded border bg-muted px-1 font-mono">E</kbd>
+          <kbd class="rounded border bg-muted px-1 font-mono">A</kbd>
           <kbd class="rounded border bg-muted px-1 font-mono">Esc</kbd>
         </p>
       </div>

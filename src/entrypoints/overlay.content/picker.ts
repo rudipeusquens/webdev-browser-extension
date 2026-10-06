@@ -69,11 +69,9 @@ export function isEditable(el: Element | null): boolean {
   return region !== null && region.getAttribute('contenteditable') !== 'false'
 }
 
-/** The focused element, looking into open shadow roots. */
-export function deepActiveElement(doc: Document): Element | null {
-  let active = doc.activeElement
-  while (active?.shadowRoot?.activeElement) active = active.shadowRoot.activeElement
-  return active
+/** Whether the glass scrolls the page for this wheel turn; Ctrl or Cmd zooms instead. */
+export function forwardsWheel(e: Pick<WheelEvent, 'ctrlKey' | 'metaKey'>): boolean {
+  return !e.ctrlKey && !e.metaKey
 }
 
 /** The nearest ancestor that scrolls on `axis`, else the document's scrolling element. */

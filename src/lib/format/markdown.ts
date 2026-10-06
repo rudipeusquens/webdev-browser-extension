@@ -8,7 +8,7 @@ import type {
   PageInfo,
   Rect,
 } from '../collection/model'
-import { LIMITS } from '../collection/model'
+import { CURATED_STYLES, LIMITS } from '../collection/model'
 import { groupByPage } from '../collection/ops'
 import { clean, collapse } from '../text'
 import { blockquote, inlineCode, plain, quoted } from './escape'
@@ -53,8 +53,9 @@ function elementLines(el: ElementSnapshot): string[] {
   const text = clean(el.text, LIMITS.text)
   if (text) lines.push(`Text: ${quoted(text)}`)
   lines.push(`Box: ${placed(el.box)}`)
-  const styles = Object.entries(el.styles)
-    .map(([name, value]) => `${name}: ${bare(value, LIMITS.styleValue)}`)
+  // In the curated order: stored objects come back with their keys sorted.
+  const styles = CURATED_STYLES.filter((name) => Object.hasOwn(el.styles, name))
+    .map((name) => `${name}: ${bare(el.styles[name] ?? '', LIMITS.styleValue)}`)
     .join('; ')
   if (styles) lines.push(`Styles: ${styles}`)
   return lines.map((line) => `- ${line}`)

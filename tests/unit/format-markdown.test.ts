@@ -179,6 +179,19 @@ describe('formatCollection', () => {
     expect(out.startsWith('# UI feedback: 2 items on 1 page\n')).toBe(true)
   })
 
+  // chrome.storage hands objects back with their keys sorted.
+  it('lists styles in the curated order whatever order the stored object has', () => {
+    const element = snapshot({
+      styles: { width: '10px', color: 'red', display: 'flex', 'background-color': 'blue' },
+    })
+    const out = formatCollection(
+      collect({ ...elementLine(), target: { kind: 'element', element } }),
+    )
+    expect(out).toContain(
+      '- Styles: display: flex; width: 10px; color: red; background-color: blue\n',
+    )
+  })
+
   it('omits lines without data', () => {
     const element = snapshot({ text: '', styles: {} })
     const out = formatCollection(

@@ -193,12 +193,25 @@ box; curated computed styles: `display`, `position`, `width`, `height`, `margin`
 `font-family`, `font-size`, `font-weight`, `line-height`, `color`, `background-color`,
 `border`, `border-radius`.
 
-**Text:** comment; selected text (500 chars) with 40 characters of context before and after;
-the element containing the whole selection (common ancestor), captured like an element.
+**Text:** comment; selected text (500 chars) with 40 characters of context before and after,
+taken from the box (paragraph, heading, cell) that holds the selection; whitespace at the edges
+of the selection belongs to the context; the element containing the whole selection (common
+ancestor), captured like an element.
 
 **Area:** comment; rectangle in page coordinates; the smallest element containing the whole
-rectangle; the topmost elements fully inside it (an element counts if it is inside and its
-parent is not), max 10, plus how many more there were.
+rectangle (found from the topmost element at the rectangle's center upwards, so layers with
+`pointer-events: none` do not count); the topmost visible elements fully inside it (an element
+counts if it is inside and its parent is not), max 10, plus how many more there were.
+
+**Reading text:** visible, selected and context text is read from the page's text nodes.
+Form fields, scripts, styles and text the page does not show are skipped; selections also
+skip text that cannot be selected (`user-select: none`). Neither `innerText` (it lists every
+option of a `<select>`) nor `Selection.toString()` (it returns the selected part of a focused
+field's value) is used. `display: contents` elements count as shown when their parent is
+(Chrome's `checkVisibility()` says they are not). Every walk over the page has a budget, so a
+selection of a whole long page stays quick. A selection is captured from its first to its last
+visible character: a triple-click, which Chrome ends at the start of the next block, takes the
+paragraph as the container, and only the part that was read is highlighted and measured.
 
 **Selector:** prefer a unique `#id` (skipping ids that look generated, e.g. `:r1:`, `v-12`,
 long digit runs), then `[data-testid]`/`[data-test]`, then tag plus stable classes (skipping
@@ -217,7 +230,8 @@ further, because the result must match exactly one element.
 - Paths are reported exactly as the dev server exposes them (usually absolute).
 
 **Never captured:** values of form fields (`input`, `textarea`, `select`; for these only type
-and name are recorded), cookies, storage, network data, anything from other tabs.
+and name are recorded, options record no attributes, and an area lists a `select` but never
+its options), cookies, storage, network data, anything from other tabs.
 
 ## 7. Clipboard format
 
@@ -295,11 +309,11 @@ itself.
 
 **Modes** (switch in the panel, or keys while focus is not in a page field):
 
-| Mode    | Key   | Behavior                                                                                                                                                                                   |
-| ------- | ----- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| Browse  | `Esc` | Page works normally. Selecting text shows a small **Comment** chip next to the selection.                                                                                                  |
-| Element | `E`   | Hover outline with a chip `tag · Component · W×H`; `↑`/`↓` move to parent/child; click or `Enter` selects. Page clicks are swallowed; the mouse wheel scrolls what lies under the pointer. |
-| Area    | `A`   | Drag a rectangle (dashed outline); release selects.                                                                                                                                        |
+| Mode    | Key   | Behavior                                                                                                                                                                                                                    |
+| ------- | ----- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Browse  | `Esc` | Page works normally. When the mouse or a key is released with text selected, a small **Comment** chip appears below the end of the selection; it goes when the selection changes. Selections made by page scripts get none. |
+| Element | `E`   | Hover outline with a chip `tag · Component · W×H`; `↑`/`↓` move to parent/child; click or `Enter` selects. Page clicks are swallowed; the mouse wheel scrolls what lies under the pointer.                                  |
+| Area    | `A`   | Drag a rectangle (dashed outline with its size); release selects when it is at least 4 × 4 px; `Esc` cancels the drag. The mouse wheel scrolls under the pointer as in element mode; `Ctrl`/`Cmd` + wheel zooms.            |
 
 After an annotation is saved the mode stays, so several elements can be marked in a row.
 
@@ -308,7 +322,9 @@ After an annotation is saved the mode stays, so several elements can be marked i
 recording.
 
 **Pins:** numbered markers at the top-right of each target on the current page; they follow
-scroll, resize and layout changes. Clicking a pin opens its popover for editing. A missing
+scroll, resize and layout changes. A text item's pin sits at its selection while that is on the
+page, else at its container; an area keeps its place inside its container. Pins that would
+cover each other move aside. Clicking a pin opens its popover for editing. A missing
 target shows no pin; its panel entry is marked "not found".
 
 **Side panel** (shadcn-vue, follows the system color scheme)
@@ -365,7 +381,8 @@ select-parent), ClickUp and Air comment pins with a side list.
 | Modal dialogs inside web components (open or closed shadow roots)              | Found when they take the focus; the overlay moves into them like into document-level dialogs.                                                                                                                                                                                                    |
 | Script focus traps (Radix, reka-ui, focus-trap)                                | While a comment is written, the overlay host lives in the dialog-like container (`aria-modal`, `role="dialog"`) that holds the focus, so the trap accepts the comment field. If a trap takes the focus anyway, Enter and Space are kept from the page's focused control and the popover says so. |
 | Page popovers that close on an outside click; hover-only menus                 | Known limits: clicking to mark closes such popovers (hover and press `Enter` instead); menus that open on hover cannot be reached by pointing while the glass covers the page (use `↑`/`↓`).                                                                                                     |
-| iframes, web components                                                        | Only the top frame; the host element of a web component is marked.                                                                                                                                                                                                                               |
+| iframes, web components                                                        | Only the top frame; the host element of a web component is marked. Text selected inside a web component or an iframe gets no chip (the page reports such selections as collapsed).                                                                                                               |
+| Areas                                                                          | Limited to the viewport (no scrolling while dragging). Elements clipped by a scroll container count when their box is inside the rectangle; elements overflowing a parent that lies outside it are not listed.                                                                                   |
 | Extension updated or reloaded while a page is open                             | Orphaned overlay removes itself; panel says "Reload the page".                                                                                                                                                                                                                                   |
 | Service worker terminated                                                      | No in-memory state; everything is in storage.                                                                                                                                                                                                                                                    |
 | Several tabs or windows                                                        | One collection; the background is the single writer, so writes never race.                                                                                                                                                                                                                       |
@@ -393,7 +410,10 @@ select-parent), ClickUp and Air comment pins with a side list.
   CSS custom properties are renamed (`--webdev-tw-*`), because the `@property` rules a shadow
   root cannot hold go into the page's `<head>` and must not change the page's own variables.
   DOM reads go through prototype getters, so named form controls ("DOM clobbering") cannot
-  redirect them.
+  redirect them. Named images and forms also shadow members of `document`, but only in the
+  page's own world: Chrome keeps the content script's view of `document` intact (E2E-tested).
+  Page text is never read with `innerText` or `Selection.toString()` (section 6), so no form
+  field value reaches a snapshot.
 - **Comment field:** while it has focus, `document.execCommand()` called by the page edits it
   despite the closed shadow root, with trusted `input` events. The overlay accepts only edits
   announced by a trusted `beforeinput` of the same type and text, restores the developer's own

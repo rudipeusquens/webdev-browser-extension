@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { openingTag, pageInfo, snapshotElement, visibleText } from '@/lib/capture/snapshot'
 import { isElementSnapshot, isPageInfo } from '@/lib/collection/validate'
+import { chromeLikeVisibility } from './helpers/chrome-visibility'
 
 const $ = (selector: string) => {
   const el = document.querySelector(selector)
@@ -32,6 +33,13 @@ describe('openingTag', () => {
     expect(openingTag($('select'))).toBe('<select name="plan">')
   })
 
+  it('records no attributes of options, which hold the values a select offers', () => {
+    document.body.innerHTML =
+      '<select name="plan" size="3"><optgroup label="Paid"><option value="pro" selected>Pro</option></optgroup></select>'
+    expect(openingTag($('option'))).toBe('<option>')
+    expect(openingTag($('optgroup'))).toBe('<optgroup>')
+  })
+
   it('caps attribute values at 60 and the tag at 200, keeping the closing bracket', () => {
     document.body.innerHTML = `<div title="${'t'.repeat(100)}">x</div>`
     expect(openingTag($('div'))).toBe(`<div title="${'t'.repeat(59)}…">`)
@@ -54,6 +62,26 @@ describe('visibleText', () => {
     const text = visibleText($('p'))
     expect([...text]).toHaveLength(120)
     expect(text.endsWith('…')).toBe(true)
+  })
+
+  it('leaves out field values, option labels, scripts and styles inside the element', () => {
+    document.body.innerHTML =
+      '<form><label>Plan <select><option>Secret plan</option></select></label>' +
+      '<textarea>Draft</textarea><input value="typed">' +
+      '<script>var inline = 1</script><style>p { color: red }</style>' +
+      '<button>Send</button></form>'
+    expect(visibleText($('form'))).toBe('Plan Send')
+  })
+
+  it('keeps text that cannot be selected', () => {
+    document.body.innerHTML = '<button style="user-select: none">Save</button>'
+    expect(visibleText($('button'))).toBe('Save')
+  })
+
+  it('keeps text inside display: contents wrappers, which Chrome reports as not visible', () => {
+    chromeLikeVisibility()
+    document.body.innerHTML = '<p><span style="display: contents">Wrapped words</span></p>'
+    expect(visibleText($('p'))).toBe('Wrapped words')
   })
 
   it('is empty for form fields', () => {

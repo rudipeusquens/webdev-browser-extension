@@ -12,8 +12,8 @@ import {
   isText,
 } from './collection/validate'
 
-export type Mode = 'browse' | 'element'
-export const MODES: readonly Mode[] = ['browse', 'element']
+export type Mode = 'browse' | 'element' | 'area'
+export const MODES: readonly Mode[] = ['browse', 'element', 'area']
 
 /** Overlay or side panel → background, which is the only writer of the collection. */
 export type BackgroundMessage =
