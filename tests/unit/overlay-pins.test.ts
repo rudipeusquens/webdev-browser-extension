@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import {
   clipBoxes,
+  linesOf,
   outlineBox,
   clippersOf,
   type LiveAnchor,
@@ -339,5 +340,30 @@ describe('clipBoxes', () => {
       { x: 41, y: 200, width: 100, height: 10 },
       { x: 41, y: 230, width: 299, height: 20 },
     ])
+  })
+})
+
+describe('linesOf', () => {
+  const rect = (x: number, y: number, width: number, height: number) =>
+    ({ x, y, width, height, top: y, bottom: y + height, left: x, right: x + width }) as DOMRect
+  const range = (rects: DOMRect[]) => ({ getClientRects: () => rects }) as unknown as Range
+
+  it('measures a text once: its box for the pin, its lines on screen for the marking', () => {
+    const measured = linesOf(
+      range([rect(10, -40, 100, 20), rect(10, 100, 300, 20), rect(10, 120, 0, 20)]),
+      800,
+    )
+    // As Range.getBoundingClientRect(): only a rect without width and height is left out.
+    expect(measured.rect).toEqual({ x: 10, y: -40, width: 300, height: 180 })
+    expect(measured.lines).toEqual([{ x: 10, y: 100, width: 300, height: 20 }])
+  })
+
+  it('keeps at most 50 lines and has no box without any', () => {
+    const many = Array.from({ length: 80 }, (_, i) => rect(0, i * 10, 50, 10))
+    expect(linesOf(range(many), 10000).lines).toHaveLength(50)
+    expect(linesOf(range([]), 800)).toEqual({
+      rect: { x: 0, y: 0, width: 0, height: 0 },
+      lines: [],
+    })
   })
 })

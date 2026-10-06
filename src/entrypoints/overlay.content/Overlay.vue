@@ -37,6 +37,8 @@ import {
   clippersOf,
   isLiveRange,
   type LiveAnchor,
+  clipBoxes,
+  linesOf,
   outlineBox,
   pinPositions,
   placeItems,
@@ -166,9 +168,15 @@ const hoverLabel = computed(() =>
     : '',
 )
 const dragRect = computed(() => drag.value && rectBetween(drag.value.from, drag.value.to))
+// A selected text is measured once per frame, before anything is written: box and lines.
+const draftText = computed(() => {
+  void frame.value
+  const range = draft.value?.range
+  return range ? linesOf(range, window.innerHeight) : null
+})
 const draftRect = computed(() => {
   void frame.value
-  return draft.value?.rect() ?? null
+  return draftText.value?.rect ?? draft.value?.rect() ?? null
 })
 const chipLine = computed(() => {
   void frame.value
@@ -207,7 +215,9 @@ const shown = computed(() => {
     const placement = placements.value.get(item.id)
     if (!placement) return []
     const bounds = visibleBounds(clippers.value.get(item.id) ?? [], viewport)
-    return [{ item, placement, rect: placement.rect(), bounds }]
+    // A text is measured once, before anything is written: its box for the pin, its lines.
+    const text = placement.range ? linesOf(placement.range, viewport.height) : undefined
+    return [{ item, placement, rect: text?.rect ?? placement.rect(), lines: text?.lines, bounds }]
   })
 })
 const pins = computed(() => {
@@ -221,8 +231,7 @@ const pins = computed(() => {
   }))
 })
 type Outline = { id: string; strong: boolean } & (
-  | { range: Range; bounds: Rect }
-  | { range?: undefined; dashed: boolean; style: Record<string, string> }
+  { lines: Rect[] } | { lines?: undefined; dashed: boolean; style: Record<string, string> }
 )
 
 /**
@@ -231,13 +240,13 @@ type Outline = { id: string; strong: boolean } & (
  */
 const outlines = computed(() => {
   const editing = draft.value?.edit?.id
-  return shown.value.flatMap(({ item, placement, rect, bounds }): Outline[] => {
+  return shown.value.flatMap(({ item, rect, lines, bounds }): Outline[] => {
     if (item.id === editing || !bounds) return []
     // Only a pin that is drawn can be under the pointer (one scrolled away got no mouseleave).
     const strong = item.id === hoveredPin.value && pins.value.some((pin) => pin.id === item.id)
     if (item.target.kind === 'text') {
       // A text not found again has its pin at its container, and no lines.
-      return placement.range ? [{ id: item.id, strong, range: placement.range, bounds }] : []
+      return lines ? [{ id: item.id, strong, lines: clipBoxes(lines, bounds) }] : []
     }
     const box = outlineBox(rect, bounds)
     if (!box) return []
@@ -768,10 +777,8 @@ onBeforeUnmount(() => {
     />
     <template v-for="outline in outlines" :key="outline.id">
       <TextHighlight
-        v-if="outline.range"
-        :range="outline.range"
-        :frame="frame"
-        :bounds="outline.bounds"
+        v-if="outline.lines"
+        :boxes="outline.lines"
         :tone="outline.strong ? 'strong' : 'pin'"
         testid="overlay-pin-lines"
         line-testid="overlay-pin-text"
@@ -809,7 +816,7 @@ onBeforeUnmount(() => {
     >
       {{ pin.number }}
     </button>
-    <TextHighlight v-if="draft?.range" :range="draft.range" :frame="frame" />
+    <TextHighlight v-if="draftText" :boxes="draftText.lines" />
     <HoverBox
       v-else-if="draftRect"
       :rect="draftRect"

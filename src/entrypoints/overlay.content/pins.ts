@@ -181,6 +181,38 @@ export function outlineBox(rect: Rect, bounds: Rect): OutlineBox | null {
   }
 }
 
+/** Lines of a text drawn at most: a selection over a whole page has thousands. */
+const MAX_LINES = 50
+
+/**
+ * One measurement of a text, read before anything is written: its box, as
+ * `Range.getBoundingClientRect()` gives it, and its lines on screen. The overlay never forces a
+ * layout while it renders, and it measures a text once for its pin and its marking.
+ */
+export function linesOf(range: Range, viewportHeight: number): { rect: Rect; lines: Rect[] } {
+  let left = Infinity
+  let top = Infinity
+  let right = -Infinity
+  let bottom = -Infinity
+  const lines: Rect[] = []
+  for (const r of range.getClientRects()) {
+    if (r.width === 0 && r.height === 0) continue
+    left = Math.min(left, r.x)
+    top = Math.min(top, r.y)
+    right = Math.max(right, r.x + r.width)
+    bottom = Math.max(bottom, r.y + r.height)
+    const onScreen = r.width > 0 && r.height > 0 && r.y + r.height > 0 && r.y < viewportHeight
+    if (onScreen && lines.length < MAX_LINES) {
+      lines.push({ x: r.x, y: r.y, width: r.width, height: r.height })
+    }
+  }
+  const rect =
+    left === Infinity
+      ? { x: 0, y: 0, width: 0, height: 0 }
+      : { x: left, y: top, width: right - left, height: bottom - top }
+  return { rect, lines }
+}
+
 /** The parts of `boxes` (the lines of a selected text) that lie inside `bounds`. */
 export function clipBoxes(boxes: Rect[], bounds: Rect): Rect[] {
   return boxes.flatMap((box) => {
