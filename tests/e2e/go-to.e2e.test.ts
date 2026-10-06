@@ -4,7 +4,7 @@ import {
   clickAction,
   contentRealm,
   launch,
-  serviceWorker,
+  startOverlayAgain,
   type Session,
   startFixtureServer,
 } from './harness'
@@ -99,20 +99,7 @@ describe('the panel and the pages of the collection', () => {
     await mark('h1', 'Highlight me again', 1)
     // The overlay starts again on the same tab while the panel stays open, as the page's
     // context menu entry does it (a second toolbar click closes the panel).
-    const worker = await serviceWorker(session)
-    await worker.evaluate(async () => {
-      const { chrome } = globalThis as unknown as {
-        chrome: {
-          tabs: { query(q: object): Promise<{ id: number }[]> }
-          scripting: { executeScript(o: object): Promise<unknown> }
-        }
-      }
-      const [tab] = await chrome.tabs.query({ active: true, lastFocusedWindow: true })
-      await chrome.scripting.executeScript({
-        target: { tabId: tab?.id },
-        files: ['/content-scripts/overlay.js'],
-      })
-    })
+    await startOverlayAgain(session)
     await overlayMounted(session)
     await sleep(500)
     await panel.hover('[data-testid="item"]')

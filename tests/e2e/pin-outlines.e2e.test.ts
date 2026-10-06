@@ -170,4 +170,17 @@ describe('pin outlines', () => {
     await session.page.mouse.move(700, 700)
     expect((await drawn('overlay-outline'))[0]?.strong).toBe(false)
   })
+
+  it('does not keep the stronger outline after its pin was hidden under the pointer', async () => {
+    await markElement(session, '#row-1')
+    await saveComment(1)
+    const pin = await overlayCenter(session, '[data-testid="overlay-pin"]')
+    await session.page.mouse.move(pin.x, pin.y)
+    expect((await drawn('overlay-outline'))[0]?.strong).toBe(true)
+    // The pin goes away under the pointer: no mouseleave.
+    await session.page.keyboard.press('p')
+    await session.page.mouse.move(700, 700)
+    await session.page.keyboard.press('p')
+    expect((await drawn('overlay-outline'))[0]?.strong).toBe(false)
+  })
 })

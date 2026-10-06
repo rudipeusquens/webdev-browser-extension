@@ -70,7 +70,20 @@ export default defineContentScript({
           // Registered after WXT's own cleanup, so the host is gone before this stops watching.
           ctx.onInvalidated(layer.stop)
           const app = createApp(Overlay, { host, layer })
+          // Vue's production build only logs errors in setup, render and hooks: one while the
+          // app mounts means the overlay did not start. Later ones are logged as Vue would.
+          let starting = true
+          let failure: { error: unknown } | undefined
+          app.config.errorHandler = (error) => {
+            if (starting) failure ??= { error }
+            else console.error(error)
+          }
           app.mount(container)
+          starting = false
+          if (failure) {
+            app.unmount()
+            throw failure.error
+          }
           return app
         },
         onRemove(app) {

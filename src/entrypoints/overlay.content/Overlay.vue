@@ -20,7 +20,7 @@ import { truncate } from '@/lib/text'
 import {
   type BackgroundMessage,
   isOverlayMessage,
-  isPanelLeave,
+  isPanelAway,
   type Mode,
   type OverlayStatus,
   type Reply,
@@ -233,7 +233,8 @@ const outlines = computed(() => {
   const editing = draft.value?.edit?.id
   return shown.value.flatMap(({ item, placement, rect, bounds }): Outline[] => {
     if (item.id === editing || !bounds) return []
-    const strong = item.id === hoveredPin.value
+    // Only a pin that is drawn can be under the pointer (one scrolled away got no mouseleave).
+    const strong = item.id === hoveredPin.value && pins.value.some((pin) => pin.id === item.id)
     if (item.target.kind === 'text') {
       // A text not found again has its pin at its container, and no lines.
       return placement.range ? [{ id: item.id, strong, range: placement.range, bounds }] : []
@@ -320,6 +321,8 @@ function notifyPanel() {
 function showPins(visible: boolean) {
   if (pinsShown.value === visible) return
   pinsShown.value = visible
+  // A pin that goes away under the pointer gets no mouseleave.
+  hoveredPin.value = null
   notifyPanel()
 }
 
@@ -707,19 +710,18 @@ const onMessage: Parameters<typeof browser.runtime.onMessage.addListener>[0] = (
 }
 
 /**
- * The panel keeps a line open while it shows this tab; its highlight goes with it. A panel that
- * moves to another tab says so first; one that closes just goes, and the page is left to work
- * normally (spec section 8).
+ * The panel keeps a line open to every overlay it has shown. When it moves to another tab, its
+ * highlight goes; when it closes, the line goes and the page is left to work normally (spec
+ * section 8).
  */
 const onConnect: Parameters<typeof browser.runtime.onConnect.addListener>[0] = (port) => {
   if (port.name !== 'panel' || port.sender?.id !== browser.runtime.id) return
-  let leaving = false
   port.onMessage.addListener((message) => {
-    if (isPanelLeave(message)) leaving = true
+    if (isPanelAway(message)) highlighted.value = null
   })
   port.onDisconnect.addListener(() => {
     highlighted.value = null
-    if (!leaving) setMode('browse')
+    setMode('browse')
   })
 }
 

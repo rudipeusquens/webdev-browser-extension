@@ -1,5 +1,12 @@
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
-import { clickAction, contentRealm, launch, type Session, startFixtureServer } from './harness'
+import {
+  clickAction,
+  contentRealm,
+  launch,
+  type Session,
+  startFixtureServer,
+  startOverlayAgain,
+} from './harness'
 
 describe('activating twice on the same tab', () => {
   let server: Awaited<ReturnType<typeof startFixtureServer>>
@@ -18,7 +25,7 @@ describe('activating twice on the same tab', () => {
   it('keeps exactly one mounted overlay', async () => {
     await session.page.goto(`${server.origin}/plain/`)
     await clickAction(session)
-    await clickAction(session)
+    await startOverlayAgain(session)
     // Give a second injection time to mount (or to remove the first one).
     await new Promise((done) => setTimeout(done, 1000))
     const hosts = await session.page.evaluate(

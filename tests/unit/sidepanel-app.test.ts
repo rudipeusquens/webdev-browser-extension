@@ -241,6 +241,15 @@ describe('side panel', () => {
     })
   })
 
+  it('names the keys on the page, P for the pins too', async () => {
+    overlayReply = active
+    await render()
+    const keys = [...byTestId('page-keys').querySelectorAll('kbd')].map((k) => k.textContent)
+    expect(keys).toEqual(['E', 'A', 'P', 'Esc'])
+    expect(byTestId('page-keys').title).toContain('P to show or hide the pins')
+    expect(byTestId('toggle-pins').title).toBe('Hide pins on the page (P)')
+  })
+
   it('switches the overlay mode from the panel', async () => {
     overlayReply = active
     await render()
@@ -460,12 +469,38 @@ describe('side panel', () => {
     )
     await flushPromises()
     expect(connect).toHaveBeenCalledTimes(2)
-    // Leaving, not closing: the overlay keeps its mode.
-    expect(ports[0]?.postMessage).toHaveBeenCalledWith({ type: 'panel:leave' })
+    // The first overlay is gone: a new one started on the tab.
     expect(ports[0]?.disconnect).toHaveBeenCalled()
-    expect(ports[0]?.postMessage.mock.invocationCallOrder[0]).toBeLessThan(
-      ports[0]?.disconnect.mock.invocationCallOrder[0] ?? 0,
-    )
+  })
+
+  it('keeps the line to an overlay it moved away from, which drops its highlight', async () => {
+    const ports: { postMessage: ReturnType<typeof vi.fn>; disconnect: ReturnType<typeof vi.fn> }[] =
+      []
+    const connect = vi.spyOn(fakeBrowser.tabs, 'connect').mockImplementation((() => {
+      const port = {
+        name: 'panel',
+        postMessage: vi.fn(),
+        disconnect: vi.fn(),
+        onDisconnect: { addListener: vi.fn() },
+      }
+      ports.push(port)
+      return port
+    }) as never)
+    overlayReply = active
+    await render()
+    // Another tab with an overlay of its own becomes active.
+    vi.mocked(fakeBrowser.tabs.query).mockResolvedValue([{ id: 2 }] as never)
+    overlayReply = { ...active, instance: 'two' }
+    await fakeBrowser.tabs.onActivated.trigger({ tabId: 2, windowId: 1 })
+    await flushPromises()
+    expect(connect).toHaveBeenLastCalledWith(2, { name: 'panel' })
+    expect(ports[0]?.postMessage).toHaveBeenCalledWith({ type: 'panel:away' })
+    // Kept: when the panel closes, this overlay goes back to Browse too.
+    expect(ports[0]?.disconnect).not.toHaveBeenCalled()
+    wrapper?.unmount()
+    wrapper = undefined
+    expect(ports[0]?.disconnect).toHaveBeenCalled()
+    expect(ports[1]?.disconnect).toHaveBeenCalled()
   })
 
   describe('the toolbar toggles the panel', () => {

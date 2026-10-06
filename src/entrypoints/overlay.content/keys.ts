@@ -5,7 +5,15 @@ import type { Mode } from '@/lib/messages'
 
 type Key = Pick<
   KeyboardEvent,
-  'key' | 'isTrusted' | 'shiftKey' | 'altKey' | 'ctrlKey' | 'metaKey' | 'isComposing' | 'keyCode'
+  | 'key'
+  | 'isTrusted'
+  | 'shiftKey'
+  | 'altKey'
+  | 'ctrlKey'
+  | 'metaKey'
+  | 'isComposing'
+  | 'keyCode'
+  | 'repeat'
 >
 
 /** Inside the comment field: `Enter` saves (not while composing), `Escape` cancels. */
@@ -42,7 +50,8 @@ export function pageShortcut(e: Key, state: ShortcutState): Shortcut | null {
   if (state.drafting) return null
   if (e.key === 'e' || e.key === 'E') return { mode: 'element' }
   if (e.key === 'a' || e.key === 'A') return { mode: 'area' }
-  if (e.key === 'p' || e.key === 'P') return 'pins'
+  // Held down, P would toggle at the key repeat rate.
+  if (e.key === 'p' || e.key === 'P') return e.repeat ? null : 'pins'
   if (state.mode !== 'element' || !state.hovering) return null
   if (e.key === 'ArrowUp') return 'up'
   if (e.key === 'ArrowDown') return 'down'

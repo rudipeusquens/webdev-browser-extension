@@ -1,6 +1,6 @@
 import type { Page } from 'puppeteer'
 import { afterEach, beforeAll, afterAll, beforeEach, describe, expect, it } from 'vitest'
-import { clickAction, launch, type Session, startFixtureServer } from './harness'
+import { clickAction, contentRealm, launch, type Session, startFixtureServer } from './harness'
 import { markElement, overlayMounted, sleep, waitInOverlay } from './overlay-helpers'
 
 const GLASS = '[data-testid="overlay-glass"]'
@@ -53,11 +53,23 @@ describe('the toolbar action toggles the side panel', () => {
     await session.page.keyboard.press('Enter')
     await waitInOverlay(session, '[data-testid="overlay-popover"]', false)
     await waitInOverlay(session, GLASS)
+    // A second injection would replace the overlay: remember this one.
+    const realm = await contentRealm(session)
+    await realm.evaluate(() => {
+      const g = globalThis as unknown as { before?: unknown }
+      g.before = globalThis.__webdevOverlay?.shadow
+    })
 
     await useAction(session, session.page)
     await panelClosed(session)
     await waitInOverlay(session, GLASS, false)
     await waitInOverlay(session, '[data-testid="overlay-pin"]')
+    await sleep(500)
+    const same = await realm.evaluate(() => {
+      const g = globalThis as unknown as { before?: unknown }
+      return !!g.before && g.before === globalThis.__webdevOverlay?.shadow
+    })
+    expect(same).toBe(true)
 
     // And opens again on the next click.
     const again = await clickAction(session)
@@ -90,6 +102,21 @@ describe('the toolbar action toggles the side panel', () => {
     await panel.waitForSelector('::-p-text(Active on localhost:)')
     await sleep(300)
     await waitInOverlay(session, GLASS)
+  })
+
+  it('switches every overlay it showed to browse mode when it closes', async () => {
+    const panel = await clickAction(session)
+    await overlayMounted(session)
+    await session.page.keyboard.press('e')
+    await waitInOverlay(session, GLASS)
+    const other = await session.browser.newPage()
+    await other.goto(`${server.origin}/svg/`)
+    await other.bringToFront()
+    await panel.waitForSelector('::-p-text(Not active on this page)')
+    await panel.close()
+    await panelClosed(session)
+    await session.page.bringToFront()
+    await waitInOverlay(session, GLASS, false)
   })
 
   it('goes to browse mode when the panel is closed some other way', async () => {

@@ -73,6 +73,10 @@ describe('pageShortcut', () => {
     expect(pageShortcut(key('p', { isTrusted: false }), idle)).toBeNull()
   })
 
+  it('toggles the pins once while P is held down', () => {
+    expect(pageShortcut(key('p', { repeat: true }), idle)).toBeNull()
+  })
+
   it('switches to area mode with A', () => {
     expect(pageShortcut(key('a'), idle)).toEqual({ mode: 'area' })
     expect(pageShortcut(key('A'), picking)).toEqual({ mode: 'area' })

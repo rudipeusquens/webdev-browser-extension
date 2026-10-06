@@ -130,6 +130,28 @@ export async function serviceWorker(s: Session): Promise<WebWorker> {
   return worker
 }
 
+/**
+ * Starts the overlay on the active tab again while the panel stays open, as the page's context
+ * menu entry does: a second toolbar click closes the panel instead. The tab keeps the
+ * `activeTab` grant of the first click.
+ */
+export async function startOverlayAgain(s: Session): Promise<void> {
+  const worker = await serviceWorker(s)
+  await worker.evaluate(async () => {
+    const { chrome } = globalThis as unknown as {
+      chrome: {
+        tabs: { query(q: object): Promise<{ id?: number }[]> }
+        scripting: { executeScript(o: object): Promise<unknown> }
+      }
+    }
+    const [tab] = await chrome.tabs.query({ active: true, lastFocusedWindow: true })
+    await chrome.scripting.executeScript({
+      target: { tabId: tab?.id },
+      files: ['/content-scripts/overlay.js'],
+    })
+  })
+}
+
 /** Clicks the toolbar action on `s.page` and returns the side panel page. */
 export async function clickAction(s: Session): Promise<Page> {
   const extension = (await s.browser.extensions()).get(s.extensionId)

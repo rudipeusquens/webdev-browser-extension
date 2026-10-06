@@ -77,10 +77,11 @@ export type PanelToggle = { type: 'panel:toggle'; windowId: number; tabId: numbe
 export type PanelToggleReply = { closing: boolean }
 
 /**
- * Side panel → overlay, on the line it keeps open: it moves to another tab. A line that goes
- * without this was closed with the panel.
+ * Side panel → overlay, on the line it keeps open to every overlay it showed: it moved to
+ * another tab. The overlay drops the panel's highlight and keeps its mode; the line goes only
+ * when the panel closes (or a new overlay replaces this one).
  */
-export type PanelLeave = { type: 'panel:leave' }
+export type PanelAway = { type: 'panel:away' }
 
 export type Message = BackgroundMessage | OverlayMessage | PanelMessage
 
@@ -186,8 +187,8 @@ export function isPanelToggleReply(x: unknown): x is PanelToggleReply {
   return hasKeys(x, ['closing']) && typeof x.closing === 'boolean'
 }
 
-export function isPanelLeave(x: unknown): x is PanelLeave {
-  return hasKeys(x, ['type']) && x.type === 'panel:leave'
+export function isPanelAway(x: unknown): x is PanelAway {
+  return hasKeys(x, ['type']) && x.type === 'panel:away'
 }
 
 export function isMessage(x: unknown): x is Message {

@@ -21,7 +21,7 @@ import {
   type Mode,
   MODES,
   type OverlayMessage,
-  type PanelLeave,
+  type PanelAway,
   type Reply,
 } from '@/lib/messages'
 import { isSiteOrigin, originPattern } from '@/lib/settings'
@@ -137,33 +137,51 @@ function goTo(pageKey: string) {
   toBackground({ type: 'tab:go', tabId: tabId.value, pageKey })
 }
 
-// A line to the overlay of the active tab: when the panel closes or another tab becomes
-// active, the overlay sees it go and drops what the panel had highlighted.
-let port: Browser.runtime.Port | undefined
+// A line to every overlay the panel has shown, by tab. When the panel moves to another tab,
+// the overlay it showed drops what the panel highlighted there and keeps its mode; when the
+// panel closes, every line goes and each overlay switches to Browse (spec section 8).
+const lines = new Map<number, { overlay: string; port: Browser.runtime.Port }>()
+let shownTab: number | undefined
+
+function lineTo(tab: number, overlay: string) {
+  const open = lines.get(tab)
+  if (open?.overlay === overlay) return
+  // A new overlay started on the tab: the old one is gone.
+  open?.port.disconnect()
+  lines.delete(tab)
+  try {
+    const port = browser.tabs.connect(tab, { name: 'panel' })
+    // The tab navigated or closed.
+    port.onDisconnect.addListener(() => {
+      if (lines.get(tab)?.port === port) lines.delete(tab)
+    })
+    lines.set(tab, { overlay, port })
+  } catch {
+    // The overlay is gone again: the next status says so.
+  }
+}
+
 watch(
   () =>
     status.value.kind === 'active' && tabId.value !== undefined
       ? { tab: tabId.value, overlay: status.value.instance }
       : undefined,
-  (next, previous) => {
-    if (next?.tab === previous?.tab && next?.overlay === previous?.overlay) return
-    try {
-      // Moving on, not closing: the overlay keeps its mode.
-      port?.postMessage({ type: 'panel:leave' } satisfies PanelLeave)
-    } catch {
-      // That overlay is gone already.
+  (next) => {
+    if (shownTab !== undefined && shownTab !== next?.tab) {
+      try {
+        lines.get(shownTab)?.port.postMessage({ type: 'panel:away' } satisfies PanelAway)
+      } catch {
+        // That overlay is gone already.
+      }
     }
-    port?.disconnect()
-    port = undefined
-    if (!next) return
-    try {
-      port = browser.tabs.connect(next.tab, { name: 'panel' })
-    } catch {
-      // The overlay is gone again: the next status says so.
-    }
+    shownTab = next?.tab
+    if (next) lineTo(next.tab, next.overlay)
   },
 )
-onBeforeUnmount(() => port?.disconnect())
+onBeforeUnmount(() => {
+  for (const { port } of lines.values()) port.disconnect()
+  lines.clear()
+})
 
 function setPins(visible: boolean) {
   toOverlay({ type: 'overlay:set-pins', visible })
@@ -258,7 +276,7 @@ function setMode(next: unknown) {
           :model-value="pinsShown"
           :disabled="status.kind !== 'active'"
           :aria-label="pinsShown ? 'Hide pins' : 'Show pins'"
-          :title="pinsShown ? 'Hide pins on the page' : 'Show pins on the page'"
+          :title="pinsShown ? 'Hide pins on the page (P)' : 'Show pins on the page (P)'"
           @update:model-value="setPins"
         >
           <MapPinIcon v-if="pinsShown" />
@@ -267,11 +285,13 @@ function setMode(next: unknown) {
         </Toggle>
         <p
           v-if="status.kind === 'active'"
+          data-testid="page-keys"
           class="flex items-center gap-1 text-xs text-muted-foreground"
-          title="On the page: E for element mode, A for area mode, Esc for browse mode"
+          title="On the page: E for element mode, A for area mode, P to show or hide the pins, Esc for browse mode"
         >
           <kbd class="rounded border bg-muted px-1 font-mono">E</kbd>
           <kbd class="rounded border bg-muted px-1 font-mono">A</kbd>
+          <kbd class="rounded border bg-muted px-1 font-mono">P</kbd>
           <kbd class="rounded border bg-muted px-1 font-mono">Esc</kbd>
         </p>
       </div>
