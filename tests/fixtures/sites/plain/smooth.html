@@ -24,6 +24,19 @@
         margin: 0;
         height: 3000px;
       }
+      /* A dialog-like box that keeps the wheel to itself at its ends. */
+      #contained {
+        margin: 40px;
+        width: 300px;
+        height: 100px;
+        overflow: auto;
+        overscroll-behavior: contain;
+        border: 1px solid #ccc;
+      }
+      #contained p {
+        margin: 0;
+        height: 300px;
+      }
       #free {
         margin: 40px;
         height: 100px;
@@ -35,6 +48,7 @@
   </head>
   <body>
     <div id="box"><p>Inside a scroll container</p></div>
+    <div id="contained"><p>Keeps the wheel</p></div>
     <div id="free">Outside any scroll container</div>
     <div class="tall"></div>
   </body>

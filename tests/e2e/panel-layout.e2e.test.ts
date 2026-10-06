@@ -192,7 +192,7 @@ describe("the panel's layout", () => {
     expect(footer.bottom - clear.bottom).toBeCloseTo(copy.left - footer.left, 0)
   })
 
-  it('shows thin scrollbars in the border color', async () => {
+  it('shows thin scrollbars in a muted tone', async () => {
     const style = await panel.$eval('[data-testid="list-area"]', (el) => {
       const s = getComputedStyle(el)
       return { width: s.scrollbarWidth, color: s.scrollbarColor }
@@ -217,6 +217,29 @@ describe("the panel's layout", () => {
     })
     expect(gap.space).toBeGreaterThanOrEqual(16)
     expect(gap.border).toBe('1px')
+  })
+
+  it('cuts a long path of another page instead of widening the list', async () => {
+    const long = '/products/category/some-very-long-product-slug-name?utm_source=newsletter&page=2'
+    await panel.evaluate(
+      async (key, value) => chrome.storage.local.set({ [key]: value }),
+      `collection:${server.origin}`,
+      collectionOf(server.origin, ['/plain/', long]),
+    )
+    await panel.waitForSelector('[data-testid="page-link"]')
+    const list = await panel.$eval('[data-testid="list-area"]', (el) => ({
+      scroll: el.scrollWidth,
+      client: el.clientWidth,
+      right: el.getBoundingClientRect().right,
+    }))
+    expect(list.scroll).toBe(list.client)
+    const link = await boxOf(panel, '[data-testid="page-link"]')
+    expect(link.right).toBeLessThanOrEqual(list.right)
+    const cut = await panel.$eval('[data-testid="page-link"] [data-testid="page-path"]', (el) => ({
+      shown: el.clientWidth,
+      full: el.scrollWidth,
+    }))
+    expect(cut.shown).toBeLessThan(cut.full)
   })
 
   it('leaves room between the sections of Settings', async () => {

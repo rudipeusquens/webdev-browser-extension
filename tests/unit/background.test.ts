@@ -266,6 +266,23 @@ describe('background', () => {
     expect(await fakeBrowser.storage.local.get(null)).toEqual({})
   })
 
+  it('names pins when it refuses a change from the wrong page', async () => {
+    const site = 'http://x.test'
+    await send(
+      { type: 'annotation:add', ...elementInput('a1', `${site}/`) },
+      pageSender(`${site}/`),
+    )
+    const other = pageSender('http://y.test/')
+    const errors = await Promise.all(
+      [
+        { type: 'annotation:add', ...elementInput('a2', `${site}/`) },
+        { type: 'annotation:update', site, id: 'a1', comment: 'Changed' },
+        { type: 'annotation:remove', site, id: 'a1' },
+      ].map(async (message) => ((await send(message, other)) as { error: string }).error),
+    )
+    for (const error of errors) expect(error).toMatch(/^Pins are /)
+  })
+
   it('changes items only for the site of the page or for the panel', async () => {
     const site = 'http://x.test'
     await send(

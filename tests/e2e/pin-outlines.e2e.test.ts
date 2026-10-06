@@ -277,6 +277,34 @@ describe('pin outlines', () => {
     expect(await marked('webdev-pins-done')).toEqual([])
   })
 
+  it('recolors the marking of an open popover when the panel changes its status', async () => {
+    await markElement(session, '#row-1')
+    await saveComment(1)
+    await panel.click('[data-testid="filter-all"]')
+    const pin = await overlayCenter(session, '[data-testid="overlay-pin"]')
+    await session.page.mouse.click(pin.x, pin.y)
+    await waitInOverlay(session, POPOVER)
+    const realm = await contentRealm(session)
+    const marking = () =>
+      realm.evaluate(() => {
+        const el = globalThis.__webdevOverlay?.shadow?.querySelector(
+          '[data-testid="overlay-hover"]',
+        )
+        return el && getComputedStyle(el).outlineColor
+      })
+    const badge = () =>
+      panel.$eval('[data-testid="item-number"]', (el) => getComputedStyle(el).backgroundColor)
+    expect(await marking()).toBe(await badge())
+    const blue = await badge()
+    // Copied from its entry while the popover stays open: it is done now.
+    await panel.click('[data-testid="item-copy"]')
+    await panel.waitForSelector('[data-testid="item-reopen"]')
+    await sleep(200)
+    expect(await badge()).not.toBe(blue)
+    expect(await marking()).toBe(await badge())
+    await session.page.keyboard.press('Escape')
+  })
+
   it('does not keep the stronger outline after its pin was hidden under the pointer', async () => {
     await markElement(session, '#row-1')
     await saveComment(1)

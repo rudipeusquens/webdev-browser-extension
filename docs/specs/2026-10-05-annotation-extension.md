@@ -431,11 +431,12 @@ After an annotation is saved the mode stays, so several elements can be marked i
 `P` (same condition: focus not in a page field, no comment open) shows or hides the pins, like
 the panel's **Pins** toggle, which follows it.
 
-**Mouse wheel in element and area mode:** the glass sits in the top layer, from where Chrome
-passes the wheel to nothing, so the overlay scrolls: the nearest scroll container under the
-pointer that can still move that way, at once and by the whole turn (a page's smooth scrolling
-would start each turn where the last one is and lose distance); a container at its end passes
-the turn on, up to the document, which scrolls the page's own way.
+**Mouse wheel in element and area mode:** the browser scrolls the document under the glass by
+itself, but no scroll container, since the glass covers them. The overlay scrolls the nearest
+container under the pointer that can still move that way (a body that is the scroll container
+counts), at once and by the whole turn (a page's smooth scrolling would start each turn where
+the last one is and lose distance); a container at its end passes the turn on, up to the
+document, unless it keeps the wheel (`overscroll-behavior`), as without the overlay.
 
 **Comment popover:** anchored next to the target. Its header names the pin ("New pin" or
 "Pin 3") and the target (`button · 160×48`, a quoted text); a long target is cut with an

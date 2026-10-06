@@ -244,13 +244,13 @@ export default defineBackground(() => {
       case 'annotation:add': {
         const site = siteOf(message.page.url)
         if (pageSite(sender) !== site) {
-          return { ok: false, error: 'Items are added from a page of their site.' } satisfies Reply
+          return { ok: false, error: 'Pins are added from a page of their site.' } satisfies Reply
         }
         return write(site, message)
       }
       case 'annotation:update':
         if (pageSite(sender) !== message.site) {
-          return { ok: false, error: 'Items are changed on a page of their site.' } satisfies Reply
+          return { ok: false, error: 'Pins are changed on a page of their site.' } satisfies Reply
         }
         return write(message.site, message)
       case 'annotation:remove':
@@ -258,7 +258,7 @@ export default defineBackground(() => {
         if (pageSite(sender) !== message.site && !isPanelSender(sender)) {
           return {
             ok: false,
-            error: 'Items are deleted and restored on their site or in the panel.',
+            error: 'Pins are deleted and restored on their site or in the panel.',
           } satisfies Reply
         }
         return write(message.site, message)

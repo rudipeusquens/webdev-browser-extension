@@ -767,7 +767,7 @@ describe('side panel', () => {
       expect(byTestId('site-dot').className).toContain('bg-green-500')
       expect(byTestId('title-site').textContent?.trim()).toBe('localhost:3000')
       expect(pill().title).toContain(SITE)
-      expect(body()).not.toContain('Active on')
+      expect(body()).not.toContain('Active on localhost')
     })
 
     it('shows a known page without an overlay grey, with Annotate this page', async () => {
@@ -916,6 +916,41 @@ describe('side panel', () => {
       byTestId('site-pill').click()
       await flushPromises()
       expect(exists('remember-site')).toBe(true)
+    })
+
+    it('closes its action on the first Escape from the action, and keeps the focus', async () => {
+      overlayReply = active
+      fakeSites()
+      await render()
+      pill().focus()
+      await flushPromises()
+      const action = byTestId('remember-site')
+      action.focus()
+      action.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }))
+      await flushPromises()
+      expect(exists('remember-site')).toBe(false)
+      expect(document.activeElement).toBe(pill())
+    })
+
+    it('gives the focus back to the pill after its action', async () => {
+      knownPage()
+      await render()
+      pill().focus()
+      await flushPromises()
+      byTestId('start-overlay').focus()
+      byTestId('start-overlay').click()
+      await flushPromises()
+      expect(document.activeElement).toBe(pill())
+    })
+
+    it('names its state for screen readers, not by the dot alone', async () => {
+      overlayReply = active
+      await render()
+      expect(pill().textContent).toContain('Active on this tab')
+      wrapper?.unmount()
+      overlayReply = undefined
+      await render()
+      expect(pill().textContent).toContain('Not active on this tab')
     })
 
     it('opens its action on focus too, and closes it with Escape', async () => {

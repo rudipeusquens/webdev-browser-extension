@@ -71,6 +71,8 @@ const open = ref(false)
 const root = useTemplateRef<HTMLElement>('root')
 const pill = useTemplateRef<HTMLElement>('pill')
 let timer: ReturnType<typeof setTimeout> | undefined
+// The pill takes the focus back after Escape or an action: that must not open it again.
+let refocusing = false
 
 function later(next: boolean, ms: number) {
   clearTimeout(timer)
@@ -79,7 +81,7 @@ function later(next: boolean, ms: number) {
 
 /** Focus and clicks open it; a click never closes it (the click focuses the pill first). */
 function onFocusIn() {
-  if (!action.value) return
+  if (refocusing || !action.value) return
   clearTimeout(timer)
   open.value = true
 }
@@ -94,10 +96,20 @@ function onFocusOut(e: FocusEvent) {
   if (!root.value?.contains(e.relatedTarget as Node | null)) open.value = false
 }
 
+/** The focus goes back to the pill: the action it was on goes away. */
+function refocus() {
+  refocusing = true
+  try {
+    pill.value?.focus()
+  } finally {
+    refocusing = false
+  }
+}
+
 function close() {
   clearTimeout(timer)
   open.value = false
-  pill.value?.focus()
+  refocus()
 }
 
 function act(name: 'forget' | 'remember' | 'start') {
@@ -107,6 +119,7 @@ function act(name: 'forget' | 'remember' | 'start') {
   if (name === 'forget') emit('forget')
   else if (name === 'remember') emit('remember')
   else emit('start')
+  refocus()
 }
 
 onBeforeUnmount(() => clearTimeout(timer))
@@ -137,6 +150,8 @@ onBeforeUnmount(() => clearTimeout(timer))
     >
       <span data-testid="site-dot" class="size-2 shrink-0 rounded-full" :class="DOT[status.kind]" />
       <span data-testid="title-site" class="truncate">{{ label }}</span>
+      <!-- The dot's meaning, for screen readers. -->
+      <span class="sr-only">· {{ STATE_TEXT[status.kind] }}</span>
     </component>
     <div
       v-if="open && action"

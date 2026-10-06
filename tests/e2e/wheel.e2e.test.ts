@@ -1,5 +1,5 @@
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
-import { clickAction, launch, type Session, startFixtureServer } from './harness'
+import { clickAction, launch, type Session, startFixtureServer, startOverlayAgain } from './harness'
 import { centerOf, overlayMounted, sleep, waitInOverlay } from './overlay-helpers'
 
 // Element and area mode cover the page with a glass: the wheel must scroll as it does without
@@ -72,12 +72,35 @@ describe('the wheel in element mode', () => {
     await browseMode()
   })
 
+  it('scrolls nothing past a container that keeps the wheel at its end', async () => {
+    await reset()
+    await session.page.$eval('#contained', (el) =>
+      el.scrollTo({ top: el.scrollHeight, behavior: 'instant' }),
+    )
+    await elementMode()
+    await turns('#contained', 2)
+    expect(await scrolled()).toBe(0)
+    await browseMode()
+  })
+
   it('lets the page scroll on once the container is at its end', async () => {
     const end = await session.page.$eval('#box', (el) => el.scrollHeight - el.clientHeight)
     await reset(end)
     await elementMode()
     await turns('#box', 2)
     expect(await scrolled()).toBeGreaterThan(0)
+    await browseMode()
+  })
+
+  // Last: it leaves the fixture page.
+  it('scrolls a page whose body is the scroll container', async () => {
+    await session.page.goto(`${server.origin}/plain/body-scroll.html`)
+    // The toolbar's grant outlives the navigation on the same site, the overlay does not.
+    await startOverlayAgain(session)
+    await overlayMounted(session)
+    await elementMode()
+    await turns('#free', 2)
+    expect(await session.page.evaluate(() => document.body.scrollTop)).toBe(200)
     await browseMode()
   })
 })

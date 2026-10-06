@@ -104,13 +104,14 @@ const ICONS = { element: SquareMousePointerIcon, text: TextSelectIcon, area: Squ
         <Badge v-if="group.current" data-testid="this-page" variant="outline" class="shrink-0"
           >This page</Badge
         >
-        <!-- Another page on the web: its path is the way there. -->
+        <!-- Another page on the web: its path is the way there. A button keeps its width
+             (shrink-0) unless told otherwise: a long path is cut instead. -->
         <Button
           v-if="!group.current && openable(group.page.url)"
           data-testid="page-link"
           variant="ghost"
           size="xs"
-          class="-mx-2 -my-1 min-w-0 justify-start font-medium text-muted-foreground"
+          class="-mx-2 -my-1 min-w-0 shrink justify-start font-medium text-muted-foreground"
           :title="`Open ${group.key} in this tab`"
           @click="emit('go', group.key)"
         >

@@ -735,10 +735,9 @@ function onGlassClick(e: MouseEvent) {
 }
 
 /**
- * The glass takes the pointer, so what lies under it is scrolled from here. A scroll container
- * moves at once and by the whole turn: with the page's smooth scrolling, each turn would start
- * from where the last one is and lose distance. The document keeps the page's own way; Chrome
- * adds quick turns up there.
+ * The glass takes the pointer: the browser scrolls the document under it by itself, but no
+ * scroll container. Those are scrolled from here, at once and by the whole turn: with the
+ * page's smooth scrolling, each turn would start from where the last one is and lose distance.
  */
 function onWheel(e: WheelEvent) {
   if (!e.isTrusted || !forwardsWheel(e)) return
@@ -746,10 +745,9 @@ function onWheel(e: WheelEvent) {
   const unit = e.deltaMode === 1 ? 16 : e.deltaMode === 2 ? window.innerHeight : 1
   const under = pickAt(document, e.clientX, e.clientY, props.host)
   const target = wheelTarget(under, vertical, (vertical ? e.deltaY : e.deltaX) * unit)
-  if (!target) return
+  if (target === 'page') return
   e.preventDefault()
-  const behavior = target === document.scrollingElement ? 'auto' : 'instant'
-  target.scrollBy({ left: e.deltaX * unit, top: e.deltaY * unit, behavior })
+  target?.scrollBy({ left: e.deltaX * unit, top: e.deltaY * unit, behavior: 'instant' })
 }
 
 function onKeydown(e: KeyboardEvent) {
