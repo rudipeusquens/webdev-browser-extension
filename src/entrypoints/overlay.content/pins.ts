@@ -148,6 +148,47 @@ function intersect(a: Rect, b: Rect): Rect | null {
   return right > x && bottom > y ? { x, y, width: right - x, height: bottom - y } : null
 }
 
+/** Width of the line around a pinned target; it is drawn just outside the target. */
+const LINE = 2
+
+export interface OutlineBox extends Rect {
+  /** The sides with a line: none where a scroll container or the viewport cuts the target. */
+  sides: { top: boolean; right: boolean; bottom: boolean; left: boolean }
+}
+
+/**
+ * The outline of a pinned target: the visible part of `rect` inside `bounds`, grown by the
+ * line on the sides that are not cut off. Null when nothing of the target is visible there or
+ * the target has no box (not rendered).
+ */
+export function outlineBox(rect: Rect, bounds: Rect): OutlineBox | null {
+  if (rect.width === 0 || rect.height === 0) return null
+  const visible = intersect(rect, bounds)
+  if (!visible) return null
+  const sides = {
+    top: rect.y >= bounds.y,
+    right: rect.x + rect.width <= bounds.x + bounds.width,
+    bottom: rect.y + rect.height <= bounds.y + bounds.height,
+    left: rect.x >= bounds.x,
+  }
+  const line = (on: boolean) => (on ? LINE : 0)
+  return {
+    x: visible.x - line(sides.left),
+    y: visible.y - line(sides.top),
+    width: visible.width + line(sides.left) + line(sides.right),
+    height: visible.height + line(sides.top) + line(sides.bottom),
+    sides,
+  }
+}
+
+/** The parts of `boxes` (the lines of a selected text) that lie inside `bounds`. */
+export function clipBoxes(boxes: Rect[], bounds: Rect): Rect[] {
+  return boxes.flatMap((box) => {
+    const inside = box.width > 0 && box.height > 0 ? intersect(box, bounds) : null
+    return inside ? [inside] : []
+  })
+}
+
 /** The part of the viewport that `clippers` let through, or null when nothing is visible. */
 export function visibleBounds(clippers: Element[], viewport: Rect): Rect | null {
   let bounds: Rect | null = viewport

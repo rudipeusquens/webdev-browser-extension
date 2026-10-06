@@ -37,6 +37,7 @@ import {
   clippersOf,
   isLiveRange,
   type LiveAnchor,
+  outlineBox,
   pinPositions,
   placeItems,
   pruneLive,
@@ -195,23 +196,63 @@ const clippers = computed(() => {
   }
   return found
 })
-const pins = computed(() => {
+// The pin whose outline is drawn stronger: the pointer rests on it.
+const hoveredPin = ref<string | null>(null)
+/** The page's placed items while pins are shown, with where each can be seen, now. */
+const shown = computed(() => {
   void frame.value
   if (!pinsShown.value) return []
   const viewport = { x: 0, y: 0, width: window.innerWidth, height: window.innerHeight }
-  const numbers = new Map(pageItems.value.map((item) => [item.id, item.number]))
-  const onPage = pageItems.value.flatMap((item) => {
+  return pageItems.value.flatMap((item) => {
     const placement = placements.value.get(item.id)
     if (!placement) return []
     const bounds = visibleBounds(clippers.value.get(item.id) ?? [], viewport)
-    return [{ id: item.id, rect: placement.rect(), bounds }]
+    return [{ item, placement, rect: placement.rect(), bounds }]
   })
+})
+const pins = computed(() => {
+  const numbers = new Map(pageItems.value.map((item) => [item.id, item.number]))
+  const onPage = shown.value.map(({ item, rect, bounds }) => ({ id: item.id, rect, bounds }))
   return pinPositions(onPage).map(({ id, x, y }) => ({
     id,
     number: numbers.get(id),
     left: `${x}px`,
     top: `${y}px`,
   }))
+})
+type Outline = { id: string; strong: boolean } & (
+  | { range: Range; bounds: Rect }
+  | { range?: undefined; dashed: boolean; style: Record<string, string> }
+)
+
+/**
+ * What marks each pinned target: a line around an element or an area, the lines of a text.
+ * The item being edited has the popover's own marking.
+ */
+const outlines = computed(() => {
+  const editing = draft.value?.edit?.id
+  return shown.value.flatMap(({ item, placement, rect, bounds }): Outline[] => {
+    if (item.id === editing || !bounds) return []
+    const strong = item.id === hoveredPin.value
+    if (item.target.kind === 'text') {
+      // A text not found again has its pin at its container, and no lines.
+      return placement.range ? [{ id: item.id, strong, range: placement.range, bounds }] : []
+    }
+    const box = outlineBox(rect, bounds)
+    if (!box) return []
+    const side = (on: boolean) => (on ? '2px' : '0')
+    const style = {
+      left: `${box.x}px`,
+      top: `${box.y}px`,
+      width: `${box.width}px`,
+      height: `${box.height}px`,
+      borderTopWidth: side(box.sides.top),
+      borderRightWidth: side(box.sides.right),
+      borderBottomWidth: side(box.sides.bottom),
+      borderLeftWidth: side(box.sides.left),
+    }
+    return [{ id: item.id, strong, dashed: item.target.kind === 'area', style }]
+  })
 })
 const highlight = computed(() => {
   void frame.value
@@ -723,6 +764,28 @@ onBeforeUnmount(() => {
       @wheel="onWheel"
       @contextmenu.prevent
     />
+    <template v-for="outline in outlines" :key="outline.id">
+      <TextHighlight
+        v-if="outline.range"
+        :range="outline.range"
+        :frame="frame"
+        :bounds="outline.bounds"
+        :tone="outline.strong ? 'strong' : 'pin'"
+        testid="overlay-pin-lines"
+        line-testid="overlay-pin-text"
+      />
+      <div
+        v-else
+        data-testid="overlay-outline"
+        :data-strong="outline.strong"
+        class="pointer-events-none fixed z-[2147483647] rounded-[3px]"
+        :class="[
+          outline.dashed ? 'border-dashed' : 'border-solid',
+          outline.strong ? 'border-blue-600' : 'border-blue-600/70',
+        ]"
+        :style="outline.style"
+      />
+    </template>
     <HoverBox v-if="hoverRect" :rect="hoverRect" :label="hoverLabel" />
     <HoverBox
       v-if="highlight && !draft"
@@ -738,6 +801,8 @@ onBeforeUnmount(() => {
       class="fixed z-[2147483647] flex size-5 items-center justify-center rounded-full bg-blue-600 text-xs leading-none font-semibold text-white shadow-md ring-2 ring-white"
       :style="{ left: pin.left, top: pin.top }"
       :aria-label="`Edit item ${pin.number}`"
+      @mouseenter="hoveredPin = pin.id"
+      @mouseleave="hoveredPin = null"
       @click="onPinClick($event, pin.id)"
     >
       {{ pin.number }}

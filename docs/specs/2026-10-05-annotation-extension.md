@@ -353,7 +353,13 @@ around their target (a target scrolled out of its container, or not rendered, ha
 text item's pin sits at its selection while that is on the page (found again by its text and
 context after a reload), else at its container; an area keeps its place inside its container.
 Pins that would cover each other move aside. Clicking a pin opens its popover for editing. A
-missing target shows no pin; its panel entry is marked "Not found".
+missing target shows no pin; its panel entry is marked "Not found". Each pinned target is marked as
+well: a 2 px line just outside an element, dashed around an area, light shading behind the
+lines of a text (a text not found again is marked by its pin only). The line is left off on a
+side where a scroll container or the viewport cuts the target, so a cut target does not look
+smaller than it is. Hovering a pin draws its marking stronger; the item being edited shows the
+popover's marking instead. Markings never take the pointer, and the **Pins** toggle and `P`
+hide them with the numbers.
 
 **Side panel** (shadcn-vue, follows the system color scheme)
 
