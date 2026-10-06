@@ -184,10 +184,18 @@ export function outlineBox(rect: Rect, bounds: Rect): OutlineBox | null {
 /** Lines of a text drawn at most: a selection over a whole page has thousands. */
 const MAX_LINES = 50
 
+/** Whether `r` continues the line box `line`: same line, right next to it. */
+const continues = (line: Rect, r: Rect) =>
+  Math.abs(r.y - line.y) <= 1 &&
+  Math.abs(r.height - line.height) <= 1 &&
+  Math.abs(r.x - (line.x + line.width)) <= 1
+
 /**
  * One measurement of a text, read before anything is written: its box, as
  * `Range.getBoundingClientRect()` gives it, and its lines on screen. The overlay never forces a
- * layout while it renders, and it measures a text once for its pin and its marking.
+ * layout while it renders, and it measures a text once for its pin and its marking. Chrome
+ * gives a rect per text node: the pieces of one line are joined, so a line of many small
+ * elements is one box to draw.
  */
 export function linesOf(range: Range, viewportHeight: number): { rect: Rect; lines: Rect[] } {
   let left = Infinity
@@ -202,7 +210,18 @@ export function linesOf(range: Range, viewportHeight: number): { rect: Rect; lin
     right = Math.max(right, r.x + r.width)
     bottom = Math.max(bottom, r.y + r.height)
     const onScreen = r.width > 0 && r.height > 0 && r.y + r.height > 0 && r.y < viewportHeight
-    if (onScreen && lines.length < MAX_LINES) {
+    if (!onScreen) continue
+    const last = lines.at(-1)
+    if (last && continues(last, r)) {
+      const top = Math.min(last.y, r.y)
+      const bottom = Math.max(last.y + last.height, r.y + r.height)
+      lines[lines.length - 1] = {
+        x: last.x,
+        y: top,
+        width: Math.max(last.x + last.width, r.x + r.width) - last.x,
+        height: bottom - top,
+      }
+    } else if (lines.length < MAX_LINES) {
       lines.push({ x: r.x, y: r.y, width: r.width, height: r.height })
     }
   }

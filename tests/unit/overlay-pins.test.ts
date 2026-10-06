@@ -358,6 +358,26 @@ describe('linesOf', () => {
     expect(measured.lines).toEqual([{ x: 10, y: 100, width: 300, height: 20 }])
   })
 
+  it('joins the pieces of one line, one per text node, into one box', () => {
+    // <span>word</span> <span>word</span>: a rect per span and per space between them.
+    const pieces = [
+      rect(10, 100, 40, 20),
+      rect(50, 100, 4, 20),
+      rect(54, 100, 40, 20),
+      rect(10, 120, 60, 20),
+      rect(70, 120.5, 30, 19),
+    ]
+    expect(linesOf(range(pieces), 800).lines).toEqual([
+      { x: 10, y: 100, width: 84, height: 20 },
+      { x: 10, y: 120, width: 90, height: 20 },
+    ])
+  })
+
+  it('keeps pieces apart that are not next to each other', () => {
+    const apart = [rect(10, 100, 40, 20), rect(80, 100, 40, 20), rect(10, 160, 40, 20)]
+    expect(linesOf(range(apart), 800).lines).toHaveLength(3)
+  })
+
   it('keeps at most 50 lines and has no box without any', () => {
     const many = Array.from({ length: 80 }, (_, i) => rect(0, i * 10, 50, 10))
     expect(linesOf(range(many), 10000).lines).toHaveLength(50)

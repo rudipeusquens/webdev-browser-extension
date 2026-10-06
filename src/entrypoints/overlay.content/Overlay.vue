@@ -254,9 +254,9 @@ const outlines = computed(() => {
     const box = outlineBox(rect, bounds)
     if (!box) return []
     const side = (on: boolean) => (on ? '2px' : '0')
+    // Moved by its transform: scrolling does not make the browser draw the line again.
     const style = {
-      left: `${box.x}px`,
-      top: `${box.y}px`,
+      transform: `translate(${box.x}px, ${box.y}px)`,
       width: `${box.width}px`,
       height: `${box.height}px`,
       borderTopWidth: side(box.sides.top),
@@ -789,7 +789,7 @@ onBeforeUnmount(() => {
         v-else
         data-testid="overlay-outline"
         :data-strong="outline.strong"
-        class="pointer-events-none fixed z-[2147483647] rounded-[3px]"
+        class="pointer-events-none fixed top-0 left-0 z-[2147483647] rounded-[3px] will-change-transform"
         :class="[
           outline.dashed ? 'border-dashed' : 'border-solid',
           outline.strong ? 'border-blue-600' : 'border-blue-600/70',
