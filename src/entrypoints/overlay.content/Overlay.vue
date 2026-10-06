@@ -650,6 +650,14 @@ const onMessage: Parameters<typeof browser.runtime.onMessage.addListener>[0] = (
   }
 }
 
+/** The panel keeps a line open while it shows this tab; its highlight goes with it. */
+const onConnect: Parameters<typeof browser.runtime.onConnect.addListener>[0] = (port) => {
+  if (port.name !== 'panel' || port.sender?.id !== browser.runtime.id) return
+  port.onDisconnect.addListener(() => {
+    highlighted.value = null
+  })
+}
+
 const RELEASES = ['pointerup', 'mouseup', 'keyup'] as const
 
 onMounted(() => {
@@ -658,6 +666,7 @@ onMounted(() => {
   for (const type of RELEASES) window.addEventListener(type, onRelease, true)
   document.addEventListener('selectionchange', onSelectionChange)
   browser.runtime.onMessage.addListener(onMessage)
+  browser.runtime.onConnect.addListener(onConnect)
   notifyPanel()
 })
 
@@ -670,6 +679,7 @@ onBeforeUnmount(() => {
   document.removeEventListener('selectionchange', onSelectionChange)
   cancelAnimationFrame(chipCheck)
   browser.runtime.onMessage.removeListener(onMessage)
+  browser.runtime.onConnect.removeListener(onConnect)
 })
 </script>
 

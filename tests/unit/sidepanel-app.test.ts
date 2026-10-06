@@ -332,6 +332,42 @@ describe('side panel', () => {
     })
   })
 
+  it('offers Go to for the other pages and opens them in the active tab', async () => {
+    overlayReply = active
+    await render(twoPages())
+    const groups = [...document.querySelectorAll('[data-testid="page-group"]')]
+    expect(groups[0]?.querySelector('[data-testid="go-to"]')).toBeNull()
+    groups[1]?.querySelector<HTMLElement>('[data-testid="go-to"]')?.click()
+    await flushPromises()
+    expect(fakeBrowser.runtime.sendMessage).toHaveBeenCalledWith({
+      type: 'tab:go',
+      tabId: 1,
+      pageKey: A,
+    })
+  })
+
+  it('offers no Go to for pages that are not on the web', async () => {
+    let c = twoPages()
+    c = addAnnotation(c, elementInput('f1', 'file:///srv/app/index.html', 'Local'), 'T')
+    overlayReply = active
+    await render(c)
+    const local = [...document.querySelectorAll('[data-testid="page-group"]')].find((g) =>
+      g.textContent?.includes('Local'),
+    )
+    expect(local?.querySelector('[data-testid="go-to"]')).toBeNull()
+  })
+
+  it('keeps a line open to the overlay of the active tab', async () => {
+    const connect = vi.spyOn(fakeBrowser.tabs, 'connect').mockReturnValue({
+      name: 'panel',
+      disconnect: vi.fn(),
+      onDisconnect: { addListener: vi.fn() },
+    } as never)
+    overlayReply = active
+    await render()
+    expect(connect).toHaveBeenCalledWith(1, { name: 'panel' })
+  })
+
   it('marks items that were not found and copies the prompt with them', async () => {
     const c = twoPages()
     await fakeBrowser.storage.session.set({ [MISSING_KEY]: ['a1'] })

@@ -1,9 +1,16 @@
 <script setup lang="ts">
-import { SquareDashedIcon, SquareMousePointerIcon, TextSelectIcon, Trash2Icon } from '@lucide/vue'
+import {
+  ArrowUpRightIcon,
+  SquareDashedIcon,
+  SquareMousePointerIcon,
+  TextSelectIcon,
+  Trash2Icon,
+} from '@lucide/vue'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import type { PageGroup } from '@/lib/collection/ops'
 import { targetSummary } from '@/lib/format/summary'
+import { isSiteOrigin } from '@/lib/settings'
 
 defineProps<{
   groups: (PageGroup & { current: boolean })[]
@@ -14,7 +21,17 @@ const emit = defineEmits<{
   remove: [id: string]
   highlight: [id: string | null]
   reveal: [id: string]
+  go: [pageKey: string]
 }>()
+
+/** Go to works for pages on the web only. */
+function openable(url: string): boolean {
+  try {
+    return isSiteOrigin(new URL(url).origin)
+  } catch {
+    return false
+  }
+}
 
 const ICONS = { element: SquareMousePointerIcon, text: TextSelectIcon, area: SquareDashedIcon }
 </script>
@@ -27,6 +44,17 @@ const ICONS = { element: SquareMousePointerIcon, text: TextSelectIcon, area: Squ
     >
       <span class="truncate">{{ group.page.title || group.key }}</span>
       <Badge v-if="group.current" variant="outline" class="shrink-0">This page</Badge>
+      <Button
+        v-else-if="openable(group.page.url)"
+        data-testid="go-to"
+        variant="ghost"
+        size="xs"
+        class="-my-1 ml-auto shrink-0 font-normal"
+        :title="`Open ${group.key} in this tab`"
+        @click="emit('go', group.key)"
+      >
+        Go to <ArrowUpRightIcon />
+      </Button>
     </h2>
     <ul>
       <li

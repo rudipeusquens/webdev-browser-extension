@@ -259,6 +259,47 @@ describe('background: remembered sites', () => {
   })
 })
 
+describe('background: go to a page of the collection', () => {
+  const panel = { id: fakeBrowser.runtime.id }
+  const page = 'http://localhost:3000/settings'
+
+  beforeEach(async () => {
+    fakeBrowser.reset()
+    fakeSites()
+    background.main()
+    await send({ type: 'annotation:add', ...elementInput('a1', page) }, { ...panel, tab })
+    await send(
+      { type: 'annotation:add', ...elementInput('f1', 'file:///srv/app/index.html') },
+      {
+        ...panel,
+        tab,
+      },
+    )
+    vi.spyOn(fakeBrowser.tabs, 'update').mockResolvedValue({} as never)
+  })
+
+  afterEach(() => vi.restoreAllMocks())
+
+  it('opens a page of the collection in the tab', async () => {
+    const going = send({ type: 'tab:go', tabId: 9, pageKey: page }, panel)
+    await vi.waitFor(() => expect(fakeBrowser.tabs.update).toHaveBeenCalledWith(9, { url: page }))
+    vi.spyOn(fakeBrowser.scripting, 'executeScript').mockResolvedValue([] as never)
+    await fakeBrowser.tabs.onUpdated.trigger(9, { status: 'complete' }, { id: 9 } as never)
+    expect(await going).toEqual({ ok: true })
+  })
+
+  it('refuses pages outside the collection, file pages and requests from a tab', async () => {
+    for (const [pageKey, sender] of [
+      ['http://localhost:3000/other', panel],
+      ['file:///srv/app/index.html', panel],
+      [page, { ...panel, tab }],
+    ] as const) {
+      expect(await send({ type: 'tab:go', tabId: 9, pageKey }, sender)).toMatchObject({ ok: false })
+    }
+    expect(fakeBrowser.tabs.update).not.toHaveBeenCalled()
+  })
+})
+
 /** Delivers `message` to the background's onMessage listeners; resolves with the reply. */
 async function send(message: unknown, sender: object): Promise<unknown> {
   let reply: unknown

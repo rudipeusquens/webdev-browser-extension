@@ -8,8 +8,8 @@ import {
   SquareDashedIcon,
   SquareMousePointerIcon,
 } from '@lucide/vue'
-import { computed, ref, watch } from 'vue'
-import { browser } from 'wxt/browser'
+import { computed, onBeforeUnmount, ref, watch } from 'vue'
+import { browser, type Browser } from 'wxt/browser'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Toggle } from '@/components/ui/toggle'
@@ -110,6 +110,29 @@ function rememberSite() {
 function forgetSite(origin: string) {
   toBackground({ type: 'site:forget', origin })
 }
+
+function goTo(pageKey: string) {
+  if (tabId.value === undefined) return
+  toBackground({ type: 'tab:go', tabId: tabId.value, pageKey })
+}
+
+// A line to the overlay of the active tab: when the panel closes or another tab becomes
+// active, the overlay sees it go and drops what the panel had highlighted.
+let port: Browser.runtime.Port | undefined
+watch(
+  () => (status.value.kind === 'active' ? tabId.value : undefined),
+  (id) => {
+    port?.disconnect()
+    port = undefined
+    if (id === undefined) return
+    try {
+      port = browser.tabs.connect(id, { name: 'panel' })
+    } catch {
+      // The overlay is gone again: the next status says so.
+    }
+  },
+)
+onBeforeUnmount(() => port?.disconnect())
 
 function setPins(visible: boolean) {
   toOverlay({ type: 'overlay:set-pins', visible })
@@ -237,6 +260,7 @@ function setMode(next: unknown) {
         @remove="(id) => toBackground({ type: 'annotation:remove', id })"
         @highlight="(id) => toOverlay({ type: 'overlay:highlight', id })"
         @reveal="(id) => toOverlay({ type: 'overlay:reveal', id })"
+        @go="goTo"
       />
     </section>
 

@@ -40,7 +40,11 @@ export type AnchorMessage = {
 export type SiteMessage =
   { type: 'site:remember'; origin: string } | { type: 'site:forget'; origin: string }
 
-export type BackgroundMessage = CollectionMessage | OriginMessage | AnchorMessage | SiteMessage
+/** Side panel → background: open a page of the collection in a tab (Go to). */
+export type GoToMessage = { type: 'tab:go'; tabId: number; pageKey: string }
+
+export type BackgroundMessage =
+  CollectionMessage | OriginMessage | AnchorMessage | SiteMessage | GoToMessage
 
 /** Most ids one `anchors:report` lists in each of its lists. */
 const MAX_REPORTED = 1000
@@ -98,6 +102,13 @@ export function isBackgroundMessage(x: unknown): x is BackgroundMessage {
       return hasKeys(x, ['type', 'id']) && isAnnotationId(x.id)
     case 'collection:clear':
       return hasKeys(x, ['type'])
+    case 'tab:go':
+      return (
+        hasKeys(x, ['type', 'tabId', 'pageKey']) &&
+        Number.isInteger(x.tabId) &&
+        (x.tabId as number) >= 0 &&
+        isPageUrl(x.pageKey)
+      )
     case 'site:remember':
     case 'site:forget':
       return hasKeys(x, ['type', 'origin']) && isSiteOrigin(x.origin)

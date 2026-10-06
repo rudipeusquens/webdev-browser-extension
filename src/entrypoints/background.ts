@@ -1,17 +1,19 @@
 import { browser, type Browser } from 'wxt/browser'
 import { defineBackground } from 'wxt/utils/define-background'
 import { clearMissing, createAnchorStore } from '@/lib/background/anchor-status'
+import { goTo } from '@/lib/background/go-to'
 import { readOrigins } from '@/lib/background/origins'
 import { createSites, OVERLAY_SCRIPT } from '@/lib/background/sites'
 import { clearBlocked, markBlocked } from '@/lib/background/tab-status'
 import { createWriter } from '@/lib/background/writer'
+import { loadCollection } from '@/lib/collection/store'
 import {
   type BackgroundMessage,
   isBackgroundMessage,
   type OriginReply,
   type Reply,
 } from '@/lib/messages'
-import { originPattern } from '@/lib/settings'
+import { isSiteOrigin, originPattern } from '@/lib/settings'
 
 export default defineBackground(() => {
   const write = createWriter()
@@ -58,6 +60,17 @@ export default defineBackground(() => {
     })
   })
 
+  /** Go to: only pages of the collection, only on the web. */
+  async function openPage(tabId: number, pageKey: string): Promise<Reply> {
+    const { pages } = await loadCollection()
+    const page = pages[pageKey]
+    const origin = page && new URL(page.url).origin
+    if (!page || !origin || !isSiteOrigin(origin)) {
+      return { ok: false, error: 'This page cannot be opened from here.' }
+    }
+    return goTo(tabId, page.url, await sites.isRemembered(origin))
+  }
+
   function answer(
     message: BackgroundMessage,
     sender: Browser.runtime.MessageSender,
@@ -82,6 +95,10 @@ export default defineBackground(() => {
         return message.type === 'site:remember'
           ? sites.remember(message.origin)
           : sites.forget(message.origin)
+      case 'tab:go':
+        if (sender.tab)
+          return { ok: false, error: 'Pages are opened from the panel.' } satisfies Reply
+        return openPage(message.tabId, message.pageKey)
       case 'annotation:add':
         if (!sender.tab) return { ok: false, error: 'Items are added from a page.' } satisfies Reply
         return write(message)
