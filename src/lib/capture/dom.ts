@@ -25,6 +25,7 @@ const CHILDREN = getter<HTMLCollection>(Element.prototype, 'children')
 const FIRST_CHILD = getter<Element | null>(Element.prototype, 'firstElementChild')
 const NEXT_SIBLING = getter<Element | null>(Element.prototype, 'nextElementSibling')
 const SHADOW_ROOT = getter<ShadowRoot | null>(Element.prototype, 'shadowRoot')
+const NAMESPACE = getter<string | null>(Element.prototype, 'namespaceURI')
 const CHILD_NODES = getter<NodeListOf<ChildNode>>(Node.prototype, 'childNodes')
 const PARENT_NODE = getter<ParentNode | null>(Node.prototype, 'parentNode')
 const NEXT_NODE = getter<ChildNode | null>(Node.prototype, 'nextSibling')
@@ -92,13 +93,20 @@ export function matchesSelector(el: Element, selector: string): boolean {
 
 type ShadowAccess = { chrome?: { dom?: { openOrClosedShadowRoot?(el: Element): ShadowRoot } } }
 
+const HTML = 'http://www.w3.org/1999/xhtml'
+
 /** Open and closed shadow roots: content scripts may read both through `chrome.dom`. */
 export function shadowRootOf(el: Element): ShadowRoot | null {
-  return (
-    SHADOW_ROOT.call(el) ??
-    (globalThis as ShadowAccess).chrome?.dom?.openOrClosedShadowRoot?.(el) ??
-    null
-  )
+  const open = SHADOW_ROOT.call(el)
+  if (open) return open
+  // Only HTML elements can have one, and chrome.dom throws for any other element: inline
+  // SVG icons are on most pages.
+  if (NAMESPACE.call(el) !== HTML) return null
+  try {
+    return (globalThis as ShadowAccess).chrome?.dom?.openOrClosedShadowRoot?.(el) ?? null
+  } catch {
+    return null
+  }
 }
 
 /** The focused element, looking into open and closed shadow roots. */
