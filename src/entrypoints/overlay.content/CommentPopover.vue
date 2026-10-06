@@ -46,6 +46,13 @@ const clock = computed(() => {
   const s = voice.seconds.value
   return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`
 })
+/** What screen readers hear: changes of the dictation, not every second of its clock. */
+const spoken = computed(() => {
+  const now = voice.state.value.state
+  if (now === 'recording') return 'Recording. Alt+V stops it.'
+  if (now === 'transcribing') return 'Transcribing.'
+  return ''
+})
 const failure = computed(() => {
   const now = voice.state.value
   if (now.state !== 'failed') return null
@@ -127,7 +134,8 @@ function save() {
 
 function onKeydown(e: KeyboardEvent) {
   const action = popoverKey(e)
-  if (!action) return
+  // Enter saves from the field; on a focused button it presses that button.
+  if (!action || (action === 'save' && e.target !== field.value)) return
   e.preventDefault()
   if (action === 'save') save()
   else if (action === 'voice') dictate()
@@ -249,7 +257,6 @@ onBeforeUnmount(() => resizes.disconnect())
         data-testid="overlay-voice-status"
         class="flex min-w-0 items-center gap-1.5 text-xs whitespace-nowrap text-muted-foreground"
         :title="voice.busy.value ? undefined : 'Shift+Enter adds a line'"
-        aria-live="polite"
       >
         <template v-if="voice.state.value.state === 'recording'">
           <span class="size-2 shrink-0 animate-pulse rounded-full bg-red-600" aria-hidden="true" />
@@ -265,6 +272,7 @@ onBeforeUnmount(() => resizes.disconnect())
         </template>
         <template v-else>Enter to save</template>
       </p>
+      <span class="sr-only" role="status" aria-live="polite">{{ spoken }}</span>
       <div class="flex shrink-0 items-center gap-1.5">
         <VoiceButton
           data-testid="overlay-mic"

@@ -48,6 +48,11 @@ describe('popoverKey', () => {
     expect(popoverKey(key('v', { code: 'KeyV' }))).toBeNull()
   })
 
+  // Held down, Alt+V would start and stop at the key repeat rate, each stop a paid request.
+  it('ignores Alt+V repeated by a held key', () => {
+    expect(popoverKey(key('v', { code: 'KeyV', altKey: true, repeat: true }))).toBeNull()
+  })
+
   it('leaves Alt+V with other modifiers and during composition alone', () => {
     for (const extra of [
       { ctrlKey: true },

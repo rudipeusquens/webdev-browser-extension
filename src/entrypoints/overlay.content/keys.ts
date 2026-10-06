@@ -27,8 +27,11 @@ export function popoverKey(e: Key): 'save' | 'cancel' | 'voice' | null {
   if (!e.isTrusted || e.isComposing || e.keyCode === 229) return null
   if (e.key === 'Escape') return 'cancel'
   if (e.key === 'Enter' && !e.shiftKey) return 'save'
-  // By the key's place: on macOS, Option+V types a character instead of `v`.
-  if (e.code === 'KeyV' && e.altKey && !e.ctrlKey && !e.metaKey && !e.shiftKey) return 'voice'
+  // By the key's place: on macOS, Option+V types a character instead of `v`. Held down, it
+  // would start and stop at the key repeat rate.
+  if (e.code === 'KeyV' && e.altKey && !e.ctrlKey && !e.metaKey && !e.shiftKey) {
+    return e.repeat ? null : 'voice'
+  }
   return null
 }
 

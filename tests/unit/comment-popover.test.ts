@@ -229,6 +229,38 @@ describe('CommentPopover: dictation', () => {
     expect(document.activeElement).toBe(field())
   })
 
+  it('saves on Enter in the field, but lets Enter press a focused button', async () => {
+    const { get, field, wrapper, receive } = open({ initial: 'Typed text' })
+    click(get('overlay-mic').element)
+    await receive({ state: 'failed', error: 'offline', retry: true })
+    const retry = get('overlay-voice-retry').element
+    const onButton = trusted(
+      new KeyboardEvent('keydown', { key: 'Enter', bubbles: true, cancelable: true }),
+    )
+    retry.dispatchEvent(onButton)
+    expect(onButton.defaultPrevented).toBe(false)
+    expect(wrapper.emitted('save')).toBeUndefined()
+    press(field(), { key: 'Enter' })
+    expect(wrapper.emitted('save')).toEqual([['Typed text']])
+  })
+
+  it('tells screen readers what changes, not every second of the clock', async () => {
+    const { get, wrapper, receive } = open()
+    const spoken = () =>
+      wrapper
+        .findAll('[aria-live], [role="status"], [role="alert"]')
+        .map((el) => el.text())
+        .join(' | ')
+    click(get('overlay-mic').element)
+    await receive({ state: 'recording', limit: 120_000 })
+    await vi.advanceTimersByTimeAsync(2_000)
+    expect(get('overlay-voice-status').text()).toContain('0:02')
+    expect(spoken()).not.toMatch(/\d:\d\d/)
+    expect(spoken()).toContain('Recording')
+    await receive({ state: 'transcribing' })
+    expect(spoken()).toContain('Transcribing')
+  })
+
   it('offers Retry after a failed request', async () => {
     const { get, wrapper, receive } = open()
     click(get('overlay-mic').element)
