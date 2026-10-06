@@ -7,6 +7,7 @@ import {
   SettingsIcon,
   SquareDashedIcon,
   SquareMousePointerIcon,
+  XIcon,
 } from '@lucide/vue'
 import { computed, ref, watch } from 'vue'
 import { browser } from 'wxt/browser'
@@ -158,10 +159,27 @@ function setMode(next: unknown) {
 <template>
   <main class="flex h-screen flex-col bg-background text-sm text-foreground">
     <header class="space-y-3 border-b px-4 py-3">
-      <div class="flex items-center gap-2">
-        <h1 class="font-semibold">Feedback</h1>
-        <Badge v-if="count" data-testid="item-count" variant="secondary">{{ count }}</Badge>
+      <div data-testid="title-row" class="flex items-center gap-2">
+        <h1 data-testid="panel-title" class="font-semibold">
+          {{ showSettings ? 'Settings' : 'Edit' }}
+        </h1>
+        <Badge v-if="!showSettings && count" data-testid="item-count" variant="secondary">{{
+          count
+        }}</Badge>
         <Button
+          v-if="showSettings"
+          data-testid="close-settings"
+          variant="ghost"
+          size="icon-sm"
+          class="ml-auto text-muted-foreground"
+          aria-label="Close settings"
+          title="Close settings"
+          @click="showSettings = false"
+        >
+          <XIcon />
+        </Button>
+        <Button
+          v-else
           data-testid="open-settings"
           variant="ghost"
           size="icon-sm"
@@ -173,94 +191,97 @@ function setMode(next: unknown) {
           <SettingsIcon />
         </Button>
       </div>
-      <p data-testid="tab-status" class="flex items-start gap-2 text-xs text-muted-foreground">
-        <span
-          class="mt-1 size-2 shrink-0 rounded-full"
-          :class="{
-            'bg-green-500': status.kind === 'active',
-            'bg-red-500': status.kind === 'blocked' || status.kind === 'failed',
-            'bg-muted-foreground/40': status.kind === 'idle',
-          }"
-        />
-        <span class="min-w-0 flex-1">{{ statusText }}</span>
-        <Button
-          v-if="siteOrigin && !remembered"
-          data-testid="remember-site"
-          variant="outline"
-          size="xs"
-          class="-my-1 shrink-0"
-          :title="`Load the overlay on every page of ${siteOrigin}`"
-          @click="rememberSite"
-        >
-          Always enable here
-        </Button>
-        <Button
-          v-else-if="siteOrigin"
-          data-testid="forget-site"
-          variant="ghost"
-          size="xs"
-          class="-my-1 shrink-0 text-muted-foreground"
-          :title="`Stop loading the overlay on ${siteOrigin} by itself`"
-          @click="forgetSite(siteOrigin)"
-        >
-          Forget this site
-        </Button>
-      </p>
-      <p v-if="siteError" data-testid="site-error" role="alert" class="text-xs text-destructive">
-        {{ siteError }}
-      </p>
-      <div class="flex flex-wrap items-center gap-x-3 gap-y-2">
-        <ToggleGroup
-          type="single"
-          variant="outline"
-          size="sm"
-          :model-value="mode"
-          :disabled="status.kind !== 'active'"
-          @update:model-value="setMode"
-        >
-          <ToggleGroupItem value="browse" data-testid="mode-browse" aria-label="Browse mode">
-            <MousePointer2Icon /> Browse
-          </ToggleGroupItem>
-          <ToggleGroupItem value="element" data-testid="mode-element" aria-label="Element mode">
-            <SquareMousePointerIcon /> Element
-          </ToggleGroupItem>
-          <ToggleGroupItem value="area" data-testid="mode-area" aria-label="Area mode">
-            <SquareDashedIcon /> Area
-          </ToggleGroupItem>
-        </ToggleGroup>
-        <Toggle
-          data-testid="toggle-pins"
-          variant="outline"
-          size="sm"
-          :model-value="pinsShown"
-          :disabled="status.kind !== 'active'"
-          :aria-label="pinsShown ? 'Hide pins' : 'Show pins'"
-          :title="pinsShown ? 'Hide pins on the page (P)' : 'Show pins on the page (P)'"
-          @update:model-value="setPins"
-        >
-          <MapPinIcon v-if="pinsShown" />
-          <MapPinOffIcon v-else />
-          Pins
-        </Toggle>
+      <template v-if="!showSettings">
+        <div class="flex flex-wrap items-center gap-x-3 gap-y-2">
+          <ToggleGroup
+            type="single"
+            variant="outline"
+            size="sm"
+            :model-value="mode"
+            :disabled="status.kind !== 'active'"
+            @update:model-value="setMode"
+          >
+            <ToggleGroupItem value="browse" data-testid="mode-browse" aria-label="Browse mode">
+              <MousePointer2Icon /> Browse
+            </ToggleGroupItem>
+            <ToggleGroupItem value="element" data-testid="mode-element" aria-label="Element mode">
+              <SquareMousePointerIcon /> Element
+            </ToggleGroupItem>
+            <ToggleGroupItem value="area" data-testid="mode-area" aria-label="Area mode">
+              <SquareDashedIcon /> Area
+            </ToggleGroupItem>
+          </ToggleGroup>
+          <Toggle
+            data-testid="toggle-pins"
+            variant="outline"
+            size="sm"
+            :model-value="pinsShown"
+            :disabled="status.kind !== 'active'"
+            :aria-label="pinsShown ? 'Hide pins' : 'Show pins'"
+            :title="pinsShown ? 'Hide pins on the page (P)' : 'Show pins on the page (P)'"
+            @update:model-value="setPins"
+          >
+            <MapPinIcon v-if="pinsShown" />
+            <MapPinOffIcon v-else />
+            Pins
+          </Toggle>
+        </div>
+        <p data-testid="tab-status" class="flex items-start gap-2 text-xs text-muted-foreground">
+          <span
+            class="mt-1 size-2 shrink-0 rounded-full"
+            :class="{
+              'bg-green-500': status.kind === 'active',
+              'bg-red-500': status.kind === 'blocked' || status.kind === 'failed',
+              'bg-muted-foreground/40': status.kind === 'idle',
+            }"
+          />
+          <span class="min-w-0 flex-1">{{ statusText }}</span>
+          <Button
+            v-if="siteOrigin && !remembered"
+            data-testid="remember-site"
+            variant="outline"
+            size="xs"
+            class="-my-1 shrink-0"
+            :title="`Load the overlay on every page of ${siteOrigin}`"
+            @click="rememberSite"
+          >
+            Always enable here
+          </Button>
+          <Button
+            v-else-if="siteOrigin"
+            data-testid="forget-site"
+            variant="ghost"
+            size="xs"
+            class="-my-1 shrink-0 text-muted-foreground"
+            :title="`Stop loading the overlay on ${siteOrigin} by itself`"
+            @click="forgetSite(siteOrigin)"
+          >
+            Forget this site
+          </Button>
+        </p>
+        <p v-if="siteError" data-testid="site-error" role="alert" class="text-xs text-destructive">
+          {{ siteError }}
+        </p>
         <p
           v-if="status.kind === 'active'"
           data-testid="page-keys"
           class="flex items-center gap-1 text-xs text-muted-foreground"
           title="On the page: E for element mode, A for area mode, P to show or hide the pins, Esc for browse mode"
         >
+          Keys on the page:
           <kbd class="rounded border bg-muted px-1 font-mono">E</kbd>
           <kbd class="rounded border bg-muted px-1 font-mono">A</kbd>
           <kbd class="rounded border bg-muted px-1 font-mono">P</kbd>
           <kbd class="rounded border bg-muted px-1 font-mono">Esc</kbd>
         </p>
-      </div>
+      </template>
     </header>
 
     <SettingsView
       v-if="showSettings"
       :origins="settings.rememberedOrigins"
+      :shortcut="shortcut"
       @forget="forgetSite"
-      @close="showSettings = false"
     />
     <section v-else class="flex-1 overflow-y-auto">
       <p v-if="!count" class="p-6 pt-12 text-center text-muted-foreground">

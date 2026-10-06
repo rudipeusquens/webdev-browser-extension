@@ -1,0 +1,120 @@
+import { describe, expect, it } from 'vitest'
+import { pageShortcut, popoverKey, type ShortcutState } from '@/entrypoints/overlay.content/keys'
+import { isMacPlatform, shortcutGroups } from '@/lib/shortcuts'
+
+const key = (init: Partial<KeyboardEvent>) => ({
+  isTrusted: true,
+  key: '',
+  code: '',
+  shiftKey: false,
+  altKey: false,
+  ctrlKey: false,
+  metaKey: false,
+  isComposing: false,
+  keyCode: 0,
+  repeat: false,
+  ...init,
+})
+
+const state = (overrides: Partial<ShortcutState> = {}): ShortcutState => ({
+  mode: 'browse',
+  hovering: false,
+  drafting: false,
+  dragging: false,
+  editableFocus: false,
+  ...overrides,
+})
+
+function row(groups: ReturnType<typeof shortcutGroups>, title: string, action: string) {
+  const found = groups.find((g) => g.title === title)?.rows.find((r) => r.action === action)
+  if (!found) throw new Error(`no row "${action}" in "${title}"`)
+  return found
+}
+
+describe('the shortcut list', () => {
+  const groups = shortcutGroups(false)
+
+  it('has the groups of the spec, in order', () => {
+    expect(groups.map((g) => g.title)).toEqual([
+      'On the page',
+      'Element mode',
+      'Area mode',
+      'In a comment',
+    ])
+  })
+
+  // Each row names a key and what it does; the overlay's handlers must do exactly that.
+  it.each([
+    ['On the page', 'Element mode', 'E', key({ key: 'e' }), state(), { mode: 'element' }],
+    ['On the page', 'Area mode', 'A', key({ key: 'a' }), state(), { mode: 'area' }],
+    ['On the page', 'Show or hide the pins', 'P', key({ key: 'p' }), state(), 'pins'],
+    [
+      'On the page',
+      'Browse mode',
+      'Esc',
+      key({ key: 'Escape' }),
+      state({ mode: 'element' }),
+      { mode: 'browse' },
+    ],
+    [
+      'Element mode',
+      'Outline the parent',
+      '↑',
+      key({ key: 'ArrowUp' }),
+      state({ mode: 'element', hovering: true }),
+      'up',
+    ],
+    [
+      'Element mode',
+      'Outline the child again',
+      '↓',
+      key({ key: 'ArrowDown' }),
+      state({ mode: 'element', hovering: true }),
+      'down',
+    ],
+    [
+      'Element mode',
+      'Comment on the outlined element',
+      'Enter',
+      key({ key: 'Enter' }),
+      state({ mode: 'element', hovering: true }),
+      'select',
+    ],
+    [
+      'Area mode',
+      'Cancel the drag',
+      'Esc',
+      key({ key: 'Escape' }),
+      state({ mode: 'area', dragging: true }),
+      'cancel',
+    ],
+  ])('%s: %s is %s', (title, action, shown, event, now, expected) => {
+    expect(row(groups, title, action).keys).toEqual([shown])
+    expect(pageShortcut(event, now)).toEqual(expected)
+  })
+
+  it.each([
+    ['Save', 'Enter', key({ key: 'Enter' }), 'save'],
+    ['New line', 'Shift+Enter', key({ key: 'Enter', shiftKey: true }), null],
+    ['Cancel (a running dictation first)', 'Esc', key({ key: 'Escape' }), 'cancel'],
+    ['Start or stop dictation', 'Alt+V', key({ key: 'v', code: 'KeyV', altKey: true }), 'voice'],
+  ])('in a comment: %s is %s', (action, shown, event, expected) => {
+    expect(row(groups, 'In a comment', action).keys).toEqual([shown])
+    expect(popoverKey(event)).toBe(expected)
+  })
+
+  it('writes the keys the way macOS does on a Mac', () => {
+    const mac = shortcutGroups(true)
+    expect(row(mac, 'In a comment', 'Start or stop dictation').keys).toEqual(['⌥V'])
+    expect(row(mac, 'In a comment', 'New line').keys).toEqual(['⇧Enter'])
+    expect(row(mac, 'On the page', 'Element mode').keys).toEqual(['E'])
+  })
+
+  it('tells a Mac by its platform', () => {
+    expect(isMacPlatform('MacIntel')).toBe(true)
+    expect(isMacPlatform('macOS')).toBe(true)
+    expect(isMacPlatform('Linux x86_64')).toBe(false)
+    expect(isMacPlatform('Win32')).toBe(false)
+    expect(isMacPlatform('')).toBe(false)
+  })
+})

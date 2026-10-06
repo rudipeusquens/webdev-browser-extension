@@ -72,6 +72,17 @@ describe('CommentPopover', () => {
     expect((wrapper.get('textarea').element as HTMLTextAreaElement).value).toBe('Keep me')
   })
 
+  // The ellipsis takes the color of the element that cuts the text.
+  it('cuts a long target with an ellipsis in the color of the target', () => {
+    const label = `"${'very long selected text '.repeat(3)}"`
+    const wrapper = mount(CommentPopover, { props: { rect, label } })
+    const cut = wrapper.findAll('*').filter((w) => w.classes().includes('truncate'))
+    expect(cut).toHaveLength(1)
+    expect(cut[0]?.text()).toBe(label)
+    expect(cut[0]?.classes()).toContain('text-muted-foreground')
+    expect(wrapper.text()).toContain('Comment')
+  })
+
   it('renders the target label as text', () => {
     const wrapper = mount(CommentPopover, { props: { rect, label: '<img src=x>' } })
     expect(wrapper.find('img').exists()).toBe(false)

@@ -250,6 +250,84 @@ describe('side panel', () => {
     expect(byTestId('toggle-pins').title).toBe('Hide pins on the page (P)')
   })
 
+  describe('Edit and Settings', () => {
+    const exists = (id: string) => document.querySelector(`[data-testid="${id}"]`) !== null
+    const before = (a: string, b: string) =>
+      (byTestId(a).compareDocumentPosition(byTestId(b)) & Node.DOCUMENT_POSITION_FOLLOWING) !== 0
+    const EDIT_ONLY = ['mode-browse', 'toggle-pins', 'tab-status', 'page-keys', 'copy-prompt']
+
+    it('is titled Edit, with the buttons above the texts', async () => {
+      overlayReply = active
+      await render(twoPages())
+      expect(byTestId('panel-title').textContent).toBe('Edit')
+      expect(before('mode-browse', 'tab-status')).toBe(true)
+      expect(before('toggle-pins', 'tab-status')).toBe(true)
+      expect(before('tab-status', 'page-keys')).toBe(true)
+      expect(before('page-keys', 'item')).toBe(true)
+    })
+
+    it('swaps to Settings, the gear for a close button, and hides what belongs to Edit', async () => {
+      overlayReply = active
+      await render(twoPages())
+      const row = byTestId('open-settings').closest('[data-testid="title-row"]')
+      byTestId('open-settings').click()
+      await flushPromises()
+      expect(byTestId('panel-title').textContent).toBe('Settings')
+      expect(exists('open-settings')).toBe(false)
+      expect(byTestId('close-settings').closest('[data-testid="title-row"]')).toBe(row)
+      expect(byTestId('close-settings').getAttribute('aria-label')).toBe('Close settings')
+      for (const id of [...EDIT_ONLY, 'clear-all', 'item']) expect(exists(id)).toBe(false)
+      byTestId('close-settings').click()
+      await flushPromises()
+      expect(byTestId('panel-title').textContent).toBe('Edit')
+      for (const id of EDIT_ONLY) expect(exists(id)).toBe(true)
+    })
+
+    it('lists the keyboard shortcuts, with the toolbar shortcut Chrome assigned', async () => {
+      shortcutIs('Ctrl+Shift+K')
+      await render()
+      byTestId('open-settings').click()
+      await flushPromises()
+      const list = byTestId('shortcut-list')
+      const keys = [...list.querySelectorAll('kbd')].map((k) => k.textContent)
+      expect(keys).toContain('Ctrl+Shift+K')
+      for (const k of ['E', 'A', 'P', 'Esc', '↑', '↓', 'Enter', 'Shift+Enter', 'Alt+V']) {
+        expect(keys).toContain(k)
+      }
+      expect(list.textContent).toContain('Start or stop dictation')
+    })
+
+    it('says when Chrome assigned no toolbar shortcut, and opens its shortcut page', async () => {
+      shortcutIs('')
+      const create = vi.spyOn(fakeBrowser.tabs, 'create').mockResolvedValue({} as never)
+      await render()
+      byTestId('open-settings').click()
+      await flushPromises()
+      expect(byTestId('shortcut-list').textContent).toContain('Not set')
+      byTestId('change-shortcut').click()
+      await flushPromises()
+      expect(create).toHaveBeenCalledWith({ url: 'chrome://extensions/shortcuts' })
+    })
+
+    it('writes the keys the way macOS does on a Mac', async () => {
+      const platform = Object.getOwnPropertyDescriptor(navigator, 'platform')
+      Object.defineProperty(navigator, 'platform', { value: 'MacIntel', configurable: true })
+      try {
+        await render()
+        byTestId('open-settings').click()
+        await flushPromises()
+        const keys = [...byTestId('shortcut-list').querySelectorAll('kbd')].map(
+          (k) => k.textContent,
+        )
+        expect(keys).toContain('⌥V')
+        expect(keys).not.toContain('Alt+V')
+      } finally {
+        if (platform) Object.defineProperty(navigator, 'platform', platform)
+        else delete (navigator as { platform?: string }).platform
+      }
+    })
+  })
+
   it('switches the overlay mode from the panel', async () => {
     overlayReply = active
     await render()

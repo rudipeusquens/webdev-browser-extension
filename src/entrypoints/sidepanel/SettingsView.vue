@@ -1,27 +1,16 @@
 <script setup lang="ts">
-import { ArrowLeftIcon, Trash2Icon } from '@lucide/vue'
+import { Trash2Icon } from '@lucide/vue'
 import { Button } from '@/components/ui/button'
+import ShortcutList from './ShortcutList.vue'
 import VoiceSettings from './VoiceSettings.vue'
 
-defineProps<{ origins: string[] }>()
-const emit = defineEmits<{ forget: [origin: string]; close: [] }>()
+/** `shortcut`: the toolbar shortcut Chrome assigned, empty when there is none. */
+defineProps<{ origins: string[]; shortcut: string }>()
+const emit = defineEmits<{ forget: [origin: string] }>()
 </script>
 
 <template>
   <section class="flex-1 space-y-6 overflow-y-auto p-4">
-    <div class="flex items-center gap-2">
-      <Button
-        data-testid="close-settings"
-        variant="ghost"
-        size="icon-sm"
-        aria-label="Back to the list"
-        @click="emit('close')"
-      >
-        <ArrowLeftIcon />
-      </Button>
-      <h2 class="font-semibold">Settings</h2>
-    </div>
-
     <VoiceSettings />
 
     <div data-testid="site-settings" class="space-y-2">
@@ -55,5 +44,7 @@ const emit = defineEmits<{ forget: [origin: string]; close: [] }>()
         No remembered sites yet. Use Always enable here on a page.
       </p>
     </div>
+
+    <ShortcutList :toolbar="shortcut" />
   </section>
 </template>

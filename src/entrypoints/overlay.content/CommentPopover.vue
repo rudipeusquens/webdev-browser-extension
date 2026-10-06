@@ -176,9 +176,12 @@ onBeforeUnmount(() => resizes.disconnect())
     @keydown="onKeydown"
   >
     <div class="flex items-center justify-between gap-2">
-      <p class="min-w-0 truncate font-medium">
-        {{ number ? `Item ${number}` : 'Comment' }}
-        <span class="font-mono text-xs font-normal text-muted-foreground">{{ label }}</span>
+      <!-- The label cuts itself: an ellipsis takes the color of the element that cuts. -->
+      <p class="flex min-w-0 items-baseline gap-1 font-medium">
+        <span class="shrink-0">{{ number ? `Item ${number}` : 'Comment' }}</span>
+        <span class="min-w-0 truncate font-mono text-xs font-normal text-muted-foreground">{{
+          label
+        }}</span>
       </p>
       <Button
         variant="ghost"

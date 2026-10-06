@@ -81,4 +81,13 @@
   body {
     @apply bg-background text-foreground;
   }
+  /* Tailwind v4 leaves buttons at the default cursor; everything clickable shows the pointer.
+     Utilities (cursor-default, cursor-crosshair) still win over this layer. */
+  button:not(:disabled):not([aria-disabled='true']),
+  [role='button']:not([aria-disabled='true']),
+  a[href],
+  select:not(:disabled),
+  summary {
+    cursor: pointer;
+  }
 }
