@@ -6,11 +6,15 @@ import { browser } from 'wxt/browser'
 import { BLOCKED_PREFIX, FAILED_PREFIX, isBlocked, isFailed } from '@/lib/background/tab-status'
 import { isOverlayStatus, isPanelMessage, type Mode } from '@/lib/messages'
 
+/**
+ * `url`: the tab's address, where Chrome tells it to the panel (the extension may run there
+ * already); missing elsewhere.
+ */
 export type TabStatus =
   | { kind: 'active'; host: string; pageKey: string; mode: Mode; pins: boolean; instance: string }
-  | { kind: 'blocked' }
-  | { kind: 'failed' }
-  | { kind: 'idle' }
+  | { kind: 'blocked'; url?: string }
+  | { kind: 'failed'; url?: string }
+  | { kind: 'idle'; url?: string }
 
 export function useActiveTab(): {
   tabId: Ref<number | undefined>
@@ -28,12 +32,13 @@ export function useActiveTab(): {
     const run = ++latest
     const [tab] = await browser.tabs.query({ active: true, currentWindow: true })
     const id = tab?.id
-    let next: TabStatus = { kind: 'idle' }
+    const url = tab?.url || undefined
+    let next: TabStatus = { kind: 'idle', url }
     if (id !== undefined) {
       const reply = await browser.tabs.sendMessage(id, { type: 'overlay:status' }).catch(() => {})
       if (isOverlayStatus(reply)) next = { kind: 'active', ...reply }
-      else if (await isBlocked(id)) next = { kind: 'blocked' }
-      else if (await isFailed(id)) next = { kind: 'failed' }
+      else if (await isBlocked(id)) next = { kind: 'blocked', url }
+      else if (await isFailed(id)) next = { kind: 'failed', url }
     }
     // An older refresh must not overwrite a newer one.
     if (run !== latest) return

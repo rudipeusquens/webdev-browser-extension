@@ -155,6 +155,6 @@ describe('marking an area', () => {
     await waitInOverlay(session, POPOVER, false)
     await clickInOverlay(session, '[data-testid="overlay-pin"]')
     await waitInOverlay(session, POPOVER)
-    expect(await overlayText(session, POPOVER)).toContain('Item 1')
+    expect(await overlayText(session, POPOVER)).toContain('Pin 1')
   })
 })

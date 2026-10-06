@@ -77,7 +77,7 @@ describe('one collection per site', () => {
     expect(second?.items.map((i) => [i.comment, i.number])).toEqual([['On the second site', 1]])
 
     await panel.click('[data-testid="copy-prompt"]')
-    await panel.waitForSelector('::-p-text(Copied 1 item)')
+    await panel.waitForSelector('::-p-text(Copied 1 pin)')
     const clipboard = await panel.evaluate(() => navigator.clipboard.readText())
     expect(clipboard).toContain('On the second site')
     expect(clipboard).not.toContain('On the first site')
@@ -146,9 +146,9 @@ describe('one collection per site', () => {
   it('undoes and redoes a deletion from another tab of the same site', async () => {
     // Left by the last test: "Old old1" open on the first site, its overlay in session.page.
     await waitForListed(['Old old1'])
-    await panel.click('[aria-label="Delete item 1"]')
+    await panel.click('[aria-label="Delete pin 1"]')
     await waitForListed([])
-    await panel.waitForSelector('[data-testid="undo"][title="Undo: Delete item 1 (Ctrl+Z)"]')
+    await panel.waitForSelector('[data-testid="undo"][title="Undo: Delete pin 1 (Ctrl+Z)"]')
 
     const second = await session.browser.newPage()
     await second.goto(`${one.origin}/plain/text.html`)
@@ -158,7 +158,7 @@ describe('one collection per site', () => {
     await panel.waitForSelector('[data-testid="undo"]:not([disabled])')
     await panel.click('[data-testid="undo"]')
     await waitForListed(['Old old1'])
-    await panel.waitForSelector('[data-testid="redo"][title="Redo: Delete item 1 (Ctrl+Shift+Z)"]')
+    await panel.waitForSelector('[data-testid="redo"][title="Redo: Delete pin 1 (Ctrl+Shift+Z)"]')
     // The panel's own key, outside any field.
     await panel.focus('body')
     await panel.keyboard.down('Control')

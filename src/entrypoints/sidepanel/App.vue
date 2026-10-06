@@ -6,15 +6,16 @@ import {
   RepeatIcon,
   MapPinOffIcon,
   MousePointer2Icon,
+  PlusIcon,
   SettingsIcon,
   SquareDashedIcon,
   SquareMousePointerIcon,
+  Trash2Icon,
   Undo2Icon,
   XIcon,
 } from '@lucide/vue'
 import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { browser } from 'wxt/browser'
-import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Toggle } from '@/components/ui/toggle'
 import { ToggleGroup, ToggleGroupItem } from '@/components/ui/toggle-group'
@@ -28,9 +29,11 @@ import {
   type Reply,
 } from '@/lib/messages'
 import { isSiteOrigin, originPattern } from '@/lib/settings'
-import ClearAllDialog from './ClearAllDialog.vue'
+import EmptyBinDialog from './EmptyBinDialog.vue'
 import CopyFallbackDialog from './CopyFallbackDialog.vue'
+import ForgetSiteDialog from './ForgetSiteDialog.vue'
 import ItemList from './ItemList.vue'
+import SitePill from './SitePill.vue'
 import SettingsView from './SettingsView.vue'
 import { useActiveTab } from './use-active-tab'
 import { usePanelView } from './use-panel-view'
@@ -124,7 +127,10 @@ const groups = computed(() => {
   }))
   return [...all.filter((g) => g.current), ...all.filter((g) => !g.current)]
 })
-const pageCount = computed(() => new Set(items.value.map((item) => item.pageKey)).size)
+/** What Clear all moves to Deleted: the open and done items. */
+const clearable = computed(() => items.value.filter((item) => item.status !== 'deleted').length)
+const binned = computed(() => items.value.filter((item) => item.status === 'deleted'))
+const binPages = computed(() => new Set(binned.value.map((item) => item.pageKey)).size)
 const plural = (n: number, word: string) => `${n} ${word}${n === 1 ? '' : 's'}`
 const mode = computed(() => (status.value.kind === 'active' ? status.value.mode : undefined))
 const pinsShown = computed(() => status.value.kind !== 'active' || status.value.pins)
@@ -141,24 +147,40 @@ const siteOrigin = computed(() => {
 const remembered = computed(
   () => !!siteOrigin.value && settings.value.rememberedOrigins.includes(siteOrigin.value),
 )
-const statusText = computed(() => {
+/** What the empty Edit view says while the overlay does not run on the tab. */
+const startText = computed(() => {
   switch (status.value.kind) {
-    case 'active':
-      return `Active on ${status.value.host}`
     case 'blocked':
-      return "Can't run on this page"
+      return "Can't run on this page: Chrome keeps extensions off it."
     case 'failed':
       return "Couldn't start on this page. Reload it and try again; the page's console has details."
     default: {
-      const press = shortcut.value ? `, press ${shortcut.value}` : ''
-      return `Not active on this page. Click the toolbar icon${press} or right-click the page and choose "Annotate this page".`
+      const press = shortcut.value ? ` or press ${shortcut.value}` : ''
+      const menu = settings.value.contextMenu
+        ? ', or right-click the page and choose "Annotate this page"'
+        : ''
+      return `Click the toolbar icon${press} to annotate this page${menu}.`
     }
+  }
+})
+/**
+ * A page without the overlay that the panel can start it on: Chrome tells the panel its
+ * address only where the extension may run already (spec section 8).
+ */
+const startable = computed(() => {
+  const now = status.value
+  if (now.kind !== 'idle' || !now.url) return false
+  try {
+    siteOf(now.url)
+    return true
+  } catch {
+    return false
   }
 })
 
 const copyStatus = ref('')
 const fallbackText = ref<string | null>(null)
-const confirmClear = ref(false)
+const confirmEmpty = ref(false)
 let copyTimer: ReturnType<typeof setTimeout> | undefined
 
 function toBackground(message: BackgroundMessage) {
@@ -168,8 +190,14 @@ function toBackground(message: BackgroundMessage) {
 /** Why the last change from the panel was refused; empty once one works. */
 const panelError = ref('')
 
-/** A change of the site's items: its refusal is shown, its success clears the last one. */
-async function change(message: BackgroundMessage, refused = (error: string) => error) {
+/**
+ * A change of the site's items: its refusal is shown, its success clears the last one. True
+ * when it was made.
+ */
+async function change(
+  message: BackgroundMessage,
+  refused = (error: string) => error,
+): Promise<boolean> {
   let reply: Reply | undefined
   try {
     reply = (await browser.runtime.sendMessage(message)) as Reply | undefined
@@ -178,6 +206,14 @@ async function change(message: BackgroundMessage, refused = (error: string) => e
   }
   if (reply?.ok) panelError.value = ''
   else panelError.value = refused(reply?.error ?? 'The extension did not answer. Try again.')
+  return reply?.ok === true
+}
+
+/** A short note above the footer's buttons, gone after a few seconds. */
+function say(text: string) {
+  copyStatus.value = text
+  clearTimeout(copyTimer)
+  copyTimer = setTimeout(() => (copyStatus.value = ''), 4000)
 }
 
 function toOverlay(message: OverlayMessage) {
@@ -197,9 +233,7 @@ async function writePrompt(ids: string[], done: string): Promise<boolean> {
     fallbackText.value = text
     return true
   }
-  copyStatus.value = done
-  clearTimeout(copyTimer)
-  copyTimer = setTimeout(() => (copyStatus.value = ''), 4000)
+  say(done)
   return true
 }
 
@@ -208,17 +242,29 @@ async function copy() {
   const ids = openIds.value
   const current = site.value
   if (!current || ids.length === 0) return
-  await writePrompt(ids, `Copied ${plural(ids.length, 'item')}`)
+  await writePrompt(ids, `Copied ${plural(ids.length, 'pin')}`)
   await change(
     { type: 'collection:copied', site: current, ids },
-    (error) => `Copied, but the items could not be marked done: ${error}`,
+    (error) => `Copied, but the pins could not be marked done: ${error}`,
+  )
+}
+
+/** One open pin, from its entry: it becomes done, and Copy again copies it. */
+async function copyOne(id: string) {
+  const current = site.value
+  const item = items.value.find((i) => i.id === id)
+  if (!current || !item) return
+  await writePrompt([id], `Copied pin ${item.number}`)
+  await change(
+    { type: 'collection:copied', site: current, ids: [id] },
+    (error) => `Copied, but the pin could not be marked done: ${error}`,
   )
 }
 
 /** The last copy again, for a paste that went wrong; it changes nothing. */
 async function copyAgain() {
   const ids = againIds.value
-  if (ids.length > 0) await writePrompt(ids, `Copied ${plural(ids.length, 'item')} again`)
+  if (ids.length > 0) await writePrompt(ids, `Copied ${plural(ids.length, 'pin')} again`)
 }
 
 const siteError = ref('')
@@ -239,8 +285,16 @@ function rememberSite() {
     .catch(() => undefined)
 }
 
+/** The site whose Forget waits for its confirmation. */
+const forgetting = ref<string | null>(null)
+
 function forgetSite(origin: string) {
   toBackground({ type: 'site:forget', origin })
+}
+
+/** Annotate this page, from the panel: where Chrome lets the extension, without the toolbar. */
+function startOverlay() {
+  if (tabId.value !== undefined) void change({ type: 'tab:start', tabId: tabId.value })
 }
 
 function changeItem(
@@ -250,8 +304,17 @@ function changeItem(
   if (site.value) void change({ type, site: site.value, id })
 }
 
-function clearSite() {
-  if (site.value) void change({ type: 'collection:clear', site: site.value })
+/** Clear all: the open and done pins move to Deleted, at once (Undo and Restore exist). */
+async function clearSite() {
+  const moved = clearable.value
+  if (!site.value || moved === 0) return
+  if (await change({ type: 'collection:clear', site: site.value })) {
+    say(`Moved ${plural(moved, 'pin')} to Deleted`)
+  }
+}
+
+function emptySiteBin() {
+  if (site.value) void change({ type: 'collection:empty-bin', site: site.value })
 }
 
 function goTo(pageKey: string) {
@@ -319,20 +382,23 @@ function setMode(next: unknown) {
 <template>
   <main class="flex h-screen flex-col bg-background text-sm text-foreground">
     <header class="space-y-3 border-b px-4 py-3">
-      <div data-testid="title-row" class="flex items-center gap-2">
+      <div data-testid="title-row" class="relative flex h-8 items-center gap-2">
         <h1 data-testid="panel-title" class="font-semibold">
           {{ showSettings ? 'Settings' : 'Edit' }}
         </h1>
-        <span
-          v-if="!showSettings && site"
-          data-testid="title-site"
-          class="min-w-0 truncate font-mono text-xs text-muted-foreground"
-          :title="site"
-          >{{ siteLabel(site) }}</span
+        <!-- In the middle of the row, kept clear of what sits at either side. -->
+        <div
+          class="absolute top-1/2 left-1/2 flex -translate-x-1/2 -translate-y-1/2 justify-center"
+          :class="showSettings ? 'w-[calc(100%-10rem)]' : 'w-[calc(100%-14rem)]'"
         >
-        <Badge v-if="!showSettings && count" data-testid="item-count" variant="secondary">{{
-          count
-        }}</Badge>
+          <SitePill
+            :status="status"
+            :remembered="remembered"
+            @start="startOverlay"
+            @remember="rememberSite"
+            @forget="forgetting = siteOrigin"
+          />
+        </div>
         <template v-if="!showSettings">
           <Button
             data-testid="undo"
@@ -389,22 +455,39 @@ function setMode(next: unknown) {
         </Button>
       </div>
       <template v-if="!showSettings">
-        <div class="flex flex-wrap items-center gap-x-3 gap-y-2">
+        <!-- The modes share the row; Pins keeps 8 px to them, and wraps when it must. -->
+        <div class="flex flex-wrap items-center gap-2">
           <ToggleGroup
             type="single"
             variant="outline"
             size="sm"
+            class="w-auto flex-1"
             :model-value="mode"
             :disabled="status.kind !== 'active'"
             @update:model-value="setMode"
           >
-            <ToggleGroupItem value="browse" data-testid="mode-browse" aria-label="Browse mode">
+            <ToggleGroupItem
+              value="browse"
+              data-testid="mode-browse"
+              class="flex-1 gap-1.5 px-2"
+              aria-label="Browse mode"
+            >
               <MousePointer2Icon /> Browse
             </ToggleGroupItem>
-            <ToggleGroupItem value="element" data-testid="mode-element" aria-label="Element mode">
+            <ToggleGroupItem
+              value="element"
+              data-testid="mode-element"
+              class="flex-1 gap-1.5 px-2"
+              aria-label="Element mode"
+            >
               <SquareMousePointerIcon /> Element
             </ToggleGroupItem>
-            <ToggleGroupItem value="area" data-testid="mode-area" aria-label="Area mode">
+            <ToggleGroupItem
+              value="area"
+              data-testid="mode-area"
+              class="flex-1 gap-1.5 px-2"
+              aria-label="Area mode"
+            >
               <SquareDashedIcon /> Area
             </ToggleGroupItem>
           </ToggleGroup>
@@ -412,6 +495,7 @@ function setMode(next: unknown) {
             data-testid="toggle-pins"
             variant="outline"
             size="sm"
+            class="gap-1.5 px-2"
             :model-value="pinsShown"
             :disabled="status.kind !== 'active'"
             :aria-label="pinsShown ? 'Hide pins' : 'Show pins'"
@@ -437,7 +521,7 @@ function setMode(next: unknown) {
             value="open"
             data-testid="filter-open"
             class="flex-1"
-            title="Open items only: what Copy as prompt copies"
+            title="Open pins only: what Copy as prompt copies"
           >
             Open <span class="text-muted-foreground tabular-nums">{{ counts.open }}</span>
           </ToggleGroupItem>
@@ -445,7 +529,7 @@ function setMode(next: unknown) {
             value="all"
             data-testid="filter-all"
             class="flex-1"
-            title="Open and done items"
+            title="Open and done pins"
           >
             All <span class="text-muted-foreground tabular-nums">{{ counts.all }}</span>
           </ToggleGroupItem>
@@ -453,91 +537,57 @@ function setMode(next: unknown) {
             value="with-deleted"
             data-testid="filter-with-deleted"
             class="flex-1"
-            title="Deleted items too"
+            title="Deleted pins too"
           >
             + Deleted <span class="text-muted-foreground tabular-nums">{{ counts.deleted }}</span>
           </ToggleGroupItem>
         </ToggleGroup>
-        <p data-testid="tab-status" class="flex items-start gap-2 text-xs text-muted-foreground">
-          <span
-            class="mt-1 size-2 shrink-0 rounded-full"
-            :class="{
-              'bg-green-500': status.kind === 'active',
-              'bg-red-500': status.kind === 'blocked' || status.kind === 'failed',
-              'bg-muted-foreground/40': status.kind === 'idle',
-            }"
-          />
-          <span class="min-w-0 flex-1">{{ statusText }}</span>
-          <Button
-            v-if="siteOrigin && !remembered"
-            data-testid="remember-site"
-            variant="outline"
-            size="xs"
-            class="-my-1 shrink-0"
-            :title="`Load the overlay on every page of ${siteOrigin}`"
-            @click="rememberSite"
-          >
-            Always enable here
-          </Button>
-          <Button
-            v-else-if="siteOrigin"
-            data-testid="forget-site"
-            variant="ghost"
-            size="xs"
-            class="-my-1 shrink-0 text-muted-foreground"
-            :title="`Stop loading the overlay on ${siteOrigin} by itself`"
-            @click="forgetSite(siteOrigin)"
-          >
-            Forget this site
-          </Button>
-        </p>
-        <p v-if="siteError" data-testid="site-error" role="alert" class="text-xs text-destructive">
-          {{ siteError }}
-        </p>
-        <p
-          v-if="status.kind === 'active'"
-          data-testid="page-keys"
-          class="flex items-center gap-1 text-xs text-muted-foreground"
-          title="On the page: E for element mode, A for area mode, P to show or hide the pins, Esc for browse mode"
-        >
-          Keys on the page:
-          <kbd class="rounded border bg-muted px-1 font-mono">E</kbd>
-          <kbd class="rounded border bg-muted px-1 font-mono">A</kbd>
-          <kbd class="rounded border bg-muted px-1 font-mono">P</kbd>
-          <kbd class="rounded border bg-muted px-1 font-mono">Esc</kbd>
-        </p>
       </template>
+      <p v-if="siteError" data-testid="site-error" role="alert" class="text-xs text-destructive">
+        {{ siteError }}
+      </p>
     </header>
 
     <SettingsView
       v-if="showSettings"
-      :origins="settings.rememberedOrigins"
+      :settings="settings"
       :shortcut="shortcut"
-      @forget="forgetSite"
+      @forget="(origin) => (forgetting = origin)"
     />
-    <section v-else class="flex-1 overflow-y-auto">
-      <p v-if="!site" data-testid="no-site" class="p-6 pt-12 text-center text-muted-foreground">
-        Feedback is kept per site. Start the overlay on a page to see the feedback of its site.
-      </p>
-      <p v-else-if="!items.length" class="p-6 pt-12 text-center text-muted-foreground">
-        No feedback yet: pick an element, drag an area, or select text.
-      </p>
-      <p
-        v-else-if="!shown.length"
-        data-testid="filter-hides"
-        class="p-6 pt-12 text-center text-muted-foreground"
-      >
-        Nothing open here. {{ plural(items.length, 'item') }}
-        {{ items.length === 1 ? 'is' : 'are' }} hidden by this filter.
-      </p>
+    <section v-else data-testid="list-area" class="flex-1 overflow-y-auto">
+      <!-- Empty states sit in the middle of the list area. -->
+      <div v-if="!site || !shown.length" class="flex min-h-full items-center justify-center p-6">
+        <div data-testid="empty-state" class="max-w-72 space-y-3 text-center text-muted-foreground">
+          <template v-if="!site">
+            <p data-testid="tab-status">
+              {{ startable ? 'The overlay is not running on this page yet.' : startText }}
+            </p>
+            <Button v-if="startable" data-testid="start-overlay-center" @click="startOverlay">
+              <PlusIcon /> Annotate this page
+            </Button>
+            <p data-testid="no-site" class="text-xs">
+              Feedback is kept per site. It shows here once the overlay runs on the page.
+            </p>
+          </template>
+          <p v-else-if="!items.length">
+            No feedback yet: pick an element, drag an area, or select text.
+          </p>
+          <p v-else data-testid="filter-hides">
+            Nothing to show here. {{ plural(items.length, 'pin') }}
+            {{ items.length === 1 ? 'is' : 'are' }} hidden by this filter.
+          </p>
+        </div>
+      </div>
       <ItemList
         v-else
         :groups="groups"
         :missing="missing"
         :pointed="pointed"
+        :page-titles="settings.pageTitles"
         @remove="(id) => changeItem('annotation:remove', id)"
         @restore="(id) => changeItem('annotation:restore', id)"
         @reopen="(id) => changeItem('annotation:reopen', id)"
+        @copy="copyOne"
         @highlight="(id) => toOverlay({ type: 'overlay:highlight', id })"
         @reveal="reveal"
         @jump="jumpTo"
@@ -545,17 +595,21 @@ function setMode(next: unknown) {
       />
     </section>
 
-    <footer v-if="!showSettings" class="space-y-2 border-t p-3">
-      <p v-if="panelError" data-testid="panel-error" role="alert" class="text-xs text-destructive">
-        {{ panelError }}
-      </p>
+    <footer v-if="!showSettings" class="relative border-t p-3">
+      <!-- Above the buttons, so the footer's padding is the same on every side. -->
+      <div v-if="panelError || copyStatus" class="mb-2 space-y-1 text-xs">
+        <p v-if="panelError" data-testid="panel-error" role="alert" class="text-destructive">
+          {{ panelError }}
+        </p>
+        <p v-if="copyStatus" class="text-muted-foreground" aria-hidden="true">{{ copyStatus }}</p>
+      </div>
       <!-- Two rows: three labels do not fit side by side in a narrow panel. -->
       <div class="grid grid-cols-2 gap-2">
         <Button
           data-testid="copy-prompt"
           class="col-span-2"
           :disabled="!count"
-          title="Copy the open items; they become done"
+          title="Copy the open pins; they become done"
           @click="copy"
         >
           <CopyIcon /> Copy as prompt
@@ -564,32 +618,44 @@ function setMode(next: unknown) {
           data-testid="copy-again"
           variant="outline"
           :disabled="!againIds.length"
-          title="Copy the last copied items again; nothing changes"
+          title="Copy the last copied pins again; nothing changes"
           @click="copyAgain"
         >
           <RepeatIcon /> Copy again
         </Button>
+        <!-- Once only deleted pins are left, the bin can be emptied. -->
         <Button
+          v-if="clearable || !binned.length"
           data-testid="clear-all"
           variant="outline"
-          :disabled="!items.length"
-          @click="confirmClear = true"
+          :disabled="!clearable"
+          title="Move every open and done pin to Deleted"
+          @click="clearSite"
         >
-          Clear all
+          <Trash2Icon /> Clear all
+        </Button>
+        <Button
+          v-else
+          data-testid="empty-bin"
+          variant="outline"
+          title="Remove the deleted pins for good"
+          @click="confirmEmpty = true"
+        >
+          <Trash2Icon /> Empty bin
         </Button>
       </div>
-      <p data-testid="copy-status" aria-live="polite" class="min-h-4 text-xs text-muted-foreground">
-        {{ copyStatus }}
-      </p>
+      <!-- Always there, so screen readers announce each copy. -->
+      <p data-testid="copy-status" aria-live="polite" class="sr-only">{{ copyStatus }}</p>
     </footer>
 
-    <ClearAllDialog
-      v-model:open="confirmClear"
-      :items="items.length"
-      :pages="pageCount"
+    <EmptyBinDialog
+      v-model:open="confirmEmpty"
+      :pins="binned.length"
+      :pages="binPages"
       :site="site ? siteLabel(site) : ''"
-      @confirm="clearSite"
+      @confirm="emptySiteBin"
     />
     <CopyFallbackDialog :text="fallbackText" @close="fallbackText = null" />
+    <ForgetSiteDialog :origin="forgetting" @confirm="forgetSite" @close="forgetting = null" />
   </main>
 </template>

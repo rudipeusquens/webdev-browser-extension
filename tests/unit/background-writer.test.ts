@@ -1,5 +1,6 @@
 import { beforeEach, describe, expect, it } from 'vitest'
 import { fakeBrowser } from 'wxt/testing/fake-browser'
+import { loadLabels } from '@/lib/background/history'
 import { createWriter } from '@/lib/background/writer'
 import { addAnnotation, emptyCollection } from '@/lib/collection/ops'
 import { collectionKey, LEGACY_KEY, loadSite } from '@/lib/collection/store'
@@ -50,10 +51,43 @@ describe('createWriter', () => {
     await write(OTHER, add('b1', 'On B', `${OTHER}/x`))
     expect((await loadSite(OTHER)).items.map((i) => [i.id, i.number])).toEqual([['b1', 1]])
     expect(await write(SITE, { type: 'collection:clear', site: SITE })).toEqual({ ok: true })
+    expect((await loadSite(SITE)).items.map((i) => i.status)).toEqual(['deleted', 'deleted'])
+    expect(await write(SITE, { type: 'collection:empty-bin', site: SITE })).toEqual({ ok: true })
     expect((await loadSite(SITE)).items).toEqual([])
     expect((await loadSite(OTHER)).items).toHaveLength(1)
     // An emptied site leaves nothing behind.
     expect(Object.keys(await stored())).toEqual([collectionKey(OTHER)])
+  })
+
+  it('names each step by its pins, for the Undo and Redo tooltips', async () => {
+    const { write } = createWriter()
+    const steps: string[] = []
+    const step = async (msg: CollectionMessage) => {
+      expect(await write(SITE, msg)).toEqual({ ok: true })
+      steps.push((await loadLabels(SITE)).undo ?? '')
+    }
+    await step(add('a1'))
+    await step({ type: 'annotation:update', site: SITE, id: 'a1', comment: 'Other.' })
+    await step(add('a2'))
+    await step({ type: 'collection:copied', site: SITE, ids: ['a1', 'a2'] })
+    await step({ type: 'annotation:reopen', site: SITE, id: 'a1' })
+    await step({ type: 'annotation:remove', site: SITE, id: 'a1' })
+    await step({ type: 'annotation:restore', site: SITE, id: 'a1' })
+    await step({ type: 'collection:copied', site: SITE, ids: ['a1'] })
+    await step({ type: 'collection:clear', site: SITE })
+    await step({ type: 'collection:empty-bin', site: SITE })
+    expect(steps).toEqual([
+      'Add pin 1',
+      'Edit pin 1',
+      'Add pin 2',
+      'Mark 2 pins done',
+      'Reopen pin 1',
+      'Delete pin 1',
+      'Restore pin 1',
+      'Copy pin 1',
+      'Clear all',
+      'Empty bin',
+    ])
   })
 
   it('refuses an item for another site than the page', async () => {
@@ -75,6 +109,11 @@ describe('createWriter', () => {
       [2, 'open'],
     ])
     await write(SITE, { type: 'collection:clear', site: SITE })
+    expect((await loadSite(SITE)).items.map((i) => [i.number, i.status])).toEqual([
+      [1, 'deleted'],
+      [2, 'deleted'],
+    ])
+    await write(SITE, { type: 'collection:empty-bin', site: SITE })
     expect((await loadSite(SITE)).items).toEqual([])
   })
 
@@ -126,7 +165,7 @@ describe('createWriter', () => {
     for (const type of ['annotation:remove', 'annotation:restore', 'annotation:reopen'] as const) {
       expect(await write(SITE, { type, site: SITE, id: 'zz' })).toEqual({
         ok: false,
-        error: 'This item no longer exists.',
+        error: 'This pin no longer exists.',
       })
     }
     expect(await stored()).toEqual(before)

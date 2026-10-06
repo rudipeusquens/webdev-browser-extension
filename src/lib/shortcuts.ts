@@ -53,7 +53,7 @@ export function shortcutGroups(mac: boolean): ShortcutGroup[] {
       rows: [
         { keys: ['↑'], action: 'Outline the parent' },
         { keys: ['↓'], action: 'Outline the child again' },
-        { keys: ['Enter'], action: 'Comment on the outlined element' },
+        { keys: ['Enter'], action: 'Pin the outlined element' },
       ],
     },
     {
@@ -61,7 +61,7 @@ export function shortcutGroups(mac: boolean): ShortcutGroup[] {
       rows: [{ keys: ['Esc'], action: 'Cancel the drag' }],
     },
     {
-      title: 'In a comment',
+      title: 'In a pin',
       rows: [
         { keys: ['Enter'], action: 'Save' },
         { keys: [shift('Enter')], action: 'New line' },

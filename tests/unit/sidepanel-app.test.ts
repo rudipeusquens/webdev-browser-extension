@@ -112,12 +112,14 @@ describe('side panel', () => {
     expect(groups[0]?.textContent).toContain('This page')
     expect(groups[0]?.textContent).toContain('On B')
     expect(groups[1]?.textContent).toContain('First on A')
-    expect(byTestId('item-count').textContent).toBe('2')
     expect(groups[1]?.querySelector('[data-testid="item-number"]')?.textContent).toBe('1')
   })
 
   it('renders page-derived strings and comments as text only', async () => {
     overlayReply = active
+    await fakeBrowser.storage.local.set({
+      [SETTINGS_KEY]: { rememberedOrigins: [], pageTitles: true, contextMenu: false },
+    })
     await render(twoPages())
     expect(document.querySelector('main img')).toBeNull()
     expect(document.querySelector('main b')).toBeNull()
@@ -132,7 +134,7 @@ describe('side panel', () => {
     byTestId('copy-prompt').click()
     await flushPromises()
     expect(writeText).toHaveBeenCalledWith(formatCollection(c))
-    expect(byTestId('copy-status').textContent).toBe('Copied 2 items')
+    expect(byTestId('copy-status').textContent).toBe('Copied 2 pins')
   })
 
   it('offers the text for manual copying when the clipboard fails', async () => {
@@ -147,29 +149,69 @@ describe('side panel', () => {
     expect(field.readOnly).toBe(true)
   })
 
-  it('clears everything only after confirmation', async () => {
+  const hasBin = (id: string) => byTestId(id).querySelector('svg[class*="trash"]') !== null
+
+  it('moves every open and done pin to Deleted at once, and says so', async () => {
     overlayReply = active
-    await render(twoPages())
+    await render(markCopied(twoPages(), ['a1'], 'T'))
+    expect(hasBin('clear-all')).toBe(true)
     byTestId('clear-all').click()
     await flushPromises()
-    expect(body()).toContain('2 items on 2 pages of localhost:3000')
-    byTestId('clear-cancel').click()
-    await flushPromises()
-    expect(fakeBrowser.runtime.sendMessage).not.toHaveBeenCalled()
-    byTestId('clear-all').click()
-    await flushPromises()
-    byTestId('clear-confirm').click()
-    await flushPromises()
+    expect(document.querySelector('[role="alertdialog"]')).toBeNull()
     expect(fakeBrowser.runtime.sendMessage).toHaveBeenCalledWith({
       type: 'collection:clear',
       site: SITE,
     })
+    expect(byTestId('copy-status').textContent).toBe('Moved 2 pins to Deleted')
+  })
+
+  it('empties the bin only after confirmation, once nothing open or done is left', async () => {
+    overlayReply = active
+    const c = setStatus(setStatus(twoPages(), 'a1', 'deleted', 'T'), 'b1', 'deleted', 'T')
+    await render(c)
+    expect(document.querySelector('[data-testid="clear-all"]')).toBeNull()
+    expect(hasBin('empty-bin')).toBe(true)
+    byTestId('empty-bin').click()
+    await flushPromises()
+    expect(body()).toContain('2 deleted pins on 2 pages of localhost:3000')
+    byTestId('empty-bin-cancel').click()
+    await flushPromises()
+    expect(fakeBrowser.runtime.sendMessage).not.toHaveBeenCalled()
+    byTestId('empty-bin').click()
+    await flushPromises()
+    byTestId('empty-bin-confirm').click()
+    await flushPromises()
+    expect(fakeBrowser.runtime.sendMessage).toHaveBeenCalledWith({
+      type: 'collection:empty-bin',
+      site: SITE,
+    })
+  })
+
+  it('copies one open pin as the prompt, which then becomes done', async () => {
+    overlayReply = active
+    const c = markCopied(twoPages(), ['b1'], 'T')
+    await render(c)
+    const copyOf = (n: number) =>
+      document.querySelector<HTMLElement>(`[data-testid="item-copy"][aria-label="Copy pin ${n}"]`)
+    await fakeBrowser.storage.local.set({ view: { filter: 'all' } })
+    await flushPromises()
+    // Open entries only: done ones have Reopen there.
+    expect(copyOf(2)).toBeNull()
+    copyOf(1)?.click()
+    await flushPromises()
+    expect(writeText).toHaveBeenCalledWith(formatCollection(pick(c, new Set(['a1']))))
+    expect(fakeBrowser.runtime.sendMessage).toHaveBeenCalledWith({
+      type: 'collection:copied',
+      site: SITE,
+      ids: ['a1'],
+    })
+    expect(byTestId('copy-status').textContent).toBe('Copied pin 1')
   })
 
   it('deletes a single item', async () => {
     overlayReply = active
     await render(twoPages())
-    document.querySelector<HTMLElement>('[aria-label="Delete item 1"]')?.click()
+    document.querySelector<HTMLElement>('[aria-label="Delete pin 1"]')?.click()
     await flushPromises()
     expect(fakeBrowser.runtime.sendMessage).toHaveBeenCalledWith({
       type: 'annotation:remove',
@@ -205,12 +247,11 @@ describe('side panel', () => {
       overlayReply = active
       const c = mixed()
       await render(c)
-      expect(byTestId('item-count').textContent).toBe('2')
       byTestId('copy-prompt').click()
       await flushPromises()
       expect(writeText).toHaveBeenCalledWith(formatCollection(pick(c, new Set(['a1', 'b1']))))
       expect(sent()).toContainEqual({ type: 'collection:copied', site: SITE, ids: ['a1', 'b1'] })
-      expect(byTestId('copy-status').textContent).toBe('Copied 2 items')
+      expect(byTestId('copy-status').textContent).toBe('Copied 2 pins')
     })
 
     it('marks them done also when the clipboard fails and the text is offered', async () => {
@@ -246,7 +287,7 @@ describe('side panel', () => {
       await flushPromises()
       expect(writeText).toHaveBeenCalledWith(formatCollection(pick(c, new Set(['a2']))))
       expect(sent()).toEqual([])
-      expect(byTestId('copy-status').textContent).toBe('Copied 1 item again')
+      expect(byTestId('copy-status').textContent).toBe('Copied 1 pin again')
     })
 
     it('cannot copy again before a copy', async () => {
@@ -301,14 +342,14 @@ describe('side panel', () => {
       await render(mixed())
       const button = (label: string) =>
         document.querySelector<HTMLElement>(`[aria-label="${label}"]`)
-      expect(button('Delete item 1')).not.toBeNull()
-      expect(button('Delete item 3')).not.toBeNull()
-      expect(button('Delete item 4')).toBeNull()
-      expect(button('Reopen item 1')).toBeNull()
-      expect(button('Restore item 3')).toBeNull()
-      button('Reopen item 3')?.click()
-      button('Restore item 4')?.click()
-      button('Delete item 1')?.click()
+      expect(button('Delete pin 1')).not.toBeNull()
+      expect(button('Delete pin 3')).not.toBeNull()
+      expect(button('Delete pin 4')).toBeNull()
+      expect(button('Reopen pin 1')).toBeNull()
+      expect(button('Restore pin 3')).toBeNull()
+      button('Reopen pin 3')?.click()
+      button('Restore pin 4')?.click()
+      button('Delete pin 1')?.click()
       await flushPromises()
       expect(sent()).toEqual([
         { type: 'annotation:reopen', site: SITE, id: 'a2' },
@@ -321,16 +362,8 @@ describe('side panel', () => {
       overlayReply = active
       await render(markCopied(twoPages(), ['a1', 'b1'], 'T'))
       expect(document.querySelector('[data-testid="item"]')).toBeNull()
-      expect(byTestId('filter-hides').textContent).toContain('2 items')
+      expect(byTestId('filter-hides').textContent).toContain('2 pins are hidden by this filter')
       expect(body()).not.toContain('No feedback yet')
-    })
-
-    it('asks before clearing every item of the site', async () => {
-      overlayReply = active
-      await render(mixed())
-      byTestId('clear-all').click()
-      await flushPromises()
-      expect(body()).toContain('4 items on 2 pages of localhost:3000')
     })
   })
 
@@ -348,11 +381,11 @@ describe('side panel', () => {
       await render(twoPages())
       expect(byTestId('undo').hasAttribute('disabled')).toBe(true)
       expect(byTestId('redo').hasAttribute('disabled')).toBe(true)
-      await labels({ undo: 'Delete item 2', redo: 'Mark 3 items done' })
+      await labels({ undo: 'Delete pin 2', redo: 'Mark 3 pins done' })
       await flushPromises()
       expect(byTestId('undo').hasAttribute('disabled')).toBe(false)
-      expect(byTestId('undo').title).toBe('Undo: Delete item 2 (Ctrl+Z)')
-      expect(byTestId('redo').title).toBe('Redo: Mark 3 items done (Ctrl+Shift+Z)')
+      expect(byTestId('undo').title).toBe('Undo: Delete pin 2 (Ctrl+Z)')
+      expect(byTestId('redo').title).toBe('Redo: Mark 3 pins done (Ctrl+Shift+Z)')
       byTestId('undo').click()
       byTestId('redo').click()
       await flushPromises()
@@ -375,7 +408,7 @@ describe('side panel', () => {
 
     it('answer Ctrl+Z, Ctrl+Shift+Z and Ctrl+Y outside text fields', async () => {
       overlayReply = active
-      await labels({ undo: 'Add item 1', redo: 'Add item 2' })
+      await labels({ undo: 'Add pin 1', redo: 'Add pin 2' })
       await render(twoPages())
       key({ key: 'z', ctrlKey: true })
       key({ key: 'Z', ctrlKey: true, shiftKey: true })
@@ -396,7 +429,7 @@ describe('side panel', () => {
 
     it('take no keys while Settings is open', async () => {
       overlayReply = active
-      await labels({ undo: 'Add item 1' })
+      await labels({ undo: 'Add pin 1' })
       await render(twoPages())
       byTestId('open-settings').click()
       await flushPromises()
@@ -406,12 +439,16 @@ describe('side panel', () => {
       expect(sent()).toEqual([])
     })
 
-    it('say that Clear all can be undone', async () => {
+    it('say that Empty bin can be undone', async () => {
       overlayReply = active
-      await render(twoPages())
-      byTestId('clear-all').click()
+      await render(setStatus(twoPages(), 'a1', 'deleted', 'T'))
+      // Something is open: Clear all first.
+      expect(document.querySelector('[data-testid="empty-bin"]')).toBeNull()
+      wrapper?.unmount()
+      await render(setStatus(setStatus(twoPages(), 'a1', 'deleted', 'T'), 'b1', 'deleted', 'T'))
+      byTestId('empty-bin').click()
       await flushPromises()
-      expect(body()).toContain('Undo brings them back until the browser closes.')
+      expect(body()).toContain('Undo can bring them back until the browser closes.')
       expect(body()).not.toContain("can't be undone")
     })
   })
@@ -426,7 +463,7 @@ describe('side panel', () => {
     it('says why an undo was refused', async () => {
       overlayReply = active
       await fakeBrowser.storage.session.set({
-        [`historyLabels:${SITE}`]: { undo: 'Delete item 1' },
+        [`historyLabels:${SITE}`]: { undo: 'Delete pin 1' },
       })
       refuse('history:undo', 'This changed in the meantime; it can no longer be undone.')
       await render(twoPages())
@@ -451,13 +488,13 @@ describe('side panel', () => {
 
     it('says why a change was refused, until the next one works', async () => {
       overlayReply = active
-      refuse('annotation:remove', 'This item no longer exists.')
+      refuse('annotation:remove', 'This pin no longer exists.')
       await render(twoPages())
-      document.querySelector<HTMLElement>('[aria-label="Delete item 1"]')?.click()
+      document.querySelector<HTMLElement>('[aria-label="Delete pin 1"]')?.click()
       await flushPromises()
-      expect(byTestId('panel-error').textContent).toContain('This item no longer exists.')
+      expect(byTestId('panel-error').textContent).toContain('This pin no longer exists.')
       vi.mocked(fakeBrowser.runtime.sendMessage).mockResolvedValue({ ok: true } as never)
-      document.querySelector<HTMLElement>('[aria-label="Delete item 2"]')?.click()
+      document.querySelector<HTMLElement>('[aria-label="Delete pin 2"]')?.click()
       await flushPromises()
       expect(document.querySelector('[data-testid="panel-error"]')).toBeNull()
     })
@@ -644,17 +681,35 @@ describe('side panel', () => {
       overlayReply = active
       await render(twoPages())
       expect(byTestId('title-site').textContent?.trim()).toBe('localhost:3000')
-      expect(byTestId('title-site').title).toBe(SITE)
+      expect(byTestId('site-pill').title).toContain(SITE)
     })
 
-    it('heads each page with its title and its path', async () => {
+    it('heads each page with its path only, This page first', async () => {
       overlayReply = active
       const c = addAnnotation(twoPages(), elementInput('q1', `${SITE}/settings?tab=2#top`), 'T')
       await render(c)
       const headings = [...document.querySelectorAll('[data-testid="page-group"] h2')]
       const paths = headings.map((h) => h.querySelector('[data-testid="page-path"]')?.textContent)
       expect(paths).toEqual(['/b', '/a', '/settings?tab=2'])
-      expect(headings[1]?.textContent).toContain('Example')
+      expect(headings[1]?.textContent?.trim()).toBe('/a')
+      expect(document.querySelector('[data-testid="page-title"]')).toBeNull()
+      // The pill comes before the path.
+      const pill = headings[0]?.querySelector('[data-testid="this-page"]')
+      const path = headings[0]?.querySelector('[data-testid="page-path"]')
+      expect(pill?.textContent?.trim()).toBe('This page')
+      expect(pill && path && pill.compareDocumentPosition(path)).toBe(
+        Node.DOCUMENT_POSITION_FOLLOWING,
+      )
+    })
+
+    it('heads each page with its title too while Settings says so', async () => {
+      overlayReply = active
+      await fakeBrowser.storage.local.set({
+        [SETTINGS_KEY]: { rememberedOrigins: [], pageTitles: true, contextMenu: false },
+      })
+      await render(twoPages())
+      const titles = [...document.querySelectorAll('[data-testid="page-title"]')]
+      expect(titles.map((t) => t.textContent)).toEqual(['<img src=x onerror=alert(1)>', 'Example'])
     })
 
     it('shows no list while the tab has no active overlay', async () => {
@@ -663,7 +718,7 @@ describe('side panel', () => {
       expect(document.querySelector('[data-testid="item"]')).toBeNull()
       expect(byTestId('no-site').textContent).toContain('Feedback is kept per site.')
       expect(body()).not.toContain('No feedback yet')
-      expect(byTestId('tab-status').textContent).toContain('Not active on this page')
+      expect(byTestId('site-pill').dataset.state).toBe('idle')
       expect(byTestId('copy-prompt').hasAttribute('disabled')).toBe(true)
       expect(byTestId('clear-all').hasAttribute('disabled')).toBe(true)
     })
@@ -680,40 +735,106 @@ describe('side panel', () => {
     })
   })
 
-  describe('tab status', () => {
-    it('names the host when the overlay answers', async () => {
+  describe('the site pill and starting the overlay', () => {
+    const pill = () => byTestId('site-pill')
+    const sleep = (ms: number) => new Promise((done) => setTimeout(done, ms))
+    /** The pointer rests on the pill: its action shows after a moment. */
+    async function hoverPill() {
+      pill().dispatchEvent(new Event('pointerenter'))
+      await sleep(200)
+      await flushPromises()
+    }
+    const exists = (id: string) => document.querySelector(`[data-testid="${id}"]`) !== null
+    const knownPage = (url = `${SITE}/b`) =>
+      vi.mocked(fakeBrowser.tabs.query).mockResolvedValue([{ id: 1, url }] as never)
+
+    it('sits in the middle of the title row, between the title and Undo', async () => {
       overlayReply = active
       await render()
-      expect(byTestId('tab-status').textContent).toContain('Active on localhost:3000')
-    })
-
-    it('says when the overlay did not start, and where to look', async () => {
-      await markFailed(1)
-      await render()
-      expect(byTestId('tab-status').textContent).toContain(
-        "Couldn't start on this page. Reload it and try again; the page's console has details.",
+      const row = byTestId('title-row')
+      const order = [...row.querySelectorAll('[data-testid]')].map((e) =>
+        e.getAttribute('data-testid'),
       )
+      expect(order.indexOf('panel-title')).toBeLessThan(order.indexOf('site-pill'))
+      expect(order.indexOf('site-pill')).toBeLessThan(order.indexOf('undo'))
+      expect(exists('item-count')).toBe(false)
     })
 
-    it('shows a failed start as soon as it is recorded', async () => {
+    it('shows an active site with a green dot, its name and its full origin as tooltip', async () => {
+      overlayReply = active
       await render()
-      expect(byTestId('tab-status').textContent).toContain('Not active on this page')
-      await markFailed(1)
+      expect(pill().dataset.state).toBe('active')
+      expect(byTestId('site-dot').className).toContain('bg-green-500')
+      expect(byTestId('title-site').textContent?.trim()).toBe('localhost:3000')
+      expect(pill().title).toContain(SITE)
+      expect(body()).not.toContain('Active on localhost')
+    })
+
+    it('shows a known page without an overlay grey, with Annotate this page', async () => {
+      knownPage()
+      await render()
+      expect(pill().dataset.state).toBe('idle')
+      expect(byTestId('site-dot').className).toContain('bg-muted-foreground')
+      expect(byTestId('title-site').textContent?.trim()).toBe('localhost:3000')
+      expect(exists('start-overlay')).toBe(false)
+      await hoverPill()
+      byTestId('start-overlay').click()
       await flushPromises()
-      expect(byTestId('tab-status').textContent).toContain("Couldn't start on this page")
+      expect(fakeBrowser.runtime.sendMessage).toHaveBeenCalledWith({ type: 'tab:start', tabId: 1 })
     })
 
-    it('says when the page refused the overlay', async () => {
-      await markBlocked(1)
+    it('offers Annotate this page in the middle of the view for a known page', async () => {
+      knownPage()
       await render()
-      expect(byTestId('tab-status').textContent).toContain("Can't run on this page")
+      const center = byTestId('start-overlay-center')
+      expect(center.closest('[data-testid="empty-state"]')).not.toBeNull()
+      expect(center.textContent).toContain('Annotate this page')
+      center.click()
+      await flushPromises()
+      expect(fakeBrowser.runtime.sendMessage).toHaveBeenCalledWith({ type: 'tab:start', tabId: 1 })
     })
 
-    it('explains how to activate otherwise, with the shortcut Chrome assigned', async () => {
+    it('says when Chrome refused the start', async () => {
+      knownPage()
+      vi.mocked(fakeBrowser.runtime.sendMessage).mockResolvedValue({
+        ok: false,
+        error: 'Chrome does not let the extension on this page yet.',
+      } as never)
+      await render()
+      byTestId('start-overlay-center').click()
+      await flushPromises()
+      expect(byTestId('panel-error').textContent).toContain('Chrome does not let the extension')
+    })
+
+    it('starts nothing on pages it cannot run on', async () => {
+      knownPage('chrome://extensions/')
+      await render()
+      expect(pill().dataset.state).toBe('idle')
+      expect(byTestId('title-site').textContent?.trim()).toBe('Not active')
+      expect(exists('start-overlay-center')).toBe(false)
+    })
+
+    it('shows a page Chrome tells nothing about as Not active, and how to start', async () => {
       shortcutIs('Ctrl+Shift+K')
       await render()
+      expect(pill().dataset.state).toBe('idle')
+      expect(byTestId('title-site').textContent?.trim()).toBe('Not active')
+      expect(pill().tagName).not.toBe('BUTTON')
+      expect(exists('start-overlay-center')).toBe(false)
       expect(byTestId('tab-status').textContent).toContain(
-        'Not active on this page. Click the toolbar icon, press Ctrl+Shift+K or right-click ' +
+        'Click the toolbar icon or press Ctrl+Shift+K to annotate this page.',
+      )
+      expect(byTestId('tab-status').textContent).not.toContain('right-click')
+    })
+
+    it('names the context menu too while Settings has it on', async () => {
+      shortcutIs('Ctrl+Shift+K')
+      await fakeBrowser.storage.local.set({
+        [SETTINGS_KEY]: { rememberedOrigins: [], pageTitles: false, contextMenu: true },
+      })
+      await render()
+      expect(byTestId('tab-status').textContent).toContain(
+        'Click the toolbar icon or press Ctrl+Shift+K to annotate this page, or right-click ' +
           'the page and choose "Annotate this page".',
       )
     })
@@ -725,9 +846,36 @@ describe('side panel', () => {
       setUp()
       await render()
       expect(byTestId('tab-status').textContent).toContain(
-        'Not active on this page. Click the toolbar icon or right-click the page and choose ' +
-          '"Annotate this page".',
+        'Click the toolbar icon to annotate this page.',
       )
+    })
+
+    it('says when the overlay did not start, and where to look, in red', async () => {
+      knownPage()
+      await markFailed(1)
+      await render()
+      expect(pill().dataset.state).toBe('failed')
+      expect(byTestId('site-dot').className).toContain('bg-red-500')
+      expect(byTestId('tab-status').textContent).toContain(
+        "Couldn't start on this page. Reload it and try again; the page's console has details.",
+      )
+    })
+
+    it('shows a failed start as soon as it is recorded', async () => {
+      await render()
+      expect(pill().dataset.state).toBe('idle')
+      await markFailed(1)
+      await flushPromises()
+      expect(pill().dataset.state).toBe('failed')
+      expect(byTestId('tab-status').textContent).toContain("Couldn't start on this page")
+    })
+
+    it('says when the page refused the overlay', async () => {
+      await markBlocked(1)
+      await render()
+      expect(pill().dataset.state).toBe('blocked')
+      expect(byTestId('title-site').textContent?.trim()).toBe("Can't run here")
+      expect(byTestId('tab-status').textContent).toContain("Can't run on this page")
     })
 
     it('reads the shortcut again when a tab becomes active', async () => {
@@ -757,16 +905,75 @@ describe('side panel', () => {
     it('ignores a malformed overlay reply', async () => {
       overlayReply = { host: 'x', mode: 'element' }
       await render()
-      expect(byTestId('tab-status').textContent).toContain('Not active on this page')
+      expect(pill().dataset.state).toBe('idle')
+    })
+
+    it('stays open when it is clicked, which focuses it first', async () => {
+      overlayReply = active
+      fakeSites()
+      await render()
+      byTestId('site-pill').focus()
+      byTestId('site-pill').click()
+      await flushPromises()
+      expect(exists('remember-site')).toBe(true)
+    })
+
+    it('closes its action on the first Escape from the action, and keeps the focus', async () => {
+      overlayReply = active
+      fakeSites()
+      await render()
+      pill().focus()
+      await flushPromises()
+      const action = byTestId('remember-site')
+      action.focus()
+      action.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }))
+      await flushPromises()
+      expect(exists('remember-site')).toBe(false)
+      expect(document.activeElement).toBe(pill())
+    })
+
+    it('gives the focus back to the pill after its action', async () => {
+      knownPage()
+      await render()
+      pill().focus()
+      await flushPromises()
+      byTestId('start-overlay').focus()
+      byTestId('start-overlay').click()
+      await flushPromises()
+      expect(document.activeElement).toBe(pill())
+    })
+
+    it('names its state for screen readers, not by the dot alone', async () => {
+      overlayReply = active
+      await render()
+      expect(pill().textContent).toContain('Active on this tab')
+      wrapper?.unmount()
+      overlayReply = undefined
+      await render()
+      expect(pill().textContent).toContain('Not active on this tab')
+    })
+
+    it('opens its action on focus too, and closes it with Escape', async () => {
+      overlayReply = active
+      fakeSites()
+      await render()
+      byTestId('site-pill').focus()
+      await flushPromises()
+      expect(exists('remember-site')).toBe(true)
+      byTestId('remember-site').dispatchEvent(
+        new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }),
+      )
+      await flushPromises()
+      expect(exists('remember-site')).toBe(false)
     })
   })
 
-  it('names the keys on the page, P for the pins too', async () => {
+  // The keys are listed in Settings; the Pins toggle still names its own.
+  it('shows no key hints on the Edit view', async () => {
     overlayReply = active
     await render()
-    const keys = [...byTestId('page-keys').querySelectorAll('kbd')].map((k) => k.textContent)
-    expect(keys).toEqual(['E', 'A', 'P', 'Esc'])
-    expect(byTestId('page-keys').title).toContain('P to show or hide the pins')
+    expect(document.querySelector('[data-testid="page-keys"]')).toBeNull()
+    expect(body()).not.toContain('Keys on the page')
     expect(byTestId('toggle-pins').title).toBe('Hide pins on the page (P)')
   })
 
@@ -774,16 +981,15 @@ describe('side panel', () => {
     const exists = (id: string) => document.querySelector(`[data-testid="${id}"]`) !== null
     const before = (a: string, b: string) =>
       (byTestId(a).compareDocumentPosition(byTestId(b)) & Node.DOCUMENT_POSITION_FOLLOWING) !== 0
-    const EDIT_ONLY = ['mode-browse', 'toggle-pins', 'tab-status', 'page-keys', 'copy-prompt']
+    const EDIT_ONLY = ['mode-browse', 'toggle-pins', 'filter-open', 'copy-prompt']
 
-    it('is titled Edit, with the buttons above the texts', async () => {
+    it('is titled Edit, with the buttons above the filter and the list', async () => {
       overlayReply = active
       await render(twoPages())
       expect(byTestId('panel-title').textContent).toBe('Edit')
-      expect(before('mode-browse', 'tab-status')).toBe(true)
-      expect(before('toggle-pins', 'tab-status')).toBe(true)
-      expect(before('tab-status', 'page-keys')).toBe(true)
-      expect(before('page-keys', 'item')).toBe(true)
+      expect(before('mode-browse', 'filter-open')).toBe(true)
+      expect(before('toggle-pins', 'filter-open')).toBe(true)
+      expect(before('filter-open', 'item')).toBe(true)
     })
 
     it('swaps to Settings, the gear for a close button, and hides what belongs to Edit', async () => {
@@ -797,6 +1003,8 @@ describe('side panel', () => {
       expect(byTestId('close-settings').closest('[data-testid="title-row"]')).toBe(row)
       expect(byTestId('close-settings').getAttribute('aria-label')).toBe('Close settings')
       for (const id of [...EDIT_ONLY, 'clear-all', 'item']) expect(exists(id)).toBe(false)
+      // The site stays in the middle of the title row.
+      expect(byTestId('site-pill').closest('[data-testid="title-row"]')).toBe(row)
       byTestId('close-settings').click()
       await flushPromises()
       expect(byTestId('panel-title').textContent).toBe('Edit')
@@ -827,6 +1035,48 @@ describe('side panel', () => {
       byTestId('change-shortcut').click()
       await flushPromises()
       expect(create).toHaveBeenCalledWith({ url: 'chrome://extensions/shortcuts' })
+    })
+
+    it('sets the options with switches in a General section', async () => {
+      overlayReply = active
+      await fakeBrowser.storage.local.set({
+        [SETTINGS_KEY]: { rememberedOrigins: [], pageTitles: true, contextMenu: false },
+      })
+      await render()
+      byTestId('open-settings').click()
+      await flushPromises()
+      const titles = byTestId('option-page-titles')
+      const menu = byTestId('option-context-menu')
+      expect(titles.getAttribute('role')).toBe('switch')
+      expect(titles.getAttribute('aria-checked')).toBe('true')
+      expect(menu.getAttribute('aria-checked')).toBe('false')
+      expect(byTestId('general-settings').textContent).toContain('Show page titles')
+      expect(byTestId('general-settings').textContent).toContain('Annotate this page')
+      menu.click()
+      titles.click()
+      await flushPromises()
+      const sent = vi
+        .mocked(fakeBrowser.runtime.sendMessage)
+        .mock.calls.map(([m]) => m)
+        .filter((m) => (m as unknown as { type: string }).type === 'settings:set')
+      expect(sent).toEqual([
+        { type: 'settings:set', key: 'contextMenu', value: true },
+        { type: 'settings:set', key: 'pageTitles', value: false },
+      ])
+    })
+
+    it('says why an option could not be set', async () => {
+      overlayReply = active
+      vi.mocked(fakeBrowser.runtime.sendMessage).mockResolvedValue({
+        ok: false,
+        error: 'Could not save.',
+      } as never)
+      await render()
+      byTestId('open-settings').click()
+      await flushPromises()
+      byTestId('option-page-titles').click()
+      await flushPromises()
+      expect(byTestId('general-settings').textContent).toContain('Could not save.')
     })
 
     it('writes the keys the way macOS does on a Mac', async () => {
@@ -907,6 +1157,11 @@ describe('side panel', () => {
   describe('sites', () => {
     const ORIGIN = 'http://localhost:3000'
     let fake: ReturnType<typeof fakeSites>
+    async function hoverPill() {
+      byTestId('site-pill').dispatchEvent(new Event('pointerenter'))
+      await new Promise((done) => setTimeout(done, 200))
+      await flushPromises()
+    }
 
     beforeEach(() => {
       fake = fakeSites()
@@ -926,6 +1181,7 @@ describe('side panel', () => {
         calls.push(m.type)
         return { ok: true }
       }) as never)
+      await hoverPill()
       byTestId('remember-site').click()
       expect(calls).toEqual(['request'])
       expect(fakeBrowser.permissions.request).toHaveBeenCalledWith({ origins: [`${ORIGIN}/*`] })
@@ -940,6 +1196,7 @@ describe('side panel', () => {
       overlayReply = active
       await render()
       vi.mocked(fakeBrowser.permissions.request).mockResolvedValue(false as never)
+      await hoverPill()
       byTestId('remember-site').click()
       await flushPromises()
       expect(fakeBrowser.runtime.sendMessage).not.toHaveBeenCalledWith(
@@ -954,17 +1211,29 @@ describe('side panel', () => {
         ok: false,
         error: 'You can remember up to 100 sites. Forget one first.',
       } as never)
+      await hoverPill()
       byTestId('remember-site').click()
       await flushPromises()
       expect(byTestId('site-error').textContent).toContain('up to 100 sites')
     })
 
-    it('offers Forget this site on a remembered site', async () => {
+    it('offers Forget this site on a remembered site, and forgets only once confirmed', async () => {
       await fakeBrowser.storage.local.set({ [SETTINGS_KEY]: { rememberedOrigins: [ORIGIN] } })
       overlayReply = active
       await render()
+      await hoverPill()
       expect(document.querySelector('[data-testid="remember-site"]')).toBeNull()
       byTestId('forget-site').click()
+      await flushPromises()
+      expect(byTestId('forget-dialog').textContent).toContain('Forget localhost:3000?')
+      expect(byTestId('forget-dialog').textContent).toContain('Its feedback stays.')
+      byTestId('forget-cancel').click()
+      await flushPromises()
+      expect(fakeBrowser.runtime.sendMessage).not.toHaveBeenCalled()
+      await hoverPill()
+      byTestId('forget-site').click()
+      await flushPromises()
+      byTestId('forget-confirm').click()
       await flushPromises()
       expect(fakeBrowser.runtime.sendMessage).toHaveBeenCalledWith({
         type: 'site:forget',
@@ -972,12 +1241,14 @@ describe('side panel', () => {
       })
     })
 
-    it('offers nothing for an inactive tab or a file page', async () => {
+    it('offers nothing for an unknown tab or a file page', async () => {
       await render()
-      expect(document.querySelector('[data-testid="remember-site"]')).toBeNull()
+      expect(byTestId('site-pill').tagName).not.toBe('BUTTON')
       wrapper?.unmount()
       overlayReply = { ...active, host: 'file', pageKey: 'file:///srv/app/index.html' }
       await render()
+      expect(byTestId('title-site').textContent?.trim()).toBe('Local files')
+      expect(byTestId('site-pill').tagName).not.toBe('BUTTON')
       expect(document.querySelector('[data-testid="remember-site"]')).toBeNull()
       expect(fake.state.granted.size).toBe(0)
     })
@@ -1000,6 +1271,9 @@ describe('side panel', () => {
         .querySelector<HTMLElement>('[data-testid="site"] [data-testid="remove-site"]')
         ?.click()
       await flushPromises()
+      expect(fakeBrowser.runtime.sendMessage).not.toHaveBeenCalled()
+      byTestId('forget-confirm').click()
+      await flushPromises()
       expect(fakeBrowser.runtime.sendMessage).toHaveBeenCalledWith({
         type: 'site:forget',
         origin: ORIGIN,
@@ -1017,12 +1291,17 @@ describe('side panel', () => {
     })
   })
 
-  it('offers Go to for the other pages and opens them in the active tab', async () => {
+  it('opens another page in the active tab from its path, with no separate Go to', async () => {
     overlayReply = active
     await render(twoPages())
+    expect(document.querySelector('[data-testid="go-to"]')).toBeNull()
     const groups = [...document.querySelectorAll('[data-testid="page-group"]')]
-    expect(groups[0]?.querySelector('[data-testid="go-to"]')).toBeNull()
-    groups[1]?.querySelector<HTMLElement>('[data-testid="go-to"]')?.click()
+    expect(groups[0]?.querySelector('[data-testid="page-link"]')).toBeNull()
+    const link = groups[1]?.querySelector<HTMLElement>('[data-testid="page-link"]')
+    expect(link?.tagName).toBe('BUTTON')
+    expect(link?.querySelector('[data-testid="page-path"]')?.textContent).toBe('/a')
+    expect(link?.title).toBe(`Open ${A} in this tab`)
+    link?.click()
     await flushPromises()
     expect(fakeBrowser.runtime.sendMessage).toHaveBeenCalledWith({
       type: 'tab:go',
@@ -1031,7 +1310,7 @@ describe('side panel', () => {
     })
   })
 
-  it('offers no Go to for pages that are not on the web', async () => {
+  it('offers no link for pages that are not on the web', async () => {
     let c = emptyCollection('file://')
     c = addAnnotation(c, elementInput('f1', 'file:///srv/app/index.html', 'Local'), 'T')
     c = addAnnotation(c, elementInput('f2', 'file:///srv/app/other.html', 'Here'), 'T')
@@ -1040,7 +1319,10 @@ describe('side panel', () => {
     const local = [...document.querySelectorAll('[data-testid="page-group"]')].find((g) =>
       g.textContent?.includes('Local'),
     )
-    expect(local?.querySelector('[data-testid="go-to"]')).toBeNull()
+    expect(local?.querySelector('[data-testid="page-link"]')).toBeNull()
+    expect(local?.querySelector('[data-testid="page-path"]')?.textContent).toBe(
+      '/srv/app/index.html',
+    )
   })
 
   it('keeps a line open to the overlay of the active tab, and to a new one on the same tab', async () => {

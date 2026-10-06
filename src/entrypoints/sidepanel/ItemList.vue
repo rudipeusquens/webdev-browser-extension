@@ -2,6 +2,7 @@
 import {
   ArchiveRestoreIcon,
   ArrowUpRightIcon,
+  CopyIcon,
   RotateCcwIcon,
   SquareDashedIcon,
   SquareMousePointerIcon,
@@ -23,11 +24,15 @@ const props = defineProps<{
   missing: ReadonlySet<string>
   /** What the page points at: the pin under the pointer, the item whose popover is open. */
   pointed: Pointed
+  /** Headings show the page's title next to its path (an option in Settings). */
+  pageTitles?: boolean
 }>()
 const emit = defineEmits<{
   remove: [id: string]
   restore: [id: string]
   reopen: [id: string]
+  /** Copy this open pin as the prompt. */
+  copy: [id: string]
   highlight: [id: string | null]
   reveal: [id: string]
   go: [pageKey: string]
@@ -85,32 +90,55 @@ const ICONS = { element: SquareMousePointerIcon, text: TextSelectIcon, area: Squ
 
 <template>
   <div ref="list">
-    <section v-for="group in groups" :key="group.key" data-testid="page-group" class="pb-2">
+    <section
+      v-for="(group, index) in groups"
+      :key="group.key"
+      data-testid="page-group"
+      class="pb-3"
+      :class="index > 0 && 'mt-2 border-t'"
+    >
       <h2
-        class="sticky top-0 z-10 flex items-center gap-2 bg-background/95 px-4 pt-3 pb-1 text-xs font-medium text-muted-foreground backdrop-blur"
+        class="sticky top-0 z-10 flex min-h-8 items-center gap-2 bg-background/95 px-4 pt-3 pb-1 text-xs font-medium text-muted-foreground backdrop-blur"
         :title="group.key"
       >
-        <span class="flex min-w-0 items-baseline gap-1.5">
-          <span v-if="group.page.title" class="truncate">{{ group.page.title }}</span>
-          <span
-            data-testid="page-path"
-            class="shrink-0 truncate font-mono font-normal"
-            :class="group.page.title ? 'max-w-[60%]' : ''"
-            >{{ pathOf(group.key) }}</span
-          >
-        </span>
-        <Badge v-if="group.current" variant="outline" class="shrink-0">This page</Badge>
+        <Badge v-if="group.current" data-testid="this-page" variant="outline" class="shrink-0"
+          >This page</Badge
+        >
+        <!-- Another page on the web: its path is the way there. A button keeps its width
+             (shrink-0) unless told otherwise: a long path is cut instead. -->
         <Button
-          v-else-if="openable(group.page.url)"
-          data-testid="go-to"
+          v-if="!group.current && openable(group.page.url)"
+          data-testid="page-link"
           variant="ghost"
           size="xs"
-          class="-my-1 ml-auto shrink-0 font-normal"
+          class="-mx-2 -my-1 min-w-0 shrink justify-start font-medium text-muted-foreground"
           :title="`Open ${group.key} in this tab`"
           @click="emit('go', group.key)"
         >
-          Go to <ArrowUpRightIcon />
+          <span class="flex min-w-0 items-baseline gap-1.5">
+            <span
+              v-if="pageTitles && group.page.title"
+              data-testid="page-title"
+              class="max-w-1/2 min-w-0 shrink-0 truncate"
+              >{{ group.page.title }}</span
+            >
+            <span data-testid="page-path" class="min-w-0 truncate font-mono font-normal">{{
+              pathOf(group.key)
+            }}</span>
+          </span>
+          <ArrowUpRightIcon />
         </Button>
+        <span v-else class="flex min-w-0 items-baseline gap-1.5">
+          <span
+            v-if="pageTitles && group.page.title"
+            data-testid="page-title"
+            class="max-w-1/2 min-w-0 shrink-0 truncate"
+            >{{ group.page.title }}</span
+          >
+          <span data-testid="page-path" class="min-w-0 truncate font-mono font-normal">{{
+            pathOf(group.key)
+          }}</span>
+        </span>
       </h2>
       <ul>
         <li
@@ -169,12 +197,24 @@ const ICONS = { element: SquareMousePointerIcon, text: TextSelectIcon, area: Squ
             </span>
           </button>
           <Button
+            v-if="item.status === 'open'"
+            data-testid="item-copy"
+            variant="ghost"
+            size="icon-sm"
+            class="mt-1 shrink-0 text-muted-foreground"
+            :aria-label="`Copy pin ${item.number}`"
+            title="Copy as prompt: it becomes done"
+            @click="emit('copy', item.id)"
+          >
+            <CopyIcon />
+          </Button>
+          <Button
             v-if="item.status === 'done'"
             data-testid="item-reopen"
             variant="ghost"
             size="icon-sm"
             class="mt-1 shrink-0 text-muted-foreground"
-            :aria-label="`Reopen item ${item.number}`"
+            :aria-label="`Reopen pin ${item.number}`"
             title="Reopen: the next Copy as prompt copies it again"
             @click="emit('reopen', item.id)"
           >
@@ -186,8 +226,8 @@ const ICONS = { element: SquareMousePointerIcon, text: TextSelectIcon, area: Squ
             variant="ghost"
             size="icon-sm"
             class="mt-1 shrink-0 text-muted-foreground"
-            :aria-label="`Restore item ${item.number}`"
-            title="Restore as an open item"
+            :aria-label="`Restore pin ${item.number}`"
+            title="Restore as an open pin"
             @click="emit('restore', item.id)"
           >
             <ArchiveRestoreIcon />
@@ -198,7 +238,7 @@ const ICONS = { element: SquareMousePointerIcon, text: TextSelectIcon, area: Squ
             variant="ghost"
             size="icon-sm"
             class="mt-1 shrink-0 text-muted-foreground"
-            :aria-label="`Delete item ${item.number}`"
+            :aria-label="`Delete pin ${item.number}`"
             title="Delete"
             @click="emit('remove', item.id)"
           >

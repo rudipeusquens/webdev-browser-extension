@@ -4,7 +4,7 @@
 import type { CodeOrigin, PageInfo, Target } from './collection/model'
 import { LIMITS } from './collection/model'
 import { isSite } from './collection/site'
-import { isSiteOrigin } from './settings'
+import { isOption, isSiteOrigin, type Option } from './settings'
 import { type Filter, isFilter } from './view'
 import { isApiKey, isLanguage, isModelId } from './voice/settings'
 import {
@@ -37,7 +37,10 @@ export type CollectionMessage =
   | { type: 'annotation:reopen'; site: string; id: string }
   /** The panel copied exactly these items as a prompt: open ones become done. */
   | { type: 'collection:copied'; site: string; ids: string[] }
+  /** Open and done → deleted, every item of the site. */
   | { type: 'collection:clear'; site: string }
+  /** The deleted items of the site go for good. */
+  | { type: 'collection:empty-bin'; site: string }
 
 /** Overlay → background: the code origins of the elements these selectors match. */
 export type OriginMessage = { type: 'origin:read'; selectors: string[] }
@@ -61,8 +64,14 @@ export type HistoryMessage =
 /** Side panel → background: list and pin these items from now on (spec section 5). */
 export type ViewMessage = { type: 'view:set'; filter: Filter }
 
+/** One of the panel's options in Settings. */
+export type SettingsMessage = { type: 'settings:set'; key: Option; value: boolean }
+
 /** Side panel → background: open a page of the collection in a tab (Go to). */
 export type GoToMessage = { type: 'tab:go'; tabId: number; pageKey: string }
+
+/** Side panel → background: start the overlay on a tab, where Chrome lets the extension. */
+export type StartMessage = { type: 'tab:start'; tabId: number }
 
 /** Overlay → background: it could not start; the error itself stays in the page's console. */
 export type FailedMessage = { type: 'overlay:failed' }
@@ -94,7 +103,9 @@ export type BackgroundMessage =
   | SiteMessage
   | HistoryMessage
   | ViewMessage
+  | SettingsMessage
   | GoToMessage
+  | StartMessage
   | FailedMessage
   | VoiceSettingsMessage
   | VoiceRequestMessage
@@ -214,6 +225,7 @@ export function isBackgroundMessage(x: unknown): x is BackgroundMessage {
         x.ids.length >= 1
       )
     case 'collection:clear':
+    case 'collection:empty-bin':
       return hasKeys(x, ['type', 'site']) && isSite(x.site)
     case 'overlay:failed':
     case 'voice:key:remove':
@@ -232,6 +244,10 @@ export function isBackgroundMessage(x: unknown): x is BackgroundMessage {
       return hasKeys(x, ['type', 'site']) && isSite(x.site)
     case 'view:set':
       return hasKeys(x, ['type', 'filter']) && isFilter(x.filter)
+    case 'settings:set':
+      return hasKeys(x, ['type', 'key', 'value']) && isOption(x.key) && typeof x.value === 'boolean'
+    case 'tab:start':
+      return hasKeys(x, ['type', 'tabId']) && Number.isInteger(x.tabId) && (x.tabId as number) >= 0
     case 'tab:go':
       return (
         hasKeys(x, ['type', 'tabId', 'pageKey']) &&

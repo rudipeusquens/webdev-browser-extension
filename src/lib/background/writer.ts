@@ -5,13 +5,20 @@
 import { browser } from 'wxt/browser'
 import { splitLegacy } from '../collection/migrate'
 import type { Collection } from '../collection/model'
-import { addAnnotation, clearAll, markCopied, setStatus, updateComment } from '../collection/ops'
+import {
+  addAnnotation,
+  clearAll,
+  emptyBin,
+  markCopied,
+  setStatus,
+  updateComment,
+} from '../collection/ops'
 import { collectionKey, LEGACY_KEY, loadSite } from '../collection/store'
 import { isLegacyCollection } from '../collection/validate'
 import type { CollectionMessage, Reply } from '../messages'
 import { applyStep, forgetHistory, loadHistory, saveHistory, stepBetween } from './history'
 
-const GONE = 'This item no longer exists.'
+const GONE = 'This pin no longer exists.'
 
 /**
  * The collection after `msg`: the same one when nothing changes (an item in that state
@@ -23,7 +30,7 @@ function apply(c: Collection, msg: CollectionMessage, now: string): Collection |
   switch (msg.type) {
     case 'annotation:add': {
       const { id, page, target } = msg
-      if (exists(id)) return 'This item already exists.'
+      if (exists(id)) return 'This pin already exists.'
       const next = addAnnotation(c, { id, page, target, comment: msg.comment.trim() }, now)
       return next === c ? 'This page belongs to another site.' : next
     }
@@ -40,7 +47,9 @@ function apply(c: Collection, msg: CollectionMessage, now: string): Collection |
     case 'collection:copied':
       return markCopied(c, msg.ids, now)
     case 'collection:clear':
-      return clearAll(c)
+      return clearAll(c, now)
+    case 'collection:empty-bin':
+      return emptyBin(c)
   }
 }
 
@@ -50,7 +59,7 @@ const plural = (n: number, word: string) => `${n} ${word}${n === 1 ? '' : 's'}`
 function labelOf(msg: CollectionMessage, before: Collection, after: Collection): string {
   const item = (id: string) => {
     const found = after.items.find((i) => i.id === id) ?? before.items.find((i) => i.id === id)
-    return `item ${found?.number ?? ''}`.trim()
+    return `pin ${found?.number ?? ''}`.trim()
   }
   switch (msg.type) {
     case 'annotation:add':
@@ -67,10 +76,13 @@ function labelOf(msg: CollectionMessage, before: Collection, after: Collection):
       const done = after.items.filter(
         (i) => i.status === 'done' && before.items.find((b) => b.id === i.id)?.status === 'open',
       ).length
-      return done > 0 ? `Mark ${plural(done, 'item')} done` : 'Copy as prompt'
+      if (done === 1 && msg.ids.length === 1) return `Copy ${item(msg.ids[0] ?? '')}`
+      return done > 0 ? `Mark ${plural(done, 'pin')} done` : 'Copy as prompt'
     }
     case 'collection:clear':
       return 'Clear all'
+    case 'collection:empty-bin':
+      return 'Empty bin'
   }
 }
 

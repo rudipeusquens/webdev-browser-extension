@@ -1,5 +1,11 @@
-import { beforeEach, describe, expect, it } from 'vitest'
-import { forwardsWheel, isEditable, pickAt, TargetPath } from '@/entrypoints/overlay.content/picker'
+import { afterEach, beforeEach, describe, expect, it } from 'vitest'
+import {
+  forwardsWheel,
+  isEditable,
+  pickAt,
+  TargetPath,
+  wheelTarget,
+} from '@/entrypoints/overlay.content/picker'
 
 const $ = (selector: string) => {
   const el = document.querySelector(selector)
@@ -105,5 +111,139 @@ describe('forwardsWheel', () => {
   it('leaves zooming with Ctrl or Cmd to the browser', () => {
     expect(forwardsWheel(wheel({ ctrlKey: true }))).toBe(false)
     expect(forwardsWheel(wheel({ metaKey: true }))).toBe(false)
+  })
+})
+
+describe('wheelTarget', () => {
+  /** Geometry happy-dom does not compute: this much content, scrolled this far. */
+  function measure(
+    el: HTMLElement,
+    size: { height: number; scrollHeight: number; scrollTop?: number },
+  ) {
+    for (const key of ['clientHeight', 'scrollHeight', 'clientWidth', 'scrollWidth']) {
+      delete (el as unknown as Record<string, unknown>)[key]
+    }
+    Object.defineProperties(el, {
+      clientHeight: { value: size.height, configurable: true },
+      scrollHeight: { value: size.scrollHeight, configurable: true },
+      clientWidth: { value: size.height, configurable: true },
+      scrollWidth: { value: size.scrollHeight, configurable: true },
+      scrollTop: { value: size.scrollTop ?? 0, writable: true, configurable: true },
+      scrollLeft: { value: size.scrollTop ?? 0, writable: true, configurable: true },
+    })
+  }
+
+  /** A scroll container with this much content, scrolled this far (happy-dom has no layout). */
+  function box(
+    id: string,
+    size: { height: number; scrollHeight: number; scrollTop?: number },
+    overflow = 'auto',
+  ) {
+    const el = document.createElement('div')
+    el.id = id
+    el.style.overflowY = overflow
+    el.style.overflowX = overflow
+    measure(el, size)
+    return el
+  }
+
+  afterEach(() => {
+    document.documentElement.removeAttribute('style')
+    document.body.removeAttribute('style')
+    for (const key of [
+      'clientHeight',
+      'scrollHeight',
+      'clientWidth',
+      'scrollWidth',
+      'scrollTop',
+      'scrollLeft',
+    ]) {
+      delete (document.body as unknown as Record<string, unknown>)[key]
+    }
+  })
+
+  /** The container's id, or what else the turn goes to. */
+  const idOf = (target: ReturnType<typeof wheelTarget>) =>
+    target instanceof Element ? target.id : target
+
+  function nest(...boxes: HTMLElement[]) {
+    let parent: HTMLElement = document.body
+    for (const b of boxes) {
+      parent.append(b)
+      parent = b
+    }
+    const leaf = document.createElement('p')
+    parent.append(leaf)
+    return leaf
+  }
+
+  it('is the nearest container that can still move that way', () => {
+    const leaf = nest(
+      box('outer', { height: 100, scrollHeight: 500 }),
+      box('inner', { height: 100, scrollHeight: 300 }),
+    )
+    expect(idOf(wheelTarget(leaf, true, 100))).toBe('inner')
+  })
+
+  it('passes a container at its end on to the next one', () => {
+    const leaf = nest(
+      box('outer', { height: 100, scrollHeight: 500 }),
+      box('inner', { height: 100, scrollHeight: 300, scrollTop: 200 }),
+    )
+    expect(idOf(wheelTarget(leaf, true, 100))).toBe('outer')
+    // Upwards it can still move.
+    expect(idOf(wheelTarget(leaf, true, -100))).toBe('inner')
+  })
+
+  it('passes a container at its top on when the wheel turns up', () => {
+    const leaf = nest(
+      box('outer', { height: 100, scrollHeight: 500, scrollTop: 50 }),
+      box('inner', { height: 100, scrollHeight: 300 }),
+    )
+    expect(idOf(wheelTarget(leaf, true, -100))).toBe('outer')
+  })
+
+  it('is the page once no container can move that way', () => {
+    const leaf = nest(box('full', { height: 100, scrollHeight: 300, scrollTop: 200 }))
+    expect(wheelTarget(leaf, true, 100)).toBe('page')
+    expect(wheelTarget(document.body, true, 100)).toBe('page')
+    expect(wheelTarget(null, true, 100)).toBe('page')
+  })
+
+  it('does not scroll what the page keeps from scrolling', () => {
+    const leaf = nest(box('clipped', { height: 100, scrollHeight: 300 }, 'hidden'))
+    expect(wheelTarget(leaf, true, 100)).toBe('page')
+  })
+
+  it('scrolls a body that is the scroll container itself', () => {
+    // The root does not scroll: the body's own overflow makes it a scroller.
+    document.documentElement.style.overflowX = 'hidden'
+    document.documentElement.style.overflowY = 'hidden'
+    document.body.style.overflowY = 'auto'
+    measure(document.body, { height: 600, scrollHeight: 5000 })
+    const leaf = nest()
+    expect(wheelTarget(leaf, true, 100)).toBe(document.body)
+  })
+
+  it("leaves the body alone while its overflow is the viewport's", () => {
+    // The root's overflow is visible: the body's goes to the viewport, the body never scrolls.
+    document.body.style.overflowY = 'auto'
+    measure(document.body, { height: 600, scrollHeight: 5000 })
+    expect(wheelTarget(nest(), true, 100)).toBe('page')
+  })
+
+  it('scrolls nothing past a container that keeps the wheel at its end', () => {
+    const inner = box('modal', { height: 100, scrollHeight: 300, scrollTop: 200 })
+    inner.style.setProperty('overscroll-behavior-y', 'contain')
+    const leaf = nest(box('outer', { height: 100, scrollHeight: 500 }), inner)
+    expect(wheelTarget(leaf, true, 100)).toBeNull()
+    // Inside it still moves; sideways it keeps nothing.
+    expect(idOf(wheelTarget(leaf, true, -100))).toBe('modal')
+  })
+
+  it('looks at the width for a sideways turn', () => {
+    const leaf = nest(box('wide', { height: 100, scrollHeight: 300 }))
+    expect(idOf(wheelTarget(leaf, false, 100))).toBe('wide')
+    expect(wheelTarget(leaf, false, -100)).toBe('page')
   })
 })

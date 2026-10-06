@@ -152,11 +152,14 @@ describe('dictating a comment', () => {
     // The dictated comment is in the prompt the panel copies.
     const panel = await panelPage()
     await panel.click('[data-testid="copy-prompt"]')
-    await panel.waitForSelector('::-p-text(Copied 1 item)')
+    await panel.waitForSelector('::-p-text(Copied 1 pin)')
     const prompt = await panel.evaluate(() => navigator.clipboard.readText())
     expect(prompt).toContain(`> Fix this ${FAKE_TEXT}`)
+    // Clear all, then empty the bin: the next tests start without pins.
     await panel.click('[data-testid="clear-all"]')
-    await panel.click('[data-testid="clear-confirm"]')
+    await (await panel.waitForSelector('[data-testid="empty-bin"]'))?.click()
+    await (await panel.waitForSelector('[data-testid="empty-bin-confirm"]'))?.click()
+    await panel.waitForSelector('[data-testid="clear-all"][disabled]')
     await s.page.bringToFront()
   })
 

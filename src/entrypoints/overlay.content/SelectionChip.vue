@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { MessageSquarePlusIcon } from '@lucide/vue'
+import { MapPinPlusIcon } from '@lucide/vue'
 import { computed, nextTick, onMounted, ref, useTemplateRef } from 'vue'
 import type { Rect } from '@/lib/collection/model'
 import { chipPosition } from './place'
@@ -38,10 +38,11 @@ onMounted(async () => {
     data-testid="overlay-chip"
     class="fixed z-[2147483647] flex items-center gap-1.5 rounded-full border bg-popover px-3 py-1 text-xs font-medium text-popover-foreground shadow-md hover:bg-accent"
     :style="position"
+    title="Pin this text"
     @mousedown.prevent
     @click="onClick"
   >
-    <MessageSquarePlusIcon class="size-3.5" />
-    Comment
+    <MapPinPlusIcon class="size-3.5" />
+    Pin
   </button>
 </template>

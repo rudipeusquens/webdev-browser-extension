@@ -55,7 +55,7 @@ describe('the panel and the pages of the collection', () => {
     await overlayMounted(session)
     await mark('h1', 'On the text page', 2)
 
-    const go = await panel.waitForSelector('[data-testid="page-group"] [data-testid="go-to"]')
+    const go = await panel.waitForSelector('[data-testid="page-group"] [data-testid="page-link"]')
     await go?.click()
     await session.page.waitForFunction(
       (url) => location.href === url,

@@ -34,6 +34,7 @@ describe('isSettings', () => {
   it('accepts remembered site origins, sorted and unique', () => {
     expect(isSettings({ rememberedOrigins: [] })).toBe(true)
     expect(isSettings({ rememberedOrigins: ['http://a.test', 'http://b.test'] })).toBe(true)
+    expect(isSettings({ rememberedOrigins: [], pageTitles: true, contextMenu: false })).toBe(true)
   })
 
   it('rejects duplicates, invalid origins, more than 100 and extra keys', () => {
@@ -45,6 +46,7 @@ describe('isSettings', () => {
       }),
     ).toBe(false)
     expect(isSettings({ rememberedOrigins: [], extra: 1 })).toBe(false)
+    expect(isSettings({ rememberedOrigins: [], pageTitles: 'yes' })).toBe(false)
     expect(isSettings(null)).toBe(false)
   })
 })
@@ -52,9 +54,38 @@ describe('isSettings', () => {
 describe('loadSettings', () => {
   beforeEach(() => fakeBrowser.reset())
 
+  const OFF = { pageTitles: false, contextMenu: false }
+
   it('has defaults, and falls back to them for stored garbage', async () => {
-    expect(await loadSettings()).toEqual({ rememberedOrigins: [] })
+    expect(await loadSettings()).toEqual({ rememberedOrigins: [], ...OFF })
     await fakeBrowser.storage.local.set({ [SETTINGS_KEY]: { rememberedOrigins: 'all' } })
-    expect(await loadSettings()).toEqual({ rememberedOrigins: [] })
+    expect(await loadSettings()).toEqual({ rememberedOrigins: [], ...OFF })
+    await fakeBrowser.storage.local.set({ [SETTINGS_KEY]: 'all' })
+    expect(await loadSettings()).toEqual({ rememberedOrigins: [], ...OFF })
+  })
+
+  it('reads the settings of milestone 6 with both options off', async () => {
+    await fakeBrowser.storage.local.set({
+      [SETTINGS_KEY]: { rememberedOrigins: ['http://a.test'] },
+    })
+    expect(await loadSettings()).toEqual({ rememberedOrigins: ['http://a.test'], ...OFF })
+  })
+
+  it('reads the options that are on', async () => {
+    await fakeBrowser.storage.local.set({
+      [SETTINGS_KEY]: { rememberedOrigins: [], pageTitles: true, contextMenu: true },
+    })
+    expect(await loadSettings()).toEqual({
+      rememberedOrigins: [],
+      pageTitles: true,
+      contextMenu: true,
+    })
+  })
+
+  it('turns an option it cannot read off, and keeps the remembered sites', async () => {
+    await fakeBrowser.storage.local.set({
+      [SETTINGS_KEY]: { rememberedOrigins: ['http://a.test'], pageTitles: 'yes', contextMenu: 1 },
+    })
+    expect(await loadSettings()).toEqual({ rememberedOrigins: ['http://a.test'], ...OFF })
   })
 })

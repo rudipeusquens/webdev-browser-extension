@@ -57,12 +57,30 @@ describe('CommentPopover', () => {
     )
   })
 
-  it('prefills an existing comment and names the item', () => {
+  it('prefills an existing comment and names the pin', () => {
     const wrapper = mount(CommentPopover, {
-      props: { rect, label: 'button', initial: 'Old text', number: 3 },
+      props: { rect, label: 'button', initial: 'Old text', number: 3, status: 'open' },
     })
     expect((wrapper.get('textarea').element as HTMLTextAreaElement).value).toBe('Old text')
-    expect(wrapper.text()).toContain('Item 3')
+    expect(wrapper.text()).toContain('Pin 3')
+    expect(wrapper.text()).not.toContain('Item')
+    expect(wrapper.get('[role="dialog"]').attributes('aria-label')).toBe('Edit pin 3')
+    expect(wrapper.get('[data-testid="overlay-delete"]').attributes('aria-label')).toBe(
+      'Delete pin 3',
+    )
+  })
+
+  it('calls a new one New pin, and Restore names the pin', () => {
+    const fresh = mount(CommentPopover, { props: { rect, label: 'button' } })
+    expect(fresh.text()).toContain('New pin')
+    expect(fresh.text()).not.toContain('Comment')
+    expect(fresh.get('[role="dialog"]').attributes('aria-label')).toBe('New pin')
+    const deleted = mount(CommentPopover, {
+      props: { rect, label: 'button', number: 4, status: 'deleted' },
+    })
+    expect(deleted.get('[data-testid="overlay-restore"]').attributes('aria-label')).toBe(
+      'Restore pin 4',
+    )
   })
 
   it('shows an error and keeps the text', () => {
@@ -81,7 +99,7 @@ describe('CommentPopover', () => {
     expect(cut).toHaveLength(1)
     expect(cut[0]?.text()).toBe(label)
     expect(cut[0]?.classes()).toContain('text-muted-foreground')
-    expect(wrapper.text()).toContain('Comment')
+    expect(wrapper.text()).toContain('New pin')
   })
 
   it('renders the target label as text', () => {

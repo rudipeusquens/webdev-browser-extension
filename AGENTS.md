@@ -9,11 +9,12 @@ A Chrome extension (desktop) for web development work. On any page you can highl
 or add comments; the extension bundles everything into a format you can hand to an AI agent
 that has access to the code.
 
-**Status:** milestones 1–6 of `docs/plans/2026-10-05-annotation-extension.md` are done
+**Status:** milestones 1–6b of `docs/plans/2026-10-05-annotation-extension.md` are done
 (scaffold, test harness, spikes; element marking end to end; text and area marking; across
 pages, re-anchoring, remembered sites, code origin; voice input; review workflow: one
-collection per site, statuses, Copy again, filter, undo and redo). Next: milestone 7
-(hardening and release readiness). The spec
+collection per site, statuses, Copy again, filter, undo and redo; review polish: pins as the
+name, copy one pin, Clear all into Deleted and Empty bin, the site pill, starting the overlay
+from the panel, Settings options). Next: milestone 7 (hardening and release readiness). The spec
 is `docs/specs/2026-10-05-annotation-extension.md` — read both before working on a feature.
 
 ## This repository is public

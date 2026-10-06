@@ -39,7 +39,7 @@ describe('the shortcut list', () => {
       'On the page',
       'Element mode',
       'Area mode',
-      'In a comment',
+      'In a pin',
       'In this panel',
     ])
   })
@@ -83,7 +83,7 @@ describe('the shortcut list', () => {
     ],
     [
       'Element mode',
-      'Comment on the outlined element',
+      'Pin the outlined element',
       'Enter',
       key({ key: 'Enter' }),
       state({ mode: 'element', hovering: true }),
@@ -108,14 +108,14 @@ describe('the shortcut list', () => {
     ['Cancel (a running dictation first)', 'Esc', key({ key: 'Escape' }), 'cancel'],
     ['Start or stop dictation', 'Alt+V', key({ key: 'v', code: 'KeyV', altKey: true }), 'voice'],
   ])('in a comment: %s is %s', (action, shown, event, expected) => {
-    expect(row(groups, 'In a comment', action).keys).toEqual([shown])
+    expect(row(groups, 'In a pin', action).keys).toEqual([shown])
     expect(popoverKey(event)).toBe(expected)
   })
 
   it('writes the keys the way macOS does on a Mac', () => {
     const mac = shortcutGroups(true)
-    expect(row(mac, 'In a comment', 'Start or stop dictation').keys).toEqual(['⌥V'])
-    expect(row(mac, 'In a comment', 'New line').keys).toEqual(['⇧Enter'])
+    expect(row(mac, 'In a pin', 'Start or stop dictation').keys).toEqual(['⌥V'])
+    expect(row(mac, 'In a pin', 'New line').keys).toEqual(['⇧Enter'])
     expect(row(mac, 'On the page', 'Element mode').keys).toEqual(['E'])
   })
 

@@ -36,7 +36,7 @@ import HoverBox from './HoverBox.vue'
 import { newId } from './ids'
 import { type Origins, readOrigins, sourcesOf, within, withOrigins } from './origins'
 import { pageShortcut } from './keys'
-import { forwardsWheel, isEditable, pickAt, scrollableAncestor, TargetPath } from './picker'
+import { forwardsWheel, isEditable, pickAt, TargetPath, wheelTarget } from './picker'
 import {
   boxOf,
   clippersOf,
@@ -292,6 +292,12 @@ const outlines = computed(() => {
     return [{ id: item.id, strong, tone, dashed: item.target.kind === 'area', style }]
   })
 })
+/** The status of the pin being edited, now: the panel may change it while its popover is open. */
+const editStatus = computed(() => {
+  const edit = draft.value?.edit
+  if (!edit) return undefined
+  return collection.value?.items.find((item) => item.id === edit.id)?.status ?? edit.status
+})
 const highlight = computed(() => {
   void frame.value
   const item = pageItems.value.find((i) => i.id === highlighted.value)
@@ -299,7 +305,7 @@ const highlight = computed(() => {
   const rect = placement?.rect()
   // A target without a box (not rendered) has nothing to outline.
   if (!item || !rect || rect.width === 0 || rect.height === 0) return null
-  return { rect, label: `Item ${item.number}` }
+  return { rect, label: `Pin ${item.number}`, status: item.status }
 })
 
 // Pinned texts are shaded by the browser: set again when what is pinned, hovered or edited
@@ -728,15 +734,20 @@ function onGlassClick(e: MouseEvent) {
   select(path.value?.current ?? null)
 }
 
+/**
+ * The glass takes the pointer: the browser scrolls the document under it by itself, but no
+ * scroll container. Those are scrolled from here, at once and by the whole turn: with the
+ * page's smooth scrolling, each turn would start from where the last one is and lose distance.
+ */
 function onWheel(e: WheelEvent) {
   if (!e.isTrusted || !forwardsWheel(e)) return
-  // The glass takes the pointer, so scroll what lies under it ourselves.
   const vertical = Math.abs(e.deltaY) >= Math.abs(e.deltaX)
-  const target = scrollableAncestor(pickAt(document, e.clientX, e.clientY, props.host), vertical)
-  if (!target) return
-  e.preventDefault()
   const unit = e.deltaMode === 1 ? 16 : e.deltaMode === 2 ? window.innerHeight : 1
-  target.scrollBy({ left: e.deltaX * unit, top: e.deltaY * unit })
+  const under = pickAt(document, e.clientX, e.clientY, props.host)
+  const target = wheelTarget(under, vertical, (vertical ? e.deltaY : e.deltaX) * unit)
+  if (target === 'page') return
+  e.preventDefault()
+  target?.scrollBy({ left: e.deltaX * unit, top: e.deltaY * unit, behavior: 'instant' })
 }
 
 function onKeydown(e: KeyboardEvent) {
@@ -908,6 +919,7 @@ onBeforeUnmount(() => {
       v-if="highlight && !draft"
       :rect="highlight.rect"
       :label="highlight.label"
+      :status="highlight.status"
       testid="overlay-highlight"
     />
     <button
@@ -918,18 +930,19 @@ onBeforeUnmount(() => {
       class="fixed z-[2147483647] flex size-5 items-center justify-center rounded-full text-xs leading-none font-semibold text-white shadow-md ring-2 ring-white"
       :class="pin.tone"
       :style="{ left: pin.left, top: pin.top }"
-      :aria-label="`Edit item ${pin.number}`"
+      :aria-label="`Edit pin ${pin.number}`"
       @mouseenter="hoveredPin = pin.id"
       @mouseleave="hoveredPin = null"
       @click="onPinClick($event, pin.id)"
     >
       {{ pin.number }}
     </button>
-    <TextHighlight v-if="draftText" :boxes="draftText.lines" />
+    <TextHighlight v-if="draftText" :boxes="draftText.lines" :status="editStatus" />
     <HoverBox
       v-else-if="draftRect"
       :rect="draftRect"
       :tone="draft?.kind === 'area' ? 'area' : 'selected'"
+      :status="editStatus"
     />
     <HoverBox
       v-if="dragRect"

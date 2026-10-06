@@ -87,6 +87,31 @@ describe('background', () => {
     await vi.waitFor(() => expect(inject).toHaveBeenCalled())
   })
 
+  it('starts the overlay on a tab for the panel only', async () => {
+    const inject = vi.spyOn(fakeBrowser.scripting, 'executeScript').mockResolvedValue([] as never)
+    const start = { type: 'tab:start', tabId: 7 }
+    expect(await send(start, pageSender('http://localhost:3000/'))).toMatchObject({ ok: false })
+    expect(await send(start, { id: fakeBrowser.runtime.id })).toMatchObject({ ok: false })
+    expect(inject).not.toHaveBeenCalled()
+    await markFailed(7)
+    expect(await send(start, panelSender)).toEqual({ ok: true })
+    expect(inject).toHaveBeenCalledWith({
+      target: { tabId: 7 },
+      files: ['/content-scripts/overlay.js'],
+    })
+    expect(await isFailed(7)).toBe(false)
+  })
+
+  it('says when Chrome gives the panel no access to the tab, and marks nothing', async () => {
+    vi.spyOn(fakeBrowser.scripting, 'executeScript').mockRejectedValue(
+      new Error('Cannot access contents of the page.'),
+    )
+    const reply = await send({ type: 'tab:start', tabId: 7 }, panelSender)
+    expect(reply).toMatchObject({ ok: false })
+    expect((reply as { error: string }).error).toContain('toolbar icon')
+    expect(await isBlocked(7)).toBe(false)
+  })
+
   it('marks a tab that refuses injection and clears it after a later success', async () => {
     const inject = vi
       .spyOn(fakeBrowser.scripting, 'executeScript')
@@ -241,6 +266,23 @@ describe('background', () => {
     expect(await fakeBrowser.storage.local.get(null)).toEqual({})
   })
 
+  it('names pins when it refuses a change from the wrong page', async () => {
+    const site = 'http://x.test'
+    await send(
+      { type: 'annotation:add', ...elementInput('a1', `${site}/`) },
+      pageSender(`${site}/`),
+    )
+    const other = pageSender('http://y.test/')
+    const errors = await Promise.all(
+      [
+        { type: 'annotation:add', ...elementInput('a2', `${site}/`) },
+        { type: 'annotation:update', site, id: 'a1', comment: 'Changed' },
+        { type: 'annotation:remove', site, id: 'a1' },
+      ].map(async (message) => ((await send(message, other)) as { error: string }).error),
+    )
+    for (const error of errors) expect(error).toMatch(/^Pins are /)
+  })
+
   it('changes items only for the site of the page or for the panel', async () => {
     const site = 'http://x.test'
     await send(
@@ -250,16 +292,19 @@ describe('background', () => {
     const update = { type: 'annotation:update', site, id: 'a1', comment: 'Changed' }
     const remove = { type: 'annotation:remove', site, id: 'a1' }
     const clear = { type: 'collection:clear', site }
-    for (const message of [update, remove, clear]) {
+    const empty = { type: 'collection:empty-bin', site }
+    for (const message of [update, remove, clear, empty]) {
       expect(await send(message, pageSender('http://y.test/'))).toMatchObject({ ok: false })
       expect(await send(message, pageSender(`${site}/`, 1))).toMatchObject({ ok: false })
     }
     expect(await send(clear, pageSender(`${site}/`))).toMatchObject({ ok: false })
+    expect(await send(empty, pageSender(`${site}/`))).toMatchObject({ ok: false })
     expect(await send(update, panelSender)).toMatchObject({ ok: false })
     expect((await loadSite(site)).items).toHaveLength(1)
     expect(await send(update, pageSender(`${site}/other`))).toEqual({ ok: true })
-    expect(await send(remove, panelSender)).toEqual({ ok: true })
     expect(await send(clear, panelSender)).toEqual({ ok: true })
+    expect((await loadSite(site)).items.map((i) => i.status)).toEqual(['deleted'])
+    expect(await send(empty, panelSender)).toEqual({ ok: true })
     expect((await loadSite(site)).items).toEqual([])
   })
 })
@@ -370,15 +415,28 @@ describe('background: items not found', () => {
     expect([...(await loadMissing())]).toEqual(['b1'])
   })
 
-  it('accepts reports from pages only, and forgets the site on Clear all', async () => {
+  it('accepts reports from pages only, and forgets what Empty bin removed', async () => {
     expect(await send(report(A, [], ['a1']), { id: fakeBrowser.runtime.id })).toMatchObject({
       ok: false,
     })
     expect((await loadMissing()).size).toBe(0)
-    await send(report(A, [], ['a1']), contentScript)
-    expect((await loadMissing()).size).toBe(1)
+    await send(report(A, [], ['a1', 'a2']), contentScript)
+    expect((await loadMissing()).size).toBe(2)
+    // Clear all keeps the items, deleted: their marks stay.
     await send({ type: 'collection:clear', site: 'http://x.test' }, panelSender)
-    expect((await loadMissing()).size).toBe(0)
+    expect((await loadMissing()).size).toBe(2)
+    await send({ type: 'annotation:restore', site: 'http://x.test', id: 'a2' }, panelSender)
+    await send({ type: 'collection:empty-bin', site: 'http://x.test' }, panelSender)
+    expect([...(await loadMissing())]).toEqual(['a2'])
+  })
+
+  it('empties the bin for the panel only', async () => {
+    await send({ type: 'collection:clear', site: 'http://x.test' }, panelSender)
+    const empty = { type: 'collection:empty-bin', site: 'http://x.test' }
+    expect(await send(empty, contentScript)).toMatchObject({ ok: false })
+    expect((await loadSite('http://x.test')).items).toHaveLength(3)
+    expect(await send(empty, panelSender)).toEqual({ ok: true })
+    expect((await loadSite('http://x.test')).items).toHaveLength(0)
   })
 
   it('counts a report only for the site of the page that sent it', async () => {
@@ -420,6 +478,34 @@ describe('background: remembered sites', () => {
       ok: false,
     })
     expect((await loadSettings()).rememberedOrigins).toEqual([])
+  })
+
+  it('sets an option for the panel only, and keeps the remembered sites', async () => {
+    await send({ type: 'site:remember', origin: A }, panel)
+    const set = { type: 'settings:set', key: 'pageTitles', value: true }
+    expect(await send(set, pageSender(`${A}/`))).toMatchObject({ ok: false })
+    expect(await send(set, { id: fakeBrowser.runtime.id })).toMatchObject({ ok: false })
+    expect((await loadSettings()).pageTitles).toBe(false)
+    expect(await send(set, panelSender)).toEqual({ ok: true })
+    expect(await loadSettings()).toEqual({
+      rememberedOrigins: [A],
+      pageTitles: true,
+      contextMenu: false,
+    })
+  })
+
+  it('writes options and remembered sites one after another', async () => {
+    const on = { type: 'settings:set', key: 'contextMenu', value: true }
+    await Promise.all([
+      send({ type: 'site:remember', origin: A }, panel),
+      send(on, panelSender),
+      send({ type: 'settings:set', key: 'pageTitles', value: true }, panelSender),
+    ])
+    expect(await loadSettings()).toEqual({
+      rememberedOrigins: [A],
+      pageTitles: true,
+      contextMenu: true,
+    })
   })
 
   it('forgets a site whose access was revoked in chrome://extensions', async () => {
@@ -552,7 +638,33 @@ describe('background: the page context menu', () => {
 
   afterEach(() => vi.restoreAllMocks())
 
+  const menuOn = () =>
+    fakeBrowser.storage.local.set({
+      [SETTINGS_KEY]: { rememberedOrigins: [], pageTitles: false, contextMenu: true },
+    })
+
+  it('has no entry while the option is off, and removes one an older version left', async () => {
+    menus.entries.set('annotate', { id: 'annotate' } as never)
+    await fakeBrowser.runtime.onInstalled.trigger({ reason: 'update' } as never)
+    await flush()
+    expect([...menus.entries.keys()]).toEqual([])
+    await fakeBrowser.runtime.onStartup.trigger()
+    await flush()
+    expect([...menus.entries.keys()]).toEqual([])
+  })
+
+  it('adds and removes the entry when the panel turns the option on and off', async () => {
+    const set = (value: boolean) =>
+      send({ type: 'settings:set', key: 'contextMenu', value }, panelSender)
+    expect(await set(true)).toEqual({ ok: true })
+    await vi.waitFor(() => expect([...menus.entries.keys()]).toEqual(['annotate']))
+    expect(await set(false)).toEqual({ ok: true })
+    await vi.waitFor(() => expect([...menus.entries.keys()]).toEqual([]))
+    expect(menus.duplicates).toEqual([])
+  })
+
   it('offers "Annotate this page" on pages once installed, and still once after an update', async () => {
+    await menuOn()
     await fakeBrowser.runtime.onInstalled.trigger({ reason: 'install' } as never)
     await flush()
     await fakeBrowser.runtime.onInstalled.trigger({ reason: 'update' } as never)
@@ -570,6 +682,7 @@ describe('background: the page context menu', () => {
 
   it('writes the entry again when the browser starts', async () => {
     // Chrome restores it from its own storage; a lost one comes back with the next start.
+    await menuOn()
     await fakeBrowser.runtime.onStartup.trigger()
     await flush()
     expect([...menus.entries.keys()]).toEqual(['annotate'])
