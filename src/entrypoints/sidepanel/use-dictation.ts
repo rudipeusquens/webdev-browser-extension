@@ -1,7 +1,7 @@
 // Rec (spec section 8): a dictation in the panel without a pin. Its text goes to the clipboard
 // as it is, nothing added, while the pins stay as they are. The clipboard holds what the
-// developer did last: a copy of pins clicked while the text was transcribed keeps it, and the
-// text is offered for copying by hand instead.
+// developer did last: pins copied while the dictation runs keep it, unless the developer stops
+// or retries it afterwards; the text is offered for copying by hand instead.
 
 import { computed } from 'vue'
 import type { Browser } from 'wxt/browser'
@@ -19,7 +19,7 @@ export interface DictationHandlers {
 
 export function useDictation(handlers: DictationHandlers, connect?: () => Browser.runtime.Port) {
   const voice = useVoice(connect)
-  /** A copy of pins was clicked after the recording stopped. */
+  /** Pins reached the clipboard while this dictation ran, and the developer did nothing since. */
   let outdone = false
 
   voice.onText((text, atLimit) => {
@@ -34,19 +34,34 @@ export function useDictation(handlers: DictationHandlers, connect?: () => Browse
     clock: voice.clock,
     busy: voice.busy,
     failure: computed(() => dictationFailure(voice.state.value)),
-    /** Starts a dictation, or stops the recording: either is the developer's latest step. */
+    /**
+     * Starts a dictation, or stops the recording: either is the developer's latest step. While
+     * the microphone starts or the text is transcribed, Rec only looks disabled and this does
+     * nothing.
+     */
     toggle() {
-      outdone = false
+      const now = voice.state.value.state
+      if (now !== 'starting' && now !== 'transcribing') outdone = false
       voice.toggle()
     },
     retry() {
-      outdone = false
+      const now = voice.state.value
+      if (now.state === 'failed' && now.retry) outdone = false
       voice.retry()
     },
     cancel: voice.cancel,
-    /** A copy of pins: a text still being transcribed leaves the clipboard to it. */
-    outdo() {
-      if (voice.state.value.state === 'transcribing') outdone = true
+    /**
+     * Pins are being copied: call it before they are written, and settle it with whether they
+     * reached the clipboard. While the dictation runs, its text then leaves the clipboard to
+     * them, also when the two-minute limit stops it.
+     */
+    copyingPins(): (written: boolean) => void {
+      const before = outdone
+      const running = voice.busy.value
+      if (running) outdone = true
+      return (written) => {
+        if (running && !written) outdone = before
+      }
     },
   }
 }

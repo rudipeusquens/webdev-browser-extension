@@ -202,8 +202,9 @@ const startable = computed(() => {
 })
 
 const copyStatus = ref('')
-/** Text the clipboard did not take, offered for copying by hand. */
-const fallback = ref<Fallback | null>(null)
+/** Texts the clipboard did not take, offered for copying by hand one after the other. */
+const fallbacks = ref<Fallback[]>([])
+const fallback = computed(() => fallbacks.value[0] ?? null)
 const confirmEmpty = ref(false)
 let copyTimer: ReturnType<typeof setTimeout> | undefined
 
@@ -251,12 +252,15 @@ function toOverlay(message: OverlayMessage) {
  */
 async function writePrompt(ids: string[], done: string): Promise<boolean> {
   const text = formatCollection(pick(collection.value, new Set(ids)), { missing: missing.value })
+  const settle = dictation.copyingPins()
   try {
     await navigator.clipboard.writeText(text)
   } catch {
-    fallback.value = { text, kind: 'prompt' }
+    settle(false)
+    fallbacks.value.push({ text, kind: 'prompt' })
     return true
   }
+  settle(true)
   say(done)
   return true
 }
@@ -265,7 +269,7 @@ const dictation = useDictation({
   write: writeClipboard,
   copied: (atLimit) =>
     say(atLimit ? 'Copied dictation. The recording stopped after 2 minutes.' : 'Copied dictation'),
-  offer: (text, refused) => (fallback.value = { text, kind: refused ? 'dictation' : 'outdone' }),
+  offer: (text, refused) => fallbacks.value.push({ text, kind: refused ? 'dictation' : 'outdone' }),
 })
 /** What screen readers hear of Rec: its changes, not every second of its clock. */
 const recSpoken = computed(() => {
@@ -284,7 +288,6 @@ async function copy() {
   const ids = openIds.value
   const current = site.value
   if (!current || ids.length === 0) return
-  dictation.outdo()
   await writePrompt(ids, `Copied ${plural(ids.length, 'pin')}`)
   await change(
     { type: 'collection:copied', site: current, ids },
@@ -297,7 +300,6 @@ async function copyOne(id: string) {
   const current = site.value
   const item = items.value.find((i) => i.id === id)
   if (!current || !item) return
-  dictation.outdo()
   await writePrompt([id], `Copied pin ${item.number}`)
   await change(
     { type: 'collection:copied', site: current, ids: [id] },
@@ -308,9 +310,7 @@ async function copyOne(id: string) {
 /** The last copy again, for a paste that went wrong; it changes nothing. */
 async function copyAgain() {
   const ids = againIds.value
-  if (ids.length === 0) return
-  dictation.outdo()
-  await writePrompt(ids, `Copied ${plural(ids.length, 'pin')} again`)
+  if (ids.length > 0) await writePrompt(ids, `Copied ${plural(ids.length, 'pin')} again`)
 }
 
 const siteError = ref('')
@@ -788,7 +788,7 @@ function setMode(next: unknown) {
       :site="site ? siteLabel(site) : ''"
       @confirm="emptySiteBin"
     />
-    <CopyFallbackDialog :fallback="fallback" @close="fallback = null" />
+    <CopyFallbackDialog :fallback="fallback" @close="fallbacks.shift()" />
     <ForgetSiteDialog :origin="forgetting" @confirm="forgetSite" @close="forgetting = null" />
   </main>
 </template>

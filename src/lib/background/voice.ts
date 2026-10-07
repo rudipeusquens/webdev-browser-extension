@@ -195,11 +195,17 @@ export function createVoice() {
     post(s.client, { state: 'idle' })
   }
 
-  /** A comment popover (the overlay in a tab's top frame) or the panel's Rec. */
+  /**
+   * A comment popover (the overlay in a tab's top frame, never a page of the extension opened
+   * in a tab) or the panel's Rec.
+   */
   function connectClient(client: Port) {
     const { sender } = client
     const overlay =
-      sender?.id === browser.runtime.id && sender.tab?.id !== undefined && sender.frameId === 0
+      sender?.id === browser.runtime.id &&
+      sender.tab?.id !== undefined &&
+      sender.frameId === 0 &&
+      !sender.url?.startsWith(browser.runtime.getURL('/'))
     if (!sender || (!overlay && !isPanelSender(sender))) {
       client.disconnect()
       return

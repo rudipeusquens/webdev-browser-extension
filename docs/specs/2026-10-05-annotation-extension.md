@@ -533,11 +533,13 @@ while a pin's popover is open, its entry stays marked.
     nothing added ("Copied dictation"), also when the developer has moved on to another window
     meanwhile: the panel uses the copy command, which `clipboardWrite` allows without the focus.
     It is not stored and changes no pin. The clipboard holds what the developer did last: pins
-    copied while the text is transcribed keep it, and a dialog offers the text, selected for
-    copying by hand; a dictation stopped or retried after a copy of pins takes it (**Copy
-    again** brings the pins back). Failures show in the footer's red line in the popover's
-    words, with **Retry**, **Grant** or **Open settings**. Closing the panel ends Rec; a
-    dictation started in a pin ends it, and Rec ends one in a pin.
+    copied while Rec runs keep it, also when the two-minute limit stops Rec, and a dialog
+    offers the text, selected for copying by hand (one dialog after the other when there are
+    more texts); Rec stopped or retried by the developer after a copy of pins takes it (**Copy
+    again** brings the pins back). A copy of pins that fails does not hold the clipboard.
+    Failures show in the footer's red line in the popover's words, with **Retry**, **Grant**
+    or **Open settings**. Closing the panel ends Rec; a dictation started in a pin ends it,
+    and Rec ends one in a pin.
   - List of the active site only, grouped by page and set apart by a line (current page first,
     with **This page** before its path). Headings show the path; with **Show page titles** in
     Settings the page's title too. Another page's path on the web is its Go to link: it opens
@@ -669,7 +671,7 @@ select-parent), ClickUp and Air comment pins with a side list.
 | Voice: another popover or the panel starts dictating                                                                                                    | The first dictation ends, also one that only holds a recording for **Retry**; its popover (or the panel) says "Another dictation started, this one ended."                                                                                                                                                                                                                                 |
 | Voice: service worker stopped mid-dictation (it should not be: the recorder's heartbeat keeps it)                                                       | The popover says "Recording stopped unexpectedly."; the recorder sees its port close and drops everything.                                                                                                                                                                                                                                                                                 |
 | Voice: empty transcript                                                                                                                                 | "No speech detected."                                                                                                                                                                                                                                                                                                                                                                      |
-| Rec: pins copied while its text is transcribed                                                                                                          | The pins' prompt stays on the clipboard; a dialog offers the text, selected for copying by hand.                                                                                                                                                                                                                                                                                           |
+| Rec: pins copied while it runs, and the developer does not stop it afterwards                                                                           | The pins' prompt stays on the clipboard; a dialog offers the text, selected for copying by hand.                                                                                                                                                                                                                                                                                           |
 | Rec: the clipboard refuses the text                                                                                                                     | The same dialog, saying the clipboard was not available.                                                                                                                                                                                                                                                                                                                                   |
 
 ## 11. Security
@@ -759,10 +761,10 @@ select-parent), ClickUp and Air comment pins with a side list.
 - **API key:** see section 9. The OpenRouter key pattern (`sk-or-v1-…`) is added to the secret
   scanners of this repository.
 - **Dictation:** the popover starts a recording only on a trusted click or key. The background
-  accepts a `voice` port only from the top frame of a tab (a popover) or from the panel's URL
-  (Rec), and the recorder's port only from `offscreen.html`; the panel's voice and key
-  messages only from the panel's URL; `voice:grant` and `voice:settings` only from the top
-  frame of a tab. OpenRouter's error
+  accepts a `voice` port only from the top frame of a tab (a popover; never a page of the
+  extension opened in a tab) or from the panel's URL (Rec), and the recorder's port only from
+  `offscreen.html`; the panel's voice and key messages only from the panel's URL;
+  `voice:grant` and `voice:settings` only from the top frame of a tab. OpenRouter's error
   text is shown as text only, cut to one line. Requests go only to `openrouter.ai`, follow no
   redirect and send no cookies, referrer or cached answer, and the content security policy
   allows no other connection; test

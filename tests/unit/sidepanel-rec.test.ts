@@ -169,9 +169,7 @@ describe('Rec in the panel', () => {
     await answer({ state: 'done', text: 'Said before the copy.', atLimit: false })
     expect(clipboard.execCommand).not.toHaveBeenCalled()
     expect(fallback()?.value).toBe('Said before the copy.')
-    expect(document.body.textContent).toContain(
-      'Pins copied while it was transcribed keep the clipboard.',
-    )
+    expect(document.body.textContent).toContain('Pins copied while it ran keep the clipboard.')
   })
 
   it('takes the clipboard when it was stopped after a copy of pins', async () => {
@@ -184,6 +182,91 @@ describe('Rec in the panel', () => {
     await answer({ state: 'done', text: 'Stopped last.', atLimit: false })
     expect(clipboard.text).toBe('Stopped last.')
     expect(fallback()).toBeNull()
+  })
+
+  it('keeps the pins on the clipboard when Rec is clicked again while the text is transcribed', async () => {
+    await render(true)
+    await transcribing()
+    await click('copy-prompt')
+    // Rec only looks disabled meanwhile: a click and Alt+V reach it, and change nothing.
+    await click('rec')
+    await press({ key: 'v', code: 'KeyV', altKey: true })
+    await answer({ state: 'done', text: 'Said before the copy.', atLimit: false })
+    expect(clipboard.execCommand).not.toHaveBeenCalled()
+    expect(fallback()?.value).toBe('Said before the copy.')
+  })
+
+  it('leaves the clipboard to pins copied while it recorded, when the limit stops it', async () => {
+    await render(true)
+    await click('rec')
+    await answer({ state: 'recording', limit: 120_000 })
+    await click('copy-prompt')
+    // Stopped by the two-minute limit, not by the developer.
+    await answer({ state: 'transcribing' })
+    await answer({ state: 'done', text: 'Two minutes of it.', atLimit: true })
+    expect(clipboard.execCommand).not.toHaveBeenCalled()
+    expect(fallback()?.value).toBe('Two minutes of it.')
+  })
+
+  it('copies the text when the copy of pins failed, and keeps the prompt for copying by hand', async () => {
+    writeText.mockRejectedValue(new Error('Document is not focused.'))
+    await render(true)
+    await transcribing()
+    await click('copy-prompt')
+    expect(fallback()?.value).toContain('> Hi')
+    await answer({ state: 'done', text: 'After the failed copy.', atLimit: false })
+    expect(clipboard.text).toBe('After the failed copy.')
+    expect(fallback()?.value).toContain('> Hi')
+  })
+
+  it('offers a second text for copying by hand once the first is closed', async () => {
+    writeText.mockRejectedValue(new Error('Document is not focused.'))
+    clipboard.refuse = true
+    await render(true)
+    await transcribing()
+    await click('copy-prompt')
+    await answer({ state: 'done', text: 'Waits its turn.', atLimit: false })
+    expect(fallback()?.value).toContain('> Hi')
+    byTestId('copy-fallback-text')
+      .closest('[data-slot="dialog-content"]')
+      ?.querySelector<HTMLElement>('[data-slot="dialog-close"]')
+      ?.click()
+    await flushPromises()
+    expect(fallback()?.value).toBe('Waits its turn.')
+    expect(document.body.textContent).toContain('Copy the dictation manually')
+  })
+
+  it('leaves a running dictation alone on Esc while a dialog is open', async () => {
+    writeText.mockRejectedValue(new Error('Document is not focused.'))
+    await render(true)
+    await click('rec')
+    await answer({ state: 'recording', limit: 120_000 })
+    await click('copy-prompt')
+    expect(fallback()).not.toBeNull()
+    await press({ key: 'Escape' })
+    expect(line().posted).toEqual([{ type: 'start' }])
+  })
+
+  it("leaves a running dictation alone on the Esc that closes the site's menu", async () => {
+    await render()
+    await click('rec')
+    await answer({ state: 'recording', limit: 120_000 })
+    const pill = byTestId('site-pill')
+    pill.focus()
+    await flushPromises()
+    expect(document.querySelector('#site-actions')).not.toBeNull()
+    pill.dispatchEvent(
+      new KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true }),
+    )
+    await flushPromises()
+    expect(document.querySelector('#site-actions')).toBeNull()
+    expect(line().posted).toEqual([{ type: 'start' }])
+    // The next Esc, with the menu closed, cancels.
+    pill.dispatchEvent(
+      new KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true }),
+    )
+    await flushPromises()
+    expect(line().posted.at(-1)).toEqual({ type: 'cancel' })
   })
 
   it('a retry after a copy of pins takes the clipboard again', async () => {

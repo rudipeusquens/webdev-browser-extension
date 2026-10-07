@@ -4325,10 +4325,11 @@ one pull request.
   The panel sets the text in the copy event, so no field is selected and the focus stays.
   When Chrome refuses anyway, the copy dialog offers the text.
 - **Rec and pins at once: never mixed; the clipboard holds what the developer did last.**
-  Rec copies only its text, Copy as prompt only pins. Pins copied while Rec's text is
-  transcribed keep the clipboard, and the dialog offers the text (selected); a dictation
-  stopped or retried after a copy of pins takes the clipboard, and Copy again brings the pins
-  back.
+  Rec copies only its text, Copy as prompt only pins. Pins copied while Rec runs keep the
+  clipboard, also when the two-minute limit stops Rec, and the dialog offers the text
+  (selected); Rec stopped or retried by the developer after a copy of pins takes the
+  clipboard, and Copy again brings the pins back. A failed copy of pins holds nothing.
+  Several texts for copying by hand come one dialog after the other.
 - **Layout:** two rows on one grid: the modes and Rec, the filter and Pins. Rec and Pins
   share a column of 22 % of the row (at least 36 px), 8 px from the rest; the left column
   keeps at least its content's width. A container query hides their words below 76 px, so a
@@ -4344,8 +4345,8 @@ one pull request.
 1. A port from another page of the extension, another extension or a tab's subframe asking to
    dictate: refused (Task 75).
 2. The text arriving after the developer left the panel: still on the clipboard (Task 77).
-3. Copy as prompt while the text is transcribed: the pins keep the clipboard, the text is
-   offered (Tasks 76, 77).
+3. Copy as prompt while Rec runs: the pins keep the clipboard, the text is offered, also after
+   a click on the busy Rec and after the limit's stop (Tasks 76, 77).
 4. Closing the panel while recording: the recorder closes, nothing is sent (Tasks 76, 77).
 5. A narrow panel with two-digit counts: nothing overflows, Rec and Pins show icons (Task 77).
 
@@ -4381,3 +4382,12 @@ one pull request.
   `AGENTS.md`, `docs/images`
 - [x] The spec and the README describe Rec; the smoke test dictates with Rec into a real
       agent; the screenshots are retaken.
+
+**Final review (2026-10-07):** an independent review of the branch found five defects, each
+fixed with a test that failed first: a click on the busy Rec (or `Alt+V`) undid the rule for
+pins copied meanwhile; the `Esc` that closes the site pill's action also cancelled Rec (that
+`Esc` is now consumed); a copy of pins that failed still held the clipboard, and a second text
+for copying by hand replaced the first (the dialogs now queue); pins copied while Rec recorded
+lost the clipboard to the limit's stop; a page of the extension opened in a tab passed as a
+popover's port. Deferred: Settings hides Rec while it records, so it runs on unseen there
+until Edit or the two-minute limit.

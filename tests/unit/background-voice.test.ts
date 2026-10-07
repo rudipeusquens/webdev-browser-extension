@@ -338,6 +338,11 @@ describe('background: dictation', () => {
     ['a subframe', fakePort('voice', overlaySender(5, 3))],
     ['another page of the extension', fakePort('voice', panelSender('/mic-permission.html'))],
     [
+      'a page of the extension in a tab',
+      fakePort('voice', { ...overlaySender(), url: panelSender('/mic-permission.html').url }),
+    ],
+    ['the panel in a tab', fakePort('voice', { ...overlaySender(), url: panelSender().url })],
+    [
       "another extension's panel",
       fakePort('voice', { id: fakeBrowser.runtime.id, url: 'chrome-extension://x/sidepanel.html' }),
     ],

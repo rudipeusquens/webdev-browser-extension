@@ -1,7 +1,7 @@
 <script lang="ts">
 /**
- * Text the clipboard did not take: a prompt or a dictation it refused, or a dictation that a
- * copy of pins clicked while it was transcribed got ahead of.
+ * Text the clipboard did not take: a prompt or a dictation it refused, or a dictation that
+ * pins copied while it ran got ahead of.
  */
 export interface Fallback {
   text: string
@@ -34,7 +34,7 @@ const words = computed(() => {
     case 'outdone':
       return {
         title: 'Your dictation',
-        why: `Pins copied while it was transcribed keep the clipboard. ${SELECTED}`,
+        why: `Pins copied while it ran keep the clipboard. ${SELECTED}`,
       }
     default:
       return {

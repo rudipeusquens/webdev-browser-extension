@@ -106,7 +106,9 @@ function refocus() {
   }
 }
 
-function close() {
+/** Escape closes the action; an Escape that closes it does nothing else in the panel. */
+function close(e: KeyboardEvent) {
+  if (open.value) e.preventDefault()
   clearTimeout(timer)
   open.value = false
   refocus()

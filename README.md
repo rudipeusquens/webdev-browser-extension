@@ -157,8 +157,8 @@ the agent's window in the meantime. Paste it wherever you like. It works on any 
 where the overlay is not running, and it changes no pin.
 
 Rec and **Copy as prompt** each copy their own text; the clipboard holds whichever you did
-last. If you copy pins while Rec's text is still being transcribed, the pins stay on the
-clipboard and the panel shows the dictated text for copying by hand.
+last. If you copy pins while Rec is still running and don't stop it yourself afterwards, the
+pins stay on the clipboard and the panel shows the dictated text for copying by hand.
 
 ## Keys
 
