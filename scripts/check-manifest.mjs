@@ -5,7 +5,7 @@
 import { readFileSync } from 'node:fs'
 import { pathToFileURL } from 'node:url'
 
-const PERMISSIONS = [
+export const PERMISSIONS = [
   'activeTab',
   'clipboardWrite',
   'contextMenus',
@@ -17,10 +17,10 @@ const PERMISSIONS = [
   // writer keeps each site within its own budget). Chrome shows no warning for it.
   'unlimitedStorage',
 ]
-const OPTIONAL_HOSTS = ['http://*/*', 'https://*/*']
+export const OPTIONAL_HOSTS = ['http://*/*', 'https://*/*']
 // Chrome assigns no suggested key that is one of its own shortcuts (Alt+Shift+A, Ctrl+K), and
 // says nothing: tests/e2e/activate.e2e.test.ts checks the key Chrome actually assigned.
-const SHORTCUT = 'Ctrl+Shift+K'
+export const SHORTCUT = 'Ctrl+Shift+K'
 // Every other top-level key could widen access (optional_permissions, externally_connectable,
 // content_security_policy, oauth2, …) and needs a deliberate change here.
 const ALLOWED_KEYS = new Set([

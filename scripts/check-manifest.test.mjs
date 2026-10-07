@@ -1,7 +1,8 @@
 import assert from 'node:assert/strict'
+import { readFileSync } from 'node:fs'
 import { describe, it } from 'node:test'
 
-import { checkManifest } from './check-manifest.mjs'
+import { checkManifest, OPTIONAL_HOSTS, PERMISSIONS, SHORTCUT } from './check-manifest.mjs'
 
 const valid = () => ({
   manifest_version: 3,
@@ -121,5 +122,23 @@ describe('checkManifest', () => {
       checkManifest({ ...valid(), minimum_chrome_version: '110' }).join('\n'),
       /minimum_chrome_version/,
     )
+  })
+})
+
+describe('README', () => {
+  const readme = readFileSync(new URL('../README.md', import.meta.url), 'utf8')
+  const tableRows = readme.split('\n').filter((line) => line.startsWith('|'))
+
+  it('explains every permission and optional host the manifest may have, in its table', () => {
+    for (const name of [...PERMISSIONS, ...OPTIONAL_HOSTS]) {
+      assert.ok(
+        tableRows.some((row) => row.includes(`\`${name}\``)),
+        `${name} is not in a table row of the README`,
+      )
+    }
+  })
+
+  it('names the toolbar shortcut the manifest suggests', () => {
+    assert.ok(readme.includes(`\`${SHORTCUT}\``))
   })
 })
