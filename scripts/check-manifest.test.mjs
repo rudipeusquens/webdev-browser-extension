@@ -20,6 +20,7 @@ const valid = () => ({
   commands: { _execute_action: { suggested_key: { default: 'Ctrl+Shift+K' } } },
   side_panel: { default_path: 'sidepanel.html' },
   externally_connectable: { ids: [] },
+  icons: { 16: 'icon/16.png', 32: 'icon/32.png', 48: 'icon/48.png', 128: 'icon/128.png' },
   content_security_policy: {
     extension_pages: "script-src 'self'; object-src 'self'; connect-src https://openrouter.ai",
   },
@@ -103,9 +104,15 @@ describe('checkManifest', () => {
       version: '0.0.0',
       action: {},
       background: { service_worker: 'background.js' },
-      icons: { 16: 'icon/16.png' },
     }
     assert.deepEqual(checkManifest(m), [])
+  })
+
+  // Without them Chrome shows a grey letter in the toolbar and on the extensions page.
+  it('requires the icon in every size Chrome shows', () => {
+    const { icons, ...m } = valid()
+    assert.match(checkManifest(m).join('\n'), /icons/)
+    assert.match(checkManifest({ ...m, icons: { ...icons, 48: undefined } }).join('\n'), /48/)
   })
 
   it('rejects a shortcut Chrome keeps for itself', () => {
