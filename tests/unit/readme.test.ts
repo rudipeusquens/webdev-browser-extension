@@ -6,28 +6,34 @@ import { shortcutGroups } from '@/lib/shortcuts'
 // held to the manifest check in scripts/check-manifest.test.mjs.
 const readme = readFileSync('README.md', 'utf8')
 
-/** The cells of every table row, trimmed (the separator rows left out). */
-function tableRows(markdown: string): string[][] {
-  return markdown
-    .split('\n')
-    .filter((line) => line.startsWith('|') && !/^\|[\s:|-]+\|$/.test(line))
-    .map((line) =>
+/** The rows of the table whose header starts with `first`, as trimmed cells. */
+function table(markdown: string, first: string): string[][] {
+  const lines = markdown.split('\n')
+  const start = lines.findIndex((line) => new RegExp(`^\\|\\s*${first}\\s*\\|`).test(line))
+  expect(start, `a table headed "${first}"`).toBeGreaterThanOrEqual(0)
+  const rows: string[][] = []
+  for (const line of lines.slice(start + 2)) {
+    if (!line.startsWith('|')) break
+    rows.push(
       line
         .slice(1, -1)
         .split('|')
         .map((cell) => cell.trim()),
     )
+  }
+  return rows
 }
 
 describe('README', () => {
-  it('lists every key of the Settings list, where it works and what it does', () => {
-    const rows = tableRows(readme).map((cells) => cells.join(' | '))
-    for (const group of shortcutGroups(false)) {
-      for (const row of group.rows) {
-        const keys = row.keys.map((key) => `\`${key}\``).join(' or ')
-        expect(rows).toContain(`${group.title} | ${keys} | ${row.action}`)
-      }
-    }
+  it('lists the keys of the Settings list, where they work and what they do, and no others', () => {
+    const rows = table(readme, 'Where').map((cells) => cells.join(' | '))
+    const keys = shortcutGroups(false).flatMap((group) =>
+      group.rows.map(
+        (row) =>
+          `${group.title} | ${row.keys.map((key) => `\`${key}\``).join(' or ')} | ${row.action}`,
+      ),
+    )
+    expect(rows).toEqual(keys)
   })
 
   it("shows the prompt as the formatter writes it: an excerpt of the spec's example", () => {

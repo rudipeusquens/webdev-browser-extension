@@ -31,9 +31,6 @@ Each step says what to do, then what you should see.
       a dark browser theme.
 - [ ] Open `chrome://extensions/shortcuts`. → The extension's activation key is
       `Ctrl+Shift+K` (`⇧⌘K` on macOS), unless another extension took it first.
-- [ ] After section 3: empty the folder, unpack the zip into it again, and click the reload
-      icon on the extension's card. → The pins, the settings, the API key and the microphone
-      permission are all still there.
 
 ## 2. Start and stop
 
@@ -45,20 +42,21 @@ Each step says what to do, then what you should see.
 - [ ] Settings (gear) → **General** → turn on **Annotate this page in the context menu**.
       Close the panel, right-click the page. → The menu has **Annotate this page**; it opens
       the panel. Turn the option off. → The entry is gone from the menu.
-- [ ] With the panel open, switch to a tab with `chrome://extensions`. → The panel says
-      "Can't run on this page: Chrome keeps extensions off it."
+- [ ] With the panel open, switch to a tab with `chrome://extensions` and click the toolbar
+      icon. → The panel says "Can't run on this page: Chrome keeps extensions off it."
 
 ## 3. Mark, copy, paste
 
 On `https://example.com` with the panel open:
 
 - [ ] Press `E`, click the heading. → A popover "New pin"; type `Bigger heading`, `Enter`. →
-      Pin 1 on the heading; the panel lists it.
+      Pin 1 on the heading; the panel lists it. (If `E` does nothing, the panel has the focus:
+      click an empty spot of the page first, and note it.)
 - [ ] Press `Esc`, select a few words of the paragraph. → A **Pin** chip below the selection;
       click it, type a comment, `Enter`. → Pin 2 at the words.
 - [ ] Press `A`, drag a rectangle over the paragraph, type a comment, `Enter`. → Pin 3.
-- [ ] **Copy as prompt**. → "Copied 3 pins"; the pins turn green and the filter **Open** hides
-      them.
+- [ ] **Copy as prompt**. → "Copied 3 pins"; the pins leave the page and the list, since the
+      filter **Open** shows open pins only. Under **All** they are back, green.
 - [ ] Paste into your AI agent's input (Claude Code, Codex, Cursor). → The prompt arrives
       whole as text: "# UI feedback: 3 items on 1 page", then each comment as a `>` line.
 - [ ] In the panel, press `Ctrl+Z` (`⌘Z`). → The three pins are open again.
@@ -72,10 +70,10 @@ On `https://example.com` with the panel open:
       itself.
 - [ ] Reload the page. → The overlay starts without a click: the pins appear.
 - [ ] Settings → **Sites**. → `example.com` with its number of open pins and **Auto**.
-- [ ] On another web site, **Always enable here**, and deny Chrome's prompt. → Nothing
-      changes; the site is not remembered.
+- [ ] On another web site, start the overlay with the toolbar icon, then **Always enable
+      here**, and deny Chrome's prompt. → Nothing changes; the site is not remembered.
 - [ ] Back on `example.com`, point at the pill, **Forget this site**, confirm. Reload. → No
-      overlay until you click the toolbar icon; the pins are still listed.
+      overlay. Click the toolbar icon. → The overlay starts and the pins are back.
 
 ## 5. Your own dev server
 
@@ -95,10 +93,11 @@ Settings → **Voice**:
 
 - [ ] Paste the key into **OpenRouter API key**, **Save**. → It shows as `sk-or-v1-…` and its
       last four characters. **Test**. → "Key works."
-- [ ] **Microphone** → **Grant**. → A tab opens and Chrome asks for the microphone. Allow. →
-      The tab says "Microphone allowed. You can close this tab.", and Settings shows
-      "Allowed". On macOS the first time, the system asks whether the browser may use the
-      microphone; allow it (System Settings → Privacy & Security → Microphone).
+- [ ] **Microphone** → **Grant**. → A tab opens and Chrome asks for the microphone. Allow it
+      for good, not just this time. → The tab says "Microphone allowed. You can close this
+      tab." and closes itself; Settings shows "Allowed". On macOS the first time, the system
+      asks whether the browser may use the microphone; allow it (System Settings → Privacy &
+      Security → Microphone).
 - [ ] In a pin's popover, click the mic button next to **Save**, say a sentence, click it
       again. → A timer while recording, then "Transcribing…", then the sentence at the caret.
 - [ ] `Alt+V` (`⌥V`) to start, `Esc` while recording. → The recording stops; nothing is
@@ -107,7 +106,16 @@ Settings → **Voice**:
 - [ ] Remove the key (bin icon), then click the mic in a popover. → "Add an OpenRouter API key
       in settings." with **Open settings**.
 
-## 7. Brave
+## 7. Update in place
 
-- [ ] Sections 1 to 4 and 6 in Brave (`brave://extensions`), with Shields up on
+With pins from section 3, a saved key and the microphone allowed (section 6; save the key
+again after its last step):
+
+- [ ] Empty the extension's folder, unpack the zip into it again, and click the reload icon on
+      the extension's card. → The pins, the settings, the API key and the microphone
+      permission are all still there.
+
+## 8. Brave
+
+- [ ] Sections 1 to 4, 6 and 7 in Brave (`brave://extensions`), with Shields up on
       `example.com`. → The same results; the panel opens in Brave's sidebar.

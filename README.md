@@ -56,7 +56,8 @@ takes Node, in the version `.nvmrc` names, and pnpm.
    pnpm zip
    ```
 
-   This writes `.output/webdev-browser-extension-<version>-chrome.zip` and checks it.
+   This writes `.output/webdev-browser-extension-<version>-chrome.zip` and checks it. If it
+   ends with an error, do not use the zip.
 
 2. Unpack the zip into a folder where it can stay, for example
    `~/Extensions/webdev-browser-extension`.
@@ -69,9 +70,9 @@ pins, the settings, the API key and the microphone permission belong to it. One 
 another folder is another extension and starts empty. Removing the extension deletes its
 data.
 
-**Update:** build the new version with `pnpm install` and `pnpm zip`, empty the folder, unpack
-the new zip into it, and click the extension's reload icon on `chrome://extensions`. Pins and
-settings stay.
+**Update:** get the new source (`git pull`), build it with `pnpm install` and `pnpm zip`, empty
+the folder, unpack the new zip into it, and click the extension's reload icon on
+`chrome://extensions`. Pins and settings stay; the undo history starts anew.
 
 **Another computer:** install the same zip there. Pins and settings stay in each browser;
 nothing syncs.
@@ -102,8 +103,8 @@ pins stay.
   saving a changed comment reopens a done pin.
 - **Delete** moves a pin to Deleted, red, and **Restore** brings it back. **Clear all** moves
   every open and done pin of the site to Deleted. **Empty bin** removes deleted pins for good.
-- **Undo** and **Redo** in the panel's title row (`Ctrl+Z`, `Ctrl+Shift+Z`) take back any
-  change, until the browser closes.
+- **Undo** and **Redo** in the panel's title row (`Ctrl+Z`, `Ctrl+Shift+Z`) take back up to
+  the last 50 changes of a site, until the browser closes or the extension is reloaded.
 
 ### Sites
 

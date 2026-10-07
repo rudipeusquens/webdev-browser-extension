@@ -127,15 +127,19 @@ describe('checkManifest', () => {
 
 describe('README', () => {
   const readme = readFileSync(new URL('../README.md', import.meta.url), 'utf8')
-  const tableRows = readme.split('\n').filter((line) => line.startsWith('|'))
 
-  it('explains every permission and optional host the manifest may have, in its table', () => {
-    for (const name of [...PERMISSIONS, ...OPTIONAL_HOSTS]) {
-      assert.ok(
-        tableRows.some((row) => row.includes(`\`${name}\``)),
-        `${name} is not in a table row of the README`,
+  it('explains the permissions and optional hosts the manifest may have, and no others', () => {
+    const lines = readme.split('\n')
+    const start = lines.findIndex((line) => /^\|\s*Permission\s*\|/.test(line))
+    assert.ok(start >= 0, 'a table headed "Permission"')
+    const rows = lines.slice(start + 2)
+    const named = rows
+      .slice(
+        0,
+        rows.findIndex((line) => !line.startsWith('|')),
       )
-    }
+      .flatMap((row) => [...row.split('|')[1].matchAll(/`([^`]+)`/g)].map((m) => m[1]))
+    assert.deepEqual(named.sort(), [...PERMISSIONS, ...OPTIONAL_HOSTS].sort())
   })
 
   it('names the toolbar shortcut the manifest suggests', () => {
