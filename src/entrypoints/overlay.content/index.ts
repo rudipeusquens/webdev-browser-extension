@@ -1,6 +1,7 @@
 import styles from '@/assets/tailwind.css?inline'
 import { type App as VueApp, createApp } from 'vue'
 import { browser } from 'wxt/browser'
+import { ContentScriptContext } from 'wxt/utils/content-script-context'
 import { createShadowRootUi } from 'wxt/utils/content-script-ui/shadow-root'
 import { defineContentScript } from 'wxt/utils/define-content-script'
 import type { BackgroundMessage } from '@/lib/messages'
@@ -47,12 +48,33 @@ export default defineContentScript({
   registration: 'runtime',
   // CSS is passed inline: with 'ui' mode Chrome would block the stylesheet fetch.
   cssInjectionMode: 'manual',
+  // WXT would tell the page that a content script started, with the extension's id.
+  noScriptStartedPostMessage: true,
   // Everything lives inside main: WXT strips its body when it reads this file's options at
   // build time, and code outside it would be evaluated there.
-  async main(ctx) {
+  async main() {
+    /**
+     * WXT's context without its start signal: WXT's own takes a document event as the start
+     * of a newer script, and a page can fake that event to remove the overlay. A newer overlay
+     * stops this one through the content-script world instead, which the page cannot reach.
+     */
+    class OverlayContext extends ContentScriptContext {
+      override stopOldScripts() {}
+      override listenForNewerScripts() {}
+    }
+    const ctx = new OverlayContext('overlay', {
+      registration: 'runtime',
+      cssInjectionMode: 'manual',
+      noScriptStartedPostMessage: true,
+    })
+    // A symbol, not a name: a page's element ids show up as names on the window here too.
+    const STOP = Symbol.for('webdev-overlay:stop')
+    const world = globalThis as unknown as Record<symbol, (() => void) | undefined>
+    world[STOP]?.()
+    world[STOP] = () => ctx.notifyInvalidated()
     try {
       // Every injection mounts. A repeated injection (where the last overlay did not answer)
-      // starts a new context; WXT then invalidates the previous one, which removes its UI.
+      // stopped the previous one above, which removed its UI.
       const ui = await createShadowRootUi<VueApp>(ctx, {
         // A built-in element: a custom element name could be defined by the page first, which
         // then constructs the host and, through ElementInternals, reaches the closed shadow
@@ -101,8 +123,8 @@ export default defineContentScript({
         throw error
       }
       // After the extension is reloaded or updated, this script is orphaned: it cannot reach
-      // the extension anymore. WXT's interval notices (`browser.runtime.id` is gone) and
-      // invalidates the context, which removes the overlay.
+      // the extension anymore. The context's interval notices (`browser.runtime.id` is gone)
+      // and invalidates it, which removes the overlay.
       ctx.setInterval(() => undefined, 1000)
       globalThis.__webdevOverlay = { shadow: ui.shadow }
     } catch (error) {
