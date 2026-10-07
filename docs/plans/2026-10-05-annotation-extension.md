@@ -3865,6 +3865,149 @@ filtered, numbering reset when empty); `{ type: 'collection:empty-bin'; site: st
       **Step 2:** whole suite (`pnpm check`, `pnpm build`, `pnpm test:e2e`,
       `pnpm manifest:check`); **Step 3: commit** "Test the polished loop and update the docs".
 
+## Milestone 7a: Everyday fixes
+
+**Goal:** Close the gaps from earlier reviews that a developer meets in daily use: unsaved text
+that a click throws away, a hidden target's popover in the corner, the Pin chip stuck at the
+viewport edge, dictation that Ctrl+Z cannot undo, and the last site's list flashing after a
+site switch.
+
+**Planned on 2026-10-07** from the deferred minors of milestones 2–6b that are still open
+(checked against the code: overlapping pins, the pin of a hidden target, the highlight after
+the panel closes and a grown popover were fixed in milestones 3 and 4). Tasks 55–60; one pull
+request. Steps are test-first. The security review, the smoke checklist and the README stay in
+milestone 7.
+
+**Decisions:**
+
+- **Unsaved text stays:** the popover has unsaved changes when its comment differs from the
+  saved one (ignoring spaces at the ends; any text for a new pin) or a dictation runs or holds
+  a recording to retry. While it has, a click on another pin, an entry in the panel or a Go to
+  does not replace it: the popover says "Save or cancel this pin first." and takes the focus,
+  and the panel shows the refusal. `Esc` and Cancel still discard. Clicking the pin whose
+  popover is open, or its entry, keeps the popover as it is. Go to asks the overlay first
+  (`overlay:leave`, background → overlay, before `tab:go` navigates).
+- **A running overlay is not started again:** the toolbar, its shortcut, the context menu and
+  the panel's Annotate this page inject the overlay only when none answers on the tab
+  (`overlay:status`). A restart threw away the open popover, the mode and what was marked in
+  the session (live anchors).
+- **A hidden target's popover** (opened from the panel) sits in the middle of the viewport, a
+  third from the top, and its header says "hidden" instead of a size; no marking is drawn in
+  the corner. It moves next to the target once that is rendered.
+- **The Pin chip** shows only while the end of its selection is visible in the viewport and in
+  the boxes that clip it; it comes back when the selection is scrolled back. A release over a
+  pin offers the chip too; the delayed check is dropped when the mode changes or a popover
+  opens.
+- **Dictation:** the text goes in as an edit of the field (`insertText`), so `Ctrl+Z` takes it
+  out again; the guard is told in advance, as for a typed edit. No space after an opening
+  bracket or quote. A refused request (unknown model) offers **Open settings**. A dictation
+  ended by another one says "Another dictation started, this one ended." (also when it only
+  held a recording to retry).
+- **After a site switch** the panel's list is empty until the new site's pins are read, never
+  the last site's.
+
+**Known limits:** a reload or a navigation by the page itself still drops unsaved text (the
+overlay does not hold up the page's own navigation).
+
+**Review focus for this milestone** (each line has a test in the owning task):
+
+1. A popover with only spaces added, or an edit changed back to its saved text: not unsaved, a
+   click elsewhere replaces it as before (Task 55).
+2. `overlay:leave` and `overlay:status` from a page script or another extension: the overlay
+   answers the extension only; an overlay that does not answer (orphaned, none) is started
+   and Go to navigates (Task 55).
+3. A page that hides the target while its popover is open, and shows it again (Task 56).
+4. A selection inside a scroll container scrolled out of that container (Task 57).
+5. A page that edits the field while the dictated text goes in: the guard restores the user's
+   text and the dictated one (Task 58).
+
+### Task 55: Unsaved text stays
+
+**Files:**
+
+- Modify: `src/entrypoints/overlay.content/{CommentPopover,Overlay}.vue`, `src/lib/messages.ts`,
+  `src/entrypoints/background.ts`, `src/entrypoints/sidepanel/App.vue`
+- Test: `tests/unit/{comment-popover,messages,background,sidepanel-app}.test.ts`,
+  `tests/e2e/unsaved.e2e.test.ts` (new)
+
+**Interfaces:** CommentPopover emits `unsaved: [boolean]` and takes `nudge?: number` (focus
+the field when it changes); `{ type: 'overlay:leave' }` → `Reply`; the overlay's reply to
+`overlay:reveal` is ok when the pin is shown or will be once placed, and refuses while
+unsaved.
+
+- [ ] **Step 1: Write the failing tests:** the popover reports unsaved for new text, a changed
+      edit, a running dictation, not for spaces at the ends or an edit changed back; the
+      `overlay:leave` guard; Go to is refused while the overlay refuses and goes when no
+      overlay answers; the toolbar and the panel do not inject where an overlay answers; the
+      panel shows a refused reveal and a refused Go to and drops the pending jump. E2E: a new
+      pin with text survives a click on another pin, an entry, Go to, and the toolbar closing
+      and opening the panel; the popover says why; after `Esc` the click works.
+- [ ] **Step 2–4;** **Step 5: commit** "Keep unsaved text when something else asks for the
+      popover".
+
+### Task 56: A hidden target's popover
+
+**Files:**
+
+- Modify: `src/entrypoints/overlay.content/{place.ts,Overlay.vue}`
+- Test: `tests/unit/overlay-place.test.ts`, `tests/e2e/pins.e2e.test.ts`
+
+- [ ] **Step 1: Write the failing tests:** `placeNear` puts a popover for a target without a
+      box in the middle, a third from the top; E2E: an entry of a hidden element opens its
+      popover there with "hidden" in the header, no marking at the corner; showing the
+      element moves the popover next to it.
+- [ ] **Step 2–4;** **Step 5: commit** "Open a hidden target's popover in the middle".
+
+### Task 57: The Pin chip follows its selection
+
+**Files:**
+
+- Modify: `src/entrypoints/overlay.content/Overlay.vue`
+- Test: `tests/e2e/text-mode.e2e.test.ts`
+
+- [ ] **Step 1: Write the failing tests:** E2E: the chip goes when its selection scrolls out of
+      the viewport and comes back with it; a selection in a scroll container scrolled out of
+      it has no chip; a selection released over a pin gets its chip; a chip clicked, the popover
+      saved: no chip comes back for the old selection.
+- [ ] **Step 2–4;** **Step 5: commit** "Show the Pin chip only with its selection".
+
+### Task 58: Dictation fixes
+
+**Files:**
+
+- Modify: `src/entrypoints/overlay.content/{transcript.ts,comment-guard.ts,CommentPopover.vue}`,
+  `src/lib/voice/protocol.ts`
+- Test: `tests/unit/{overlay-transcript,comment-guard,comment-popover,voice-protocol}.test.ts`,
+  `tests/e2e/voice.e2e.test.ts`
+
+**Interfaces:** `insertTranscript` also returns `from`, `to` and `inserted`;
+`CommentGuard.expect(edit)` announces the overlay's own edit.
+
+- [ ] **Step 1: Write the failing tests:** no space after `(`, `[`, `{`, an opening quote;
+      `expect()` lets exactly that edit through; Open settings for a refused request; the
+      taken text. E2E: dictate, `Ctrl+Z` brings the text before the dictation back; a page
+      that edits the field meanwhile is still caught.
+- [ ] **Step 2–4;** **Step 5: commit** "Let Ctrl+Z undo a dictated text, and fix its
+      messages".
+
+### Task 59: The panel after a site switch
+
+**Files:**
+
+- Modify: `src/composables/use-site-collection.ts`
+- Test: `tests/unit/sidepanel-app.test.ts` or a new `tests/unit/use-site-collection.test.ts`
+
+- [ ] **Step 1: Write the failing test:** while the new site loads, the collection is null,
+      never the last site's.
+- [ ] **Step 2–4;** **Step 5: commit** "Show no list of the last site while the next loads".
+
+### Task 60: Docs and the whole suite
+
+- Modify: the spec (sections 8, 9, 10), `AGENTS.md`
+- [ ] **Step 1:** docs; **Step 2:** whole suite (`pnpm check`, `pnpm build`,
+      `pnpm test:e2e`, `pnpm manifest:check`); **Step 3: commit** "Describe the everyday
+      fixes".
+
 ## Milestone 7: Hardening and release readiness
 
 **Goal:** Independent security review, smoke checklist, user documentation.
