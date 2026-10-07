@@ -167,6 +167,13 @@ const press = (el: Element, init: KeyboardEventInit) =>
   el.dispatchEvent(
     trusted(new KeyboardEvent('keydown', { bubbles: true, cancelable: true, ...init })),
   )
+/** The user moves the caret with a key; the browser moves it after the key (fake timers). */
+async function placeCaret(field: HTMLTextAreaElement, at: number) {
+  await nextTick()
+  press(field, { key: 'ArrowLeft' })
+  field.setSelectionRange(at, at)
+  vi.advanceTimersByTime(0)
+}
 
 describe('CommentPopover: dictation', () => {
   let port: FakePort | undefined
@@ -288,7 +295,7 @@ describe('CommentPopover: dictation', () => {
 
   it('inserts the text at the caret, focuses the field and saves it', async () => {
     const { get, field, wrapper, receive } = open({ initial: 'Fix this, please' })
-    field().setSelectionRange(8, 8)
+    await placeCaret(field(), 8)
     click(get('overlay-mic').element)
     ;(get('overlay-mic').element as HTMLElement).focus()
     await receive({ state: 'done', text: 'and that', atLimit: false })
@@ -297,6 +304,30 @@ describe('CommentPopover: dictation', () => {
     expect(field().selectionStart).toBe(17)
     click(get('overlay-save').element)
     expect(wrapper.emitted('save')).toEqual([['Fix this and that, please']])
+  })
+
+  // A page's capture listeners can move the field's selection (execCommand, Selection.modify).
+  it('puts the dictated text where the user left the caret, not where the page moved it', async () => {
+    const { get, field, receive } = open({ initial: 'Fix this, please' })
+    await placeCaret(field(), 8)
+    field().setSelectionRange(0, 16)
+    click(get('overlay-mic').element)
+    await receive({ state: 'done', text: 'and that', atLimit: false })
+    expect(field().value).toBe('Fix this and that, please')
+  })
+
+  it("puts the user's selection back before a key when the page moved it", async () => {
+    const { field } = open({ initial: 'Fix this, please' })
+    await placeCaret(field(), 8)
+    field().setSelectionRange(0, 16)
+    press(field(), { key: 'x' })
+    expect([field().selectionStart, field().selectionEnd]).toEqual([8, 8])
+    // A key that moves the selection: what it moves to is the user's.
+    press(field(), { key: 'a', ctrlKey: true })
+    field().setSelectionRange(0, 16)
+    vi.advanceTimersByTime(0)
+    press(field(), { key: 'x' })
+    expect([field().selectionStart, field().selectionEnd]).toEqual([0, 16])
   })
 
   it('reports a running dictation and a held recording as unsaved', async () => {
@@ -315,7 +346,7 @@ describe('CommentPopover: dictation', () => {
 
   it('takes the dictated text out with Ctrl+Z and back with Ctrl+Shift+Z, until it is edited', async () => {
     const { get, field, receive, wrapper } = open({ initial: 'Fix this, please' })
-    field().setSelectionRange(8, 8)
+    await placeCaret(field(), 8)
     click(get('overlay-mic').element)
     await receive({ state: 'done', text: 'and that', atLimit: false })
     expect(field().value).toBe('Fix this and that, please')
@@ -485,7 +516,7 @@ describe('CommentPopover: dictation', () => {
 
   it('says when the dictation did not fit', async () => {
     const { get, field, receive } = open({ initial: 'x'.repeat(4995) })
-    field().setSelectionRange(4995, 4995)
+    await placeCaret(field(), 4995)
     click(get('overlay-mic').element)
     await receive({ state: 'done', text: 'more words than fit', atLimit: false })
     expect([...field().value]).toHaveLength(5000)

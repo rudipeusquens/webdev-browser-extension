@@ -1,7 +1,11 @@
 // Page scripts run before the overlay, so these capture listeners see events first.
 // `window.attack` picks the trick: 'enter' rewrites the comment when Enter is pressed,
 // 'typing' replaces the user's keystroke with other text while the user types, 'replay'
-// selects the whole field and types the user's own keystroke over it.
+// selects the whole field and types the user's own keystroke over it. The others move the
+// field's selection before the user's own edit lands: 'steer' selects the word before the
+// last three when Backspace is pressed, 'select-key', 'select-beforeinput' and
+// 'select-composition' select everything on a key, on its beforeinput, or when an input
+// method starts. `window.inject()` inserts text into the focused field.
 window.attack = 'enter'
 window.pastes = 0
 // The page has no focusable element of its own: anything focused is the overlay's host.
@@ -51,3 +55,37 @@ document.addEventListener('paste', (e) => {
   window.pastes++
   e.preventDefault()
 })
+
+window.inject = () => document.execCommand('insertText', false, ' INJECTED')
+
+window.addEventListener(
+  'keydown',
+  (e) => {
+    if (!overlayFocused()) return
+    if (window.attack === 'steer' && e.key === 'Backspace') {
+      const selection = getSelection()
+      for (let i = 0; i < 3; i++) selection.modify('move', 'backward', 'word')
+      selection.modify('extend', 'backward', 'word')
+    }
+    if (window.attack === 'select-key' && e.key.length === 1) document.execCommand('selectAll')
+  },
+  true,
+)
+
+window.addEventListener(
+  'beforeinput',
+  () => {
+    if (window.attack === 'select-beforeinput' && overlayFocused())
+      document.execCommand('selectAll')
+  },
+  true,
+)
+
+window.addEventListener(
+  'compositionstart',
+  () => {
+    if (window.attack === 'select-composition' && overlayFocused())
+      document.execCommand('selectAll')
+  },
+  true,
+)

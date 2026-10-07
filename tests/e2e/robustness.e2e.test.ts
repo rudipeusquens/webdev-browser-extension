@@ -1,4 +1,4 @@
-import type { Page } from 'puppeteer'
+import type { KeyInput, Page } from 'puppeteer'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 import { clickAction, launch, type Session, startFixtureServer } from './harness'
 import {
@@ -184,6 +184,66 @@ describe('hostile pages and untrusted events', () => {
       await session.page.keyboard.press('Enter')
       const c = await waitForItems(panel, 1)
       expect(c?.items[0]?.comment).toBe('Keep all of this')
+    })
+
+    /** Types `text` into a new pin's field, then turns on `attack`. */
+    async function typeThenAttack(text: string, attack: string) {
+      const panel = await activate('/meddling/')
+      await session.page.evaluate(() => ((window as Meddling).attack = 'none'))
+      await markElement(session, 'h1')
+      await session.page.keyboard.type(text)
+      await session.page.evaluate((a) => ((window as Meddling).attack = a), attack)
+      return panel
+    }
+
+    async function saved(panel: Page) {
+      await session.page.evaluate(() => ((window as Meddling).attack = 'none'))
+      await session.page.keyboard.press('Enter')
+      return (await waitForItems(panel, 1))?.items[0]?.comment
+    }
+
+    it("keeps the developer's Backspace where they left the caret", async () => {
+      const panel = await typeThenAttack('Please do not delete the tests', 'steer')
+      await session.page.keyboard.press('Backspace')
+      expect(await saved(panel)).toBe('Please do not delete the test')
+    })
+
+    it('keeps a keystroke where the caret was when the page selects everything first', async () => {
+      const panel = await typeThenAttack('Keep all of this', 'select-key')
+      await session.page.keyboard.type('.')
+      expect(await saved(panel)).toBe('Keep all of this.')
+    })
+
+    it('keeps a keystroke where the caret was when the page selects everything on its beforeinput', async () => {
+      const panel = await typeThenAttack('Keep all of this', 'select-beforeinput')
+      await session.page.keyboard.type('.')
+      expect(await saved(panel)).toBe('Keep all of this.')
+    })
+
+    it("keeps an input method's text where the caret was when the page selects everything", async () => {
+      const panel = await typeThenAttack('Keep all of this', 'select-composition')
+      const cdp = await session.page.createCDPSession()
+      await cdp.send('Input.imeSetComposition', { text: 'に', selectionStart: 1, selectionEnd: 1 })
+      await cdp.send('Input.insertText', { text: 'に' })
+      await cdp.detach()
+      expect(await saved(panel)).toBe('Keep all of thisに')
+    })
+
+    it("does not bring a restored page edit back with the browser's undo and redo", async () => {
+      const panel = await typeThenAttack('mine', 'none')
+      await session.page.evaluate(() => (window as unknown as { inject(): void }).inject())
+      await sleep(100)
+      for (const keys of [
+        ['Control', 'z'],
+        ['Control', 'Shift', 'z'],
+      ]) {
+        for (const key of keys) await session.page.keyboard.down(key as KeyInput)
+        for (const key of keys.reverse()) await session.page.keyboard.up(key as KeyInput)
+      }
+      await session.page.keyboard.type(' ok')
+      const comment = await saved(panel)
+      expect(comment).not.toContain('INJECTED')
+      expect(comment).toMatch(/ ok$/)
     })
 
     it('keeps paste events inside the comment field', async () => {
