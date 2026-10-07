@@ -43,7 +43,10 @@ const CHECKED_KEYS = new Set([
   'content_scripts',
   'web_accessible_resources',
   'externally_connectable',
+  'content_security_policy',
 ])
+// The extension's pages and its service worker connect to OpenRouter only (dictation).
+const CSP = "script-src 'self'; object-src 'self'; connect-src https://openrouter.ai"
 
 const same = (a = [], b) => JSON.stringify([...a].sort()) === JSON.stringify([...b].sort())
 
@@ -66,6 +69,9 @@ export function checkManifest(m) {
   // every extension could).
   if (JSON.stringify(m.externally_connectable) !== JSON.stringify({ ids: [] })) {
     errors.push('externally_connectable must be exactly { ids: [] }')
+  }
+  if (JSON.stringify(m.content_security_policy) !== JSON.stringify({ extension_pages: CSP })) {
+    errors.push(`content_security_policy must be exactly { extension_pages: "${CSP}" }`)
   }
   if (m.commands?._execute_action?.suggested_key?.default !== SHORTCUT) {
     errors.push(`_execute_action must suggest ${SHORTCUT}`)

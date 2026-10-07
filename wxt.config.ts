@@ -1,13 +1,17 @@
 import tailwindcss from '@tailwindcss/vite'
 import { defineConfig } from 'wxt'
 
+// The extension's pages and its service worker connect to OpenRouter only (dictation). Not in
+// the dev build: its reload runs over a socket to the dev server.
+const CSP = "script-src 'self'; object-src 'self'; connect-src https://openrouter.ai"
+
 export default defineConfig({
   srcDir: 'src',
   modules: ['@wxt-dev/module-vue'],
   // Explicit imports keep every module readable on its own.
   imports: false,
   vite: () => ({ plugins: [tailwindcss()] }),
-  manifest: {
+  manifest: ({ command }) => ({
     name: 'Webdev Browser Extension',
     description:
       'Mark elements, text and areas on a page and copy them as a prompt for an AI coding agent.',
@@ -30,5 +34,6 @@ export default defineConfig({
       // no suggested key that is one of its own shortcuts (Alt+Shift+A, Ctrl+K), silently.
       _execute_action: { suggested_key: { default: 'Ctrl+Shift+K' } },
     },
-  },
+    ...(command === 'build' && { content_security_policy: { extension_pages: CSP } }),
+  }),
 })

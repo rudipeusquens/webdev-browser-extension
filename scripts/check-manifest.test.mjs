@@ -20,6 +20,9 @@ const valid = () => ({
   commands: { _execute_action: { suggested_key: { default: 'Ctrl+Shift+K' } } },
   side_panel: { default_path: 'sidepanel.html' },
   externally_connectable: { ids: [] },
+  content_security_policy: {
+    extension_pages: "script-src 'self'; object-src 'self'; connect-src https://openrouter.ai",
+  },
 })
 
 describe('checkManifest', () => {
@@ -68,12 +71,24 @@ describe('checkManifest', () => {
     }
   })
 
-  it('rejects a custom content security policy', () => {
-    const m = {
-      ...valid(),
-      content_security_policy: { extension_pages: "script-src 'self' 'unsafe-eval'" },
+  it('requires the content security policy that connects to OpenRouter only', () => {
+    for (const policy of [
+      { extension_pages: "script-src 'self' 'unsafe-eval'" },
+      { extension_pages: "script-src 'self'; object-src 'self'" },
+      {
+        extension_pages:
+          "script-src 'self'; object-src 'self'; connect-src https://openrouter.ai https://x.test",
+      },
+      {
+        extension_pages: "script-src 'self'; object-src 'self'; connect-src https://openrouter.ai",
+        sandbox: "sandbox allow-scripts; script-src 'self' 'unsafe-eval'",
+      },
+      undefined,
+    ]) {
+      const m = { ...valid(), content_security_policy: policy }
+      if (policy === undefined) delete m.content_security_policy
+      assert.match(checkManifest(m).join('\n'), /content_security_policy/)
     }
-    assert.match(checkManifest(m).join('\n'), /content_security_policy/)
   })
 
   it('rejects any other unexpected top-level key', () => {

@@ -257,3 +257,32 @@ describe("the panel's layout", () => {
     await panel.click('[data-testid="close-settings"]')
   })
 })
+
+// The shipped build's content security policy: the extension's pages connect to OpenRouter
+// only. Blocked before any request leaves the browser.
+describe("the extension's pages", () => {
+  let session: Session
+
+  beforeAll(async () => {
+    session = await launch()
+  })
+
+  afterAll(async () => {
+    await session?.browser.close()
+  })
+
+  it('connect to nothing but OpenRouter', async () => {
+    const page = await session.browser.newPage()
+    await page.goto(`chrome-extension://${session.extensionId}/sidepanel.html`)
+    const blocked = await page.evaluate(
+      () =>
+        new Promise<string>((done) => {
+          document.addEventListener('securitypolicyviolation', (e) => done(e.effectiveDirective))
+          fetch('https://example.com/').catch(() => undefined)
+          setTimeout(() => done('no policy'), 3000)
+        }),
+    )
+    expect(blocked).toBe('connect-src')
+    await page.close()
+  })
+})
