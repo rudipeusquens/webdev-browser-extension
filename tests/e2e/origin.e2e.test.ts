@@ -95,8 +95,8 @@ describe('code origin on a Vue dev server', () => {
       formatCollection((await storedCollection(panel)) as unknown as Collection),
     )
     expect(clipboard).toContain(
-      `- Component: App (${file('App.vue')}) › SettingsPage (${file('pages/SettingsPage.vue')}) › ` +
-        `ProfileForm (${file('components/ProfileForm.vue')}:7)`,
+      `- Component: \`App\` (\`${file('App.vue')}\`) › \`SettingsPage\` (\`${file('pages/SettingsPage.vue')}\`) › ` +
+        `\`ProfileForm\` (\`${file('components/ProfileForm.vue')}:7\`)`,
     )
   })
 
@@ -177,7 +177,7 @@ describe('code origin from other pages', () => {
 
   it('saves every item quickly on a page that fakes its components (review focus 1)', async () => {
     await open('/fake-vue/')
-    const ids = ['throws', 'loops', 'huge', 'typed', 'fine', 'swapped']
+    const ids = ['throws', 'loops', 'huge', 'typed', 'fine', 'injected', 'swapped']
     for (const [i, id] of ids.entries()) {
       const started = Date.now()
       await markElement(session, `#${id}`)
@@ -196,9 +196,9 @@ describe('code origin from other pages', () => {
     expect(origins.huge).toBeUndefined()
     expect(origins.typed).toBeUndefined()
     expect(origins.loops?.chain).toHaveLength(5)
-    expect(origins.fine?.chain).toEqual([
-      { name: 'Fine', file: '/srv/app/src/Fine.vue ## Injected heading' },
-    ])
+    expect(origins.fine?.chain).toEqual([{ name: 'Fine', file: '/srv/app/src/Fine.vue' }])
+    // More than a source file's path: dropped.
+    expect(origins.injected).toBeUndefined()
     // The page answered for #swapped with another element: its data, cleaned like any other.
     expect(origins.swapped?.chain[0]?.name).toBe('Fine')
     const prompt = formatCollection(stored)

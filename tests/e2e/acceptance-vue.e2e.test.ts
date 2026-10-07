@@ -134,26 +134,26 @@ describe('a three-page session on a Vue app', () => {
       formatCollection((await storedCollection(panel)) as unknown as Collection),
     )
     expect(clipboard).not.toContain('not found when the page was last open')
-    const home = clipboard.indexOf(`## ${app.origin}/\n`)
-    const settings = clipboard.indexOf(`## ${app.origin}/settings\n`)
-    const about = clipboard.indexOf(`## ${app.origin}/about\n`)
+    const home = clipboard.indexOf(`## <${app.origin}/>\n`)
+    const settings = clipboard.indexOf(`## <${app.origin}/settings>\n`)
+    const about = clipboard.indexOf(`## <${app.origin}/about>\n`)
     expect(home).toBeGreaterThan(0)
     expect(settings).toBeGreaterThan(home)
     expect(about).toBeGreaterThan(settings)
     expect(clipboard).toContain('# UI feedback: 3 items on 3 pages')
-    expect(clipboard).toContain('Title: Shop · Settings')
+    expect(clipboard).toContain('Title: "Shop · Settings"')
     expect(clipboard).toContain(
-      `- Container: \`section.features\` · Component: FeatureGrid (${file('components/FeatureGrid.vue')})`,
+      `- Container: \`section.features\` · Component: \`FeatureGrid\` (\`${file('components/FeatureGrid.vue')}\`)`,
     )
-    expect(clipboard).toContain(`· FeatureCard (${file('components/FeatureCard.vue')})`)
+    expect(clipboard).toContain(`· \`FeatureCard\` (\`${file('components/FeatureCard.vue')}\`)`)
     expect(clipboard).toContain(
-      `- Component: App (${file('App.vue')}) › SettingsPage (${file('pages/SettingsPage.vue')}) › ` +
-        `ProfileForm (${file('components/ProfileForm.vue')}:7)`,
+      `- Component: \`App\` (\`${file('App.vue')}\`) › \`SettingsPage\` (\`${file('pages/SettingsPage.vue')}\`) › ` +
+        `\`ProfileForm\` (\`${file('components/ProfileForm.vue')}:7\`)`,
     )
     expect(clipboard).toContain(
       // 40 characters of context after the selection, then cut.
       `- Context: "We build **tools for people** who build the web, one small step at a …"`,
     )
-    expect(clipboard).toContain(`Component: AboutPage (${file('pages/AboutPage.vue')})`)
+    expect(clipboard).toContain(`Component: \`AboutPage\` (\`${file('pages/AboutPage.vue')}\`)`)
   })
 })

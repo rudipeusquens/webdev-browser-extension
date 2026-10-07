@@ -22,11 +22,26 @@ const cleaned = (x: unknown, max: number): string | undefined => {
   return isText(value, max, 1) ? value : undefined
 }
 
+// The page writes these: a name is an identifier (`SaveButton`, `el-button`), a file a path
+// of a source file in the characters paths use, so neither can carry a sentence that reads as
+// an instruction, even before the prompt puts it in a code span.
+const NAME = /^[\p{L}_$][\p{L}\p{N}_$.-]*$/u
+const FILE = /^(?:[A-Za-z]:)?[\p{L}\p{N}/\\._\-@()[\]+~ ]+\.(?:vue|astro|svelte|[cm]?[jt]sx?|mdx)$/u
+
+const nameOf = (x: unknown) => {
+  const name = cleaned(x, LIMITS.name)
+  return name && NAME.test(name) ? name : undefined
+}
+const fileOf = (x: unknown) => {
+  const file = cleaned(x, LIMITS.path)
+  return file && FILE.test(file) ? file : undefined
+}
+
 function entryOf(raw: unknown): Entry | null | undefined {
   if (!hasKeys(raw, [], ['name', 'file'])) return undefined
-  const file = cleaned(raw.file, LIMITS.path)
+  const file = fileOf(raw.file)
   if (!file) return null
-  const name = cleaned(raw.name, LIMITS.name)
+  const name = nameOf(raw.name)
   return name ? { name, file } : { file }
 }
 
@@ -52,7 +67,7 @@ const LINE = /^(\d{1,7})(?::\d{1,7})?$/
 
 /** An Astro source from `data-astro-source-file` and `data-astro-source-loc` (`line:col`). */
 export function astroSource(file: string | null, loc: string | null): CodeOrigin | undefined {
-  const path = cleaned(file, LIMITS.path)
+  const path = fileOf(file)
   if (!path) return undefined
   const line = Number(LINE.exec(loc ?? '')?.[1])
   return { framework: 'astro', chain: [line >= 1 ? { file: path, line } : { file: path }] }

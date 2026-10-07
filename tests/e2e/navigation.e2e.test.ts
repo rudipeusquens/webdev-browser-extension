@@ -99,8 +99,8 @@ describe('client-side navigation', () => {
     expect(await currentGroup()).toBe(url('b'))
 
     const prompt = formatCollection((await storedCollection(panel)) as unknown as Collection)
-    expect(prompt.indexOf(`## ${url('a')}`)).toBeGreaterThan(0)
-    expect(prompt.indexOf(`## ${url('a')}`)).toBeLessThan(prompt.indexOf(`## ${url('b')}`))
+    expect(prompt.indexOf(`## <${url('a')}>`)).toBeGreaterThan(0)
+    expect(prompt.indexOf(`## <${url('a')}>`)).toBeLessThan(prompt.indexOf(`## <${url('b')}>`))
 
     await session.page.goBack()
     await session.page.waitForSelector('#a-button')
