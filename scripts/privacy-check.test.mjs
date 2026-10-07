@@ -1,5 +1,10 @@
 import assert from 'node:assert/strict'
+import { execFileSync } from 'node:child_process'
+import { mkdtempSync, rmSync, writeFileSync } from 'node:fs'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
 import { describe, it } from 'node:test'
+import { fileURLToPath } from 'node:url'
 
 import {
   checkIdentity,
@@ -7,6 +12,7 @@ import {
   isAllowedEmail,
   maskEmail,
   parseDenylist,
+  pushedRanges,
   scanDiff,
   scanText,
 } from './privacy-check.mjs'
@@ -135,6 +141,27 @@ describe('scanDiff', () => {
     assert.equal(findings[0].location, 'commit 1234567 notes.md:11')
   })
 
+  it('applies the pattern rules and forbidden paths to the history too, not only the denylist', () => {
+    const diff = [
+      '\0commit 1234567890abcdef',
+      'diff --git a/notes.md b/notes.md',
+      '--- a/notes.md',
+      '+++ b/notes.md',
+      '@@ -0,0 +1,1 @@',
+      `+write to ${personalEmail}`,
+      'diff --git a/.env b/.env',
+      '--- /dev/null',
+      '+++ b/.env',
+      '@@ -0,0 +1,1 @@',
+      '+X=1',
+    ].join('\n')
+    const rules = scanDiff(diff, []).map((f) => `${f.rule} ${f.location}`)
+    assert.deepEqual(rules, [
+      'email commit 1234567 notes.md:1',
+      'forbidden-file commit 1234567 .env',
+    ])
+  })
+
   it('scans added lines that start with "++ " instead of taking them for a file header', () => {
     const { terms } = parseDenylist('Jane Doe', 'src')
     const diff = [
@@ -160,6 +187,11 @@ describe('checkPath', () => {
       'keys/extension.pem',
       'dist/extension.crx',
       'captures/session.har',
+      '.output/webdev-browser-extension-1.0.0-chrome.zip',
+      'release.zip',
+      '.output/chrome-mv3/manifest.json',
+      '.wxt/types/paths.d.ts',
+      '.superpowers/sdd/plan/progress.md',
     ]) {
       assert.equal(checkPath(path)?.rule, 'forbidden-file', path)
     }
@@ -181,5 +213,62 @@ describe('checkIdentity', () => {
   it('rejects personal addresses', () => {
     const finding = checkIdentity(`Jane <${personalEmail}> 1700000000 +0200`, 'author')
     assert.equal(finding?.rule, 'identity')
+  })
+})
+
+describe('pushedRanges', () => {
+  const zero = '0'.repeat(40)
+  const a = 'a'.repeat(40)
+  const b = 'b'.repeat(40)
+
+  it('takes the commits a push adds: since the remote, or all a new branch adds', () => {
+    const lines = [
+      `refs/heads/main ${b} refs/heads/main ${a}`,
+      `refs/heads/new ${b} refs/heads/new ${zero}`,
+      `(delete) ${zero} refs/heads/gone ${a}`,
+    ].join('\n')
+    assert.deepEqual(pushedRanges(lines), [
+      { refs: ['refs/heads/main', 'refs/heads/main'], revs: [`${a}..${b}`] },
+      { refs: ['refs/heads/new', 'refs/heads/new'], revs: [b, '--not', '--remotes'] },
+      { refs: ['(delete)', 'refs/heads/gone'], revs: [] },
+    ])
+  })
+})
+
+describe('--push', () => {
+  const script = fileURLToPath(new URL('./privacy-check.mjs', import.meta.url))
+
+  it('refuses a commit whose committer is not a noreply address, also one made by a rebase', () => {
+    const dir = mkdtempSync(join(tmpdir(), 'privacy-push-'))
+    try {
+      const run = (args, env = {}) =>
+        execFileSync('git', args, {
+          cwd: dir,
+          encoding: 'utf8',
+          env: { ...process.env, ...env },
+        }).trim()
+      const noreply = at('1+dev', 'users.noreply.github.com')
+      run(['init', '-q', '-b', 'main'])
+      run(['config', 'user.name', 'Dev'])
+      run(['config', 'user.email', noreply])
+      writeFileSync(join(dir, 'a.txt'), 'a\n')
+      run(['add', 'a.txt'])
+      run(['commit', '-q', '-m', 'First'])
+      const good = run(['rev-parse', 'HEAD'])
+      const push = (sha) =>
+        execFileSync(process.execPath, [script, '--push', 'origin', 'url'], {
+          cwd: dir,
+          input: `refs/heads/main ${sha} refs/heads/main ${'0'.repeat(40)}\n`,
+          stdio: ['pipe', 'pipe', 'pipe'],
+        })
+      assert.doesNotThrow(() => push(good))
+      // A rebase writes the committer it finds configured, and runs no pre-commit hook.
+      run(['commit', '-q', '--amend', '-m', 'First, reworded'], {
+        GIT_COMMITTER_EMAIL: personalEmail,
+      })
+      assert.throws(() => push(run(['rev-parse', 'HEAD'])))
+    } finally {
+      rmSync(dir, { recursive: true, force: true })
+    }
   })
 })
