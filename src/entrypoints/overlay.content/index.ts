@@ -6,6 +6,7 @@ import { createShadowRootUi } from 'wxt/utils/content-script-ui/shadow-root'
 import { defineContentScript } from 'wxt/utils/define-content-script'
 import type { BackgroundMessage } from '@/lib/messages'
 import Overlay from './Overlay.vue'
+import { overlayCss } from './overlay-css'
 import { keepOnTop } from './top-layer'
 
 // Stopped at the shadow root, so page listeners in the bubble phase never see what happens
@@ -85,10 +86,7 @@ export default defineContentScript({
         anchor: 'body',
         append: 'last',
         mode: 'closed',
-        // WXT moves @property rules into the page's <head>, where they would also apply to the
-        // page's own --tw-* variables (`inherits: false` breaks inheritance). Ours get a name
-        // no page uses.
-        css: styles.replaceAll(':root', ':host').replaceAll('--tw-', '--webdev-tw-'),
+        css: overlayCss(styles),
         isolateEvents: ISOLATED_EVENTS,
         onMount(container, shadow, host) {
           const layer = keepOnTop(host, shadow)

@@ -1,6 +1,6 @@
 import type { Page } from 'puppeteer'
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest'
-import { clickAction, launch, type Session, startFixtureServer } from './harness'
+import { clickAction, contentRealm, launch, type Session, startFixtureServer } from './harness'
 import {
   centerOf,
   clickInOverlay,
@@ -180,6 +180,56 @@ describe('overlay under a page cover', () => {
     await sleep(500)
     await clickInOverlay(session, '[data-testid="overlay-save"]')
     await waitForItems(panel, 1)
+  })
+
+  // Custom properties and `direction` are what `all: initial` on the host leaves inheritable.
+  it('keeps its look when the page sets what the overlay inherits on its host', async () => {
+    await markElement(session, 'h1')
+    await session.page.keyboard.type('Wider')
+    const realm = await contentRealm(session)
+    const look = () =>
+      realm.evaluate(() => {
+        const shadow = globalThis.__webdevOverlay?.shadow
+        const parts = ['overlay-popover', 'overlay-comment', 'overlay-mic', 'overlay-save']
+        return parts.map((id) => {
+          const el = shadow?.querySelector(`[data-testid="${id}"]`)
+          if (!el) return null
+          const s = getComputedStyle(el)
+          const r = el.getBoundingClientRect()
+          return {
+            id,
+            box: [r.x, r.y, r.width, r.height].map(Math.round),
+            css: [
+              s.backgroundColor,
+              s.color,
+              s.borderTopColor,
+              s.boxShadow,
+              s.fontSize,
+              s.direction,
+            ],
+          }
+        })
+      })
+    const names = await realm.evaluate(() => {
+      const css = [...(globalThis.__webdevOverlay?.shadow?.querySelectorAll('style') ?? [])]
+        .map((style) => style.textContent)
+        .join('')
+      return [...new Set(css.match(/--[\w-]+/g))]
+    })
+    const before = await look()
+    await session.page.evaluate((names) => {
+      const host = document.querySelector('[data-e2e-host]') as HTMLElement
+      for (const name of names) host.style.setProperty(name, 'transparent', 'important')
+      host.style.setProperty('direction', 'rtl', 'important')
+      host.style.setProperty('zoom', '0.5', 'important')
+      // Without the registrations in the head, Tailwind's variables would inherit.
+      for (const style of document.head.querySelectorAll('style')) {
+        if (style.textContent?.includes('@property')) style.remove()
+      }
+    }, names)
+    await sleep(200)
+    expect(names.length).toBeGreaterThan(50)
+    expect(await look()).toEqual(before)
   })
 
   it('shows its host again when the page hides it', async () => {
