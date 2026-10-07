@@ -12,6 +12,8 @@ export default defineConfig({
     description:
       'Mark elements, text and areas on a page and copy them as a prompt for an AI coding agent.',
     minimum_chrome_version: '116',
+    // No other extension and no page may message the extension.
+    externally_connectable: { ids: [] },
     permissions: [
       'activeTab',
       'scripting',

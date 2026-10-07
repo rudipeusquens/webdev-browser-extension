@@ -220,7 +220,7 @@ function say(text: string) {
 
 function toOverlay(message: OverlayMessage) {
   if (tabId.value === undefined) return
-  browser.tabs.sendMessage(tabId.value, message).catch(() => undefined)
+  browser.tabs.sendMessage(tabId.value, message, { frameId: 0 }).catch(() => undefined)
 }
 
 /**
@@ -369,7 +369,9 @@ function jumpTo(pageKey: string, id: string) {
 async function showPin(id: string) {
   if (tabId.value === undefined) return
   const message: OverlayMessage = { type: 'overlay:reveal', id }
-  const reply: unknown = await browser.tabs.sendMessage(tabId.value, message).catch(() => undefined)
+  const reply: unknown = await browser.tabs
+    .sendMessage(tabId.value, message, { frameId: 0 })
+    .catch(() => undefined)
   if (isObject(reply) && reply.ok === false) panelError.value = UNSAVED_PIN
   else if (isObject(reply) && reply.ok === true) panelError.value = ''
 }

@@ -7,9 +7,13 @@ type Clicked = (info: Browser.contextMenus.OnClickData, tab?: Browser.tabs.Tab) 
 
 /**
  * Context menu entries and clicks on them, as Chrome 116 has them: WXT's fake browser does not
- * implement them.
+ * implement them. With `later`, the callbacks run in a later task, as Chrome runs them.
  */
-export function fakeContextMenus() {
+export function fakeContextMenus({ later = false } = {}) {
+  const call = (callback?: () => void) => {
+    if (later) setTimeout(() => callback?.())
+    else callback?.()
+  }
   const listeners: Clicked[] = []
   const state = {
     entries: new Map<string | number, Entry>(),
@@ -28,14 +32,14 @@ export function fakeContextMenus() {
     const id = properties.id ?? state.entries.size
     if (state.entries.has(id)) state.duplicates.push(id)
     else state.entries.set(id, properties)
-    callback?.()
+    call(callback)
     return id
   }) as never)
   // Callbacks only, no promise: Chrome returns promises here from version 123 on, the
   // manifest allows 116.
   vi.spyOn(fakeBrowser.contextMenus, 'removeAll').mockImplementation(((callback?: () => void) => {
     state.entries.clear()
-    callback?.()
+    call(callback)
   }) as never)
   vi.spyOn(fakeBrowser.contextMenus.onClicked, 'addListener').mockImplementation(((
     listener: Clicked,

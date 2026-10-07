@@ -96,6 +96,23 @@ describe('side panel', () => {
     vi.restoreAllMocks()
   })
 
+  it('asks only the top frame of the tab, and believes no overlay of another site', async () => {
+    overlayReply = active
+    await render(twoPages())
+    const calls = vi.mocked(fakeBrowser.tabs.sendMessage).mock.calls
+    expect(calls.length).toBeGreaterThan(0)
+    for (const call of calls) expect(call[2]).toEqual({ frameId: 0 })
+    expect(byTestId('title-site').textContent?.trim()).toBe('localhost:3000')
+    // The tab shows another site than the overlay claims: the panel takes the tab's word.
+    vi.mocked(fakeBrowser.tabs.query).mockResolvedValue([
+      { id: 1, url: 'https://other.example.com/page' },
+    ] as never)
+    await fakeBrowser.tabs.onActivated.trigger({ tabId: 1, windowId: 1 })
+    await flushPromises()
+    expect(byTestId('site-pill').dataset.state).toBe('idle')
+    expect(body()).not.toContain('First on A')
+  })
+
   it('shows the empty state and disabled buttons', async () => {
     overlayReply = active
     await render()
@@ -634,7 +651,7 @@ describe('side panel', () => {
         () => undefined,
       )
       await flushPromises()
-      expect(reveal()).toEqual([[1, { type: 'overlay:reveal', id: 'a1' }]])
+      expect(reveal()).toEqual([[1, { type: 'overlay:reveal', id: 'a1' }, { frameId: 0 }]])
       // Once only.
       await fakeBrowser.tabs.onActivated.trigger({ tabId: 1, windowId: 1 })
       await flushPromises()
@@ -1199,10 +1216,11 @@ describe('side panel', () => {
     await render()
     byTestId('mode-element').click()
     await flushPromises()
-    expect(fakeBrowser.tabs.sendMessage).toHaveBeenCalledWith(1, {
-      type: 'overlay:set-mode',
-      mode: 'element',
-    })
+    expect(fakeBrowser.tabs.sendMessage).toHaveBeenCalledWith(
+      1,
+      { type: 'overlay:set-mode', mode: 'element' },
+      { frameId: 0 },
+    )
   })
 
   it('switches to area mode from the panel', async () => {
@@ -1210,10 +1228,11 @@ describe('side panel', () => {
     await render()
     byTestId('mode-area').click()
     await flushPromises()
-    expect(fakeBrowser.tabs.sendMessage).toHaveBeenCalledWith(1, {
-      type: 'overlay:set-mode',
-      mode: 'area',
-    })
+    expect(fakeBrowser.tabs.sendMessage).toHaveBeenCalledWith(
+      1,
+      { type: 'overlay:set-mode', mode: 'area' },
+      { frameId: 0 },
+    )
   })
 
   it('disables the mode switch while the page is not active', async () => {
@@ -1229,10 +1248,11 @@ describe('side panel', () => {
     expect(toggle.getAttribute('aria-pressed')).toBe('true')
     toggle.click()
     await flushPromises()
-    expect(fakeBrowser.tabs.sendMessage).toHaveBeenCalledWith(1, {
-      type: 'overlay:set-pins',
-      visible: false,
-    })
+    expect(fakeBrowser.tabs.sendMessage).toHaveBeenCalledWith(
+      1,
+      { type: 'overlay:set-pins', visible: false },
+      { frameId: 0 },
+    )
     // The overlay hid them and tells the panel.
     overlayReply = { ...active, pins: false }
     await fakeBrowser.runtime.onMessage.trigger(
@@ -1244,10 +1264,11 @@ describe('side panel', () => {
     expect(toggle.getAttribute('aria-pressed')).toBe('false')
     toggle.click()
     await flushPromises()
-    expect(fakeBrowser.tabs.sendMessage).toHaveBeenCalledWith(1, {
-      type: 'overlay:set-pins',
-      visible: true,
-    })
+    expect(fakeBrowser.tabs.sendMessage).toHaveBeenCalledWith(
+      1,
+      { type: 'overlay:set-pins', visible: true },
+      { frameId: 0 },
+    )
   })
 
   describe('sites', () => {
@@ -1431,7 +1452,7 @@ describe('side panel', () => {
     }) as never)
     overlayReply = active
     await render()
-    expect(connect).toHaveBeenCalledWith(1, { name: 'panel' })
+    expect(connect).toHaveBeenCalledWith(1, { name: 'panel', frameId: 0 })
     // A second toolbar click: a new overlay on the same tab tells the panel.
     overlayReply = { ...active, instance: 'two' }
     await fakeBrowser.runtime.onMessage.trigger(
@@ -1460,7 +1481,7 @@ describe('side panel', () => {
     overlayReply = { ...active, instance: 'two' }
     await fakeBrowser.tabs.onActivated.trigger({ tabId: 2, windowId: 1 })
     await flushPromises()
-    expect(connect).toHaveBeenLastCalledWith(2, { name: 'panel' })
+    expect(connect).toHaveBeenLastCalledWith(2, { name: 'panel', frameId: 0 })
     expect(ports[0]?.postMessage).toHaveBeenCalledWith({ type: 'panel:away' })
     // Kept: when the panel closes, this overlay goes back to Browse too.
     expect(ports[0]?.disconnect).not.toHaveBeenCalled()
@@ -1492,14 +1513,14 @@ describe('side panel', () => {
       await render()
       await announce({ id: 3, windowId: 7 })
       await flushPromises()
-      expect(connect).toHaveBeenCalledWith(3, { name: 'panel' })
+      expect(connect).toHaveBeenCalledWith(3, { name: 'panel', frameId: 0 })
     })
 
     it('leaves the overlays of other windows to their own panel', async () => {
       await render()
       await announce({ id: 3, windowId: 8 })
       await flushPromises()
-      expect(connect).not.toHaveBeenCalledWith(3, { name: 'panel' })
+      expect(connect).not.toHaveBeenCalledWith(3, { name: 'panel', frameId: 0 })
     })
 
     it('finds the overlays already running in its window when it opens', async () => {
@@ -1510,8 +1531,8 @@ describe('side panel', () => {
         return { ...active, instance: 'three' }
       }) as never)
       await render()
-      expect(connect).toHaveBeenCalledWith(3, { name: 'panel' })
-      expect(connect).not.toHaveBeenCalledWith(1, { name: 'panel' })
+      expect(connect).toHaveBeenCalledWith(3, { name: 'panel', frameId: 0 })
+      expect(connect).not.toHaveBeenCalledWith(1, { name: 'panel', frameId: 0 })
     })
   })
 

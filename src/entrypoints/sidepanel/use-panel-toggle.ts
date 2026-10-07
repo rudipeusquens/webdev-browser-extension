@@ -7,7 +7,9 @@ import { isOverlayStatus, isPanelToggle, type PanelToggleReply } from '@/lib/mes
 
 /** Whether an overlay answers on `tabId` now. */
 const activeOn = (tabId: number): Promise<boolean> =>
-  browser.tabs.sendMessage(tabId, { type: 'overlay:status' }).then(isOverlayStatus, () => false)
+  browser.tabs
+    .sendMessage(tabId, { type: 'overlay:status' }, { frameId: 0 })
+    .then(isOverlayStatus, () => false)
 
 export function usePanelToggle(windowId: Ref<number | undefined>): void {
   const onMessage = (

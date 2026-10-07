@@ -50,7 +50,7 @@ export function useOverlayLines(
     lastPointed.delete(tab)
     if (open && tab === shownTab) pointed.value = NOTHING
     try {
-      const port = browser.tabs.connect(tab, { name: 'panel' })
+      const port = browser.tabs.connect(tab, { name: 'panel', frameId: 0 })
       // The tab navigated or closed.
       port.onDisconnect.addListener(() => {
         if (lines.get(tab)?.port !== port) return

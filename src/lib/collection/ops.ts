@@ -48,7 +48,8 @@ export function addAnnotation(c: Collection, input: NewAnnotation, now: string):
   return {
     ...c,
     nextNumber: c.nextNumber + 1,
-    pages: { ...c.pages, [key]: input.page },
+    // The address as its key: no credentials or fragment, whoever sent it (spec section 5).
+    pages: { ...c.pages, [key]: { ...input.page, url: key } },
     items: [...c.items, item],
   }
 }

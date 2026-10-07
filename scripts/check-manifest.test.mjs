@@ -18,6 +18,7 @@ const valid = () => ({
   optional_host_permissions: ['https://*/*', 'http://*/*'],
   commands: { _execute_action: { suggested_key: { default: 'Ctrl+Shift+K' } } },
   side_panel: { default_path: 'sidepanel.html' },
+  externally_connectable: { ids: [] },
 })
 
 describe('checkManifest', () => {
@@ -53,9 +54,17 @@ describe('checkManifest', () => {
     assert.match(checkManifest(m).join('\n'), /optional_permissions/)
   })
 
-  it('rejects externally_connectable (only own contexts may message the background)', () => {
-    const m = { ...valid(), externally_connectable: { matches: ['https://*/*'] } }
-    assert.match(checkManifest(m).join('\n'), /externally_connectable/)
+  it('lets no other extension or page message the extension (externally_connectable)', () => {
+    for (const externally of [
+      { ids: [], matches: ['https://*/*'] },
+      { ids: ['*'] },
+      { matches: ['https://*/*'] },
+      undefined,
+    ]) {
+      const m = { ...valid(), externally_connectable: externally }
+      if (externally === undefined) delete m.externally_connectable
+      assert.match(checkManifest(m).join('\n'), /externally_connectable/)
+    }
   })
 
   it('rejects a custom content security policy', () => {

@@ -3,7 +3,7 @@
 // (src/lib/voice/settings.ts, src/lib/voice/key.ts).
 
 import { browser } from 'wxt/browser'
-import { hasKeys, isObject, isText } from './collection/validate'
+import { isObject, isText } from './collection/validate'
 
 export interface Settings {
   /** Sites whose pages load the overlay by themselves: mirrors granted host permissions. */
@@ -50,17 +50,6 @@ function isOrigins(x: unknown): x is string[] {
     x.length <= MAX_SITES &&
     x.every(isSiteOrigin) &&
     new Set(x).size === x.length
-  )
-}
-
-/** Settings as stored: the options came with milestone 6b and may be missing. */
-export function isSettings(
-  x: unknown,
-): x is Partial<Settings> & Pick<Settings, 'rememberedOrigins'> {
-  return (
-    hasKeys(x, ['rememberedOrigins'], [...OPTIONS]) &&
-    isOrigins(x.rememberedOrigins) &&
-    OPTIONS.every((option) => x[option] === undefined || typeof x[option] === 'boolean')
   )
 }
 

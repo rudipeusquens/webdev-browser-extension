@@ -35,7 +35,12 @@ const ALLOWED_KEYS = new Set([
   'version',
 ])
 // Keys with a specific message below; listed here so they are not reported twice.
-const CHECKED_KEYS = new Set(['host_permissions', 'content_scripts', 'web_accessible_resources'])
+const CHECKED_KEYS = new Set([
+  'host_permissions',
+  'content_scripts',
+  'web_accessible_resources',
+  'externally_connectable',
+])
 
 const same = (a = [], b) => JSON.stringify([...a].sort()) === JSON.stringify([...b].sort())
 
@@ -54,6 +59,11 @@ export function checkManifest(m) {
     errors.push('content_scripts must be absent (runtime injection only)')
   }
   if (m.web_accessible_resources?.length) errors.push('web_accessible_resources must be absent')
+  // Declared empty: no other extension and no page may message the extension (without the key,
+  // every extension could).
+  if (JSON.stringify(m.externally_connectable) !== JSON.stringify({ ids: [] })) {
+    errors.push('externally_connectable must be exactly { ids: [] }')
+  }
   if (m.commands?._execute_action?.suggested_key?.default !== SHORTCUT) {
     errors.push(`_execute_action must suggest ${SHORTCUT}`)
   }

@@ -4,6 +4,7 @@
 import { onBeforeUnmount, onMounted, type Ref, ref } from 'vue'
 import { browser } from 'wxt/browser'
 import { BLOCKED_PREFIX, FAILED_PREFIX, isBlocked, isFailed } from '@/lib/background/tab-status'
+import { siteOf } from '@/lib/collection/site'
 import { isOverlayStatus, isPanelMessage, type Mode } from '@/lib/messages'
 
 /**
@@ -15,6 +16,14 @@ export type TabStatus =
   | { kind: 'blocked'; url?: string }
   | { kind: 'failed'; url?: string }
   | { kind: 'idle'; url?: string }
+
+function sameSite(url: string, pageKey: string): boolean {
+  try {
+    return siteOf(url) === siteOf(pageKey)
+  } catch {
+    return false
+  }
+}
 
 export function useActiveTab(): {
   tabId: Ref<number | undefined>
@@ -35,8 +44,13 @@ export function useActiveTab(): {
     const url = tab?.url || undefined
     let next: TabStatus = { kind: 'idle', url }
     if (id !== undefined) {
-      const reply = await browser.tabs.sendMessage(id, { type: 'overlay:status' }).catch(() => {})
-      if (isOverlayStatus(reply)) next = { kind: 'active', ...reply }
+      const reply = await browser.tabs
+        .sendMessage(id, { type: 'overlay:status' }, { frameId: 0 })
+        .catch(() => {})
+      // Where Chrome tells the tab's address, an overlay that names another site is not this
+      // tab's (it is going away, or it lies): the panel shows and acts on the tab's site only.
+      const ours = isOverlayStatus(reply) && (!url || sameSite(url, reply.pageKey))
+      if (ours) next = { kind: 'active', ...reply }
       else if (await isBlocked(id)) next = { kind: 'blocked', url }
       else if (await isFailed(id)) next = { kind: 'failed', url }
     }

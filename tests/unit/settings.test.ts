@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, it } from 'vitest'
 import { fakeBrowser } from 'wxt/testing/fake-browser'
-import { isSettings, isSiteOrigin, loadSettings, originPattern, SETTINGS_KEY } from '@/lib/settings'
+import { isSiteOrigin, loadSettings, originPattern, SETTINGS_KEY } from '@/lib/settings'
 
 describe('isSiteOrigin', () => {
   it.each(['http://localhost:3000', 'https://example.com', 'http://127.0.0.1:8080'])(
@@ -27,27 +27,6 @@ describe('isSiteOrigin', () => {
 describe('originPattern', () => {
   it('matches every page of the origin', () => {
     expect(originPattern('http://localhost:3000')).toBe('http://localhost:3000/*')
-  })
-})
-
-describe('isSettings', () => {
-  it('accepts remembered site origins, sorted and unique', () => {
-    expect(isSettings({ rememberedOrigins: [] })).toBe(true)
-    expect(isSettings({ rememberedOrigins: ['http://a.test', 'http://b.test'] })).toBe(true)
-    expect(isSettings({ rememberedOrigins: [], pageTitles: true, contextMenu: false })).toBe(true)
-  })
-
-  it('rejects duplicates, invalid origins, more than 100 and extra keys', () => {
-    expect(isSettings({ rememberedOrigins: ['http://a.test', 'http://a.test'] })).toBe(false)
-    expect(isSettings({ rememberedOrigins: ['http://a.test/'] })).toBe(false)
-    expect(
-      isSettings({
-        rememberedOrigins: Array.from({ length: 101 }, (_, i) => `http://s${i}.test`),
-      }),
-    ).toBe(false)
-    expect(isSettings({ rememberedOrigins: [], extra: 1 })).toBe(false)
-    expect(isSettings({ rememberedOrigins: [], pageTitles: 'yes' })).toBe(false)
-    expect(isSettings(null)).toBe(false)
   })
 })
 
