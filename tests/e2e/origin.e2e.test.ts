@@ -89,7 +89,7 @@ describe('code origin on a Vue dev server', () => {
     } satisfies CodeOrigin)
 
     await panel.click('[data-testid="copy-prompt"]')
-    await panel.waitForSelector('::-p-text(Copied 1 item)')
+    await panel.waitForSelector('::-p-text(Copied 1 pin)')
     const clipboard = await panel.evaluate(() => navigator.clipboard.readText())
     expect(clipboard).toBe(
       formatCollection((await storedCollection(panel)) as unknown as Collection),

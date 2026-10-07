@@ -3,18 +3,30 @@
 // (src/lib/voice/settings.ts, src/lib/voice/key.ts).
 
 import { browser } from 'wxt/browser'
-import { hasKeys, isText } from './collection/validate'
+import { hasKeys, isObject, isText } from './collection/validate'
 
 export interface Settings {
   /** Sites whose pages load the overlay by themselves: mirrors granted host permissions. */
   rememberedOrigins: string[]
+  /** Page headings in the panel show the page's title next to its path. */
+  pageTitles: boolean
+  /** "Annotate this page" in the page's context menu. */
+  contextMenu: boolean
 }
+
+/** The settings the panel switches on and off. */
+export type Option = 'pageTitles' | 'contextMenu'
+export const OPTIONS: readonly Option[] = ['pageTitles', 'contextMenu']
 
 export const SETTINGS_KEY = 'settings'
 /** Most remembered sites: one registered script lists them all. */
 export const MAX_SITES = 100
 
-export const defaultSettings = (): Settings => ({ rememberedOrigins: [] })
+export const defaultSettings = (): Settings => ({
+  rememberedOrigins: [],
+  pageTitles: false,
+  contextMenu: false,
+})
 
 /** An `http:` or `https:` origin as `URL.origin` writes it: no path, user, default port. */
 export function isSiteOrigin(x: unknown): x is string {
@@ -30,17 +42,37 @@ export function isSiteOrigin(x: unknown): x is string {
 /** The match pattern for every page of `origin`. */
 export const originPattern = (origin: string) => `${origin}/*`
 
-export function isSettings(x: unknown): x is Settings {
+export const isOption = (x: unknown): x is Option => OPTIONS.includes(x as Option)
+
+function isOrigins(x: unknown): x is string[] {
   return (
-    hasKeys(x, ['rememberedOrigins']) &&
-    Array.isArray(x.rememberedOrigins) &&
-    x.rememberedOrigins.length <= MAX_SITES &&
-    x.rememberedOrigins.every(isSiteOrigin) &&
-    new Set(x.rememberedOrigins).size === x.rememberedOrigins.length
+    Array.isArray(x) &&
+    x.length <= MAX_SITES &&
+    x.every(isSiteOrigin) &&
+    new Set(x).size === x.length
   )
 }
 
-const parse = (value: unknown): Settings => (isSettings(value) ? value : defaultSettings())
+/** Settings as stored: the options came with milestone 6b and may be missing. */
+export function isSettings(
+  x: unknown,
+): x is Partial<Settings> & Pick<Settings, 'rememberedOrigins'> {
+  return (
+    hasKeys(x, ['rememberedOrigins'], [...OPTIONS]) &&
+    isOrigins(x.rememberedOrigins) &&
+    OPTIONS.every((option) => x[option] === undefined || typeof x[option] === 'boolean')
+  )
+}
+
+/** What is stored, each part on its own: an option it cannot read is off. */
+function parse(value: unknown): Settings {
+  const fields = isObject(value) ? value : {}
+  return {
+    rememberedOrigins: isOrigins(fields.rememberedOrigins) ? fields.rememberedOrigins : [],
+    pageTitles: fields.pageTitles === true,
+    contextMenu: fields.contextMenu === true,
+  }
+}
 
 export async function loadSettings(): Promise<Settings> {
   const stored = await browser.storage.local.get(SETTINGS_KEY)

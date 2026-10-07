@@ -1,0 +1,31 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <title>Body scroller fixture</title>
+    <style>
+      /* App shells often scroll the body itself, with the root fixed to the viewport. */
+      html {
+        overflow: hidden;
+        height: 100%;
+      }
+      body {
+        margin: 0;
+        height: 100%;
+        overflow-y: auto;
+        font-family: sans-serif;
+      }
+      #free {
+        margin: 40px;
+        height: 100px;
+      }
+      .tall {
+        height: 5000px;
+      }
+    </style>
+  </head>
+  <body>
+    <div id="free">Anywhere on the page</div>
+    <div class="tall"></div>
+  </body>
+</html>

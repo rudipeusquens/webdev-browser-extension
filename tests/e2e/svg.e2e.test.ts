@@ -23,7 +23,7 @@ describe('pages with SVG and MathML', () => {
     await session.page.goto(`${server.origin}/svg/`)
     const panel = await clickAction(session)
     await overlayMounted(session)
-    await panel.waitForSelector('::-p-text(Active on localhost:)')
+    await panel.waitForSelector('[data-testid="site-pill"][data-state="active"]')
   })
 
   it('marks an element inside an SVG drawing', async () => {

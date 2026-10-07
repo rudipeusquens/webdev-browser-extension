@@ -1,20 +1,14 @@
 // The panel's voice settings and the API key (spec sections 8 and 9). Only the panel may
 // change them: the background checks the sender's URL, not just that it has no tab.
 
-import { browser, type Browser } from 'wxt/browser'
+import { browser } from 'wxt/browser'
 import type { KeyChanged, KeyTestReply, Reply, VoiceSettingsMessage } from '../messages'
 import { deleteKey, loadKey, storeKey } from '../voice/key'
 import { checkKey, VoiceFailure } from '../voice/openrouter'
 import { VOICE_KEY } from '../voice/settings'
 
 /** A message from the extension's side panel. */
-export function isPanelSender(sender: Browser.runtime.MessageSender): boolean {
-  return (
-    !sender.tab &&
-    sender.id === browser.runtime.id &&
-    sender.url === browser.runtime.getURL('/sidepanel.html')
-  )
-}
+export { isPanelSender } from './senders'
 
 export async function testKey(check = checkKey): Promise<KeyTestReply> {
   const key = await loadKey()

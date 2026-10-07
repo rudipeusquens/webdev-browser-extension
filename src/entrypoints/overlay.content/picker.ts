@@ -74,17 +74,44 @@ export function forwardsWheel(e: Pick<WheelEvent, 'ctrlKey' | 'metaKey'>): boole
   return !e.ctrlKey && !e.metaKey
 }
 
-/** The nearest ancestor that scrolls on `axis`, else the document's scrolling element. */
-export function scrollableAncestor(el: Element | null, vertical: boolean): Element | null {
-  let node = el
+/**
+ * What a wheel turn scrolls: a scroll container (scrolled by the overlay), `'page'` (the
+ * browser scrolls the document under the glass by itself) or null (nothing scrolls).
+ */
+export type WheelTarget = Element | 'page' | null
+
+/** An overflow that is `visible`; happy-dom (unit tests) leaves an unset one empty. */
+const isVisible = (overflow: string) => overflow === 'visible' || overflow === ''
+
+/**
+ * Where a wheel turn of `delta` pixels on one axis goes, as the browser would send it if the
+ * glass were not there: the nearest scroll container around `el` that can still move that way;
+ * nothing past a container that keeps the wheel at its end (`overscroll-behavior`); else the
+ * page. The browser chains a turn over the glass to the document only.
+ */
+export function wheelTarget(el: Element | null, vertical: boolean, delta: number): WheelTarget {
+  if (!el) return 'page'
+  const doc = ownerDocumentOf(el)
+  // While the root's overflow is visible, the body's belongs to the viewport: the body is no
+  // scroll container then, whatever its own overflow says.
+  const root = getComputedStyle(doc.documentElement)
+  const bodyScrolls = !isVisible(root.overflowX) || !isVisible(root.overflowY)
+  let node: Element | null = el
   for (let depth = 0; node && depth < MAX_DEPTH; depth++, node = parentOf(node)) {
-    if (node === ownerDocumentOf(node).documentElement) break
+    if (node === doc.documentElement || (node === doc.body && !bodyScrolls)) break
     const style = getComputedStyle(node)
     const overflow = vertical ? style.overflowY : style.overflowX
-    const room = vertical
-      ? node.scrollHeight > node.clientHeight
-      : node.scrollWidth > node.clientWidth
-    if (room && /auto|scroll|overlay/.test(overflow)) return node
+    if (!/auto|scroll|overlay/.test(overflow)) continue
+    const at = vertical ? node.scrollTop : node.scrollLeft
+    const end = vertical
+      ? node.scrollHeight - node.clientHeight
+      : node.scrollWidth - node.clientWidth
+    // Rounding leaves a fraction of a pixel at the end.
+    if (delta > 0 ? at < end - 1 : delta < 0 && at > 0) return node
+    const keeps = style.getPropertyValue(
+      vertical ? 'overscroll-behavior-y' : 'overscroll-behavior-x',
+    )
+    if (end > 0 && keeps && keeps !== 'auto') return null
   }
-  return el ? ownerDocumentOf(el).scrollingElement : null
+  return 'page'
 }

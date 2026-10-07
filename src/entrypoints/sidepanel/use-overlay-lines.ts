@@ -4,13 +4,32 @@
 // three places, so none is missed however quickly the developer switches tabs: the overlay of
 // the active tab, overlays that announce themselves, and those running when the panel opens.
 
-import { onBeforeUnmount, onMounted, type Ref, watch } from 'vue'
+import { onBeforeUnmount, onMounted, type Ref, ref, watch } from 'vue'
 import { browser, type Browser } from 'wxt/browser'
-import { isOverlayStatus, isPanelMessage, type PanelAway } from '@/lib/messages'
+import { isOverlayStatus, isPanelMessage, isPinsPointed, type PanelAway } from '@/lib/messages'
 import type { TabStatus } from './use-active-tab'
 
-export function useOverlayLines(tabId: Ref<number | undefined>, status: Ref<TabStatus>): void {
+export interface Pointed {
+  /** The item whose pin the pointer is on. */
+  hovered: string | null
+  /** The item whose popover is open. */
+  open: string | null
+}
+
+const NOTHING: Pointed = { hovered: null, open: null }
+
+/**
+ * Keeps the lines; returns what the overlay of the shown tab points at (spec section 8): its
+ * entries are marked in the list.
+ */
+export function useOverlayLines(
+  tabId: Ref<number | undefined>,
+  status: Ref<TabStatus>,
+): { pointed: Ref<Pointed> } {
   const lines = new Map<number, { overlay: string; port: Browser.runtime.Port }>()
+  const pointed = ref<Pointed>(NOTHING)
+  /** The last word of each overlay: its popover stays open while the panel shows another tab. */
+  const lastPointed = new Map<number, Pointed>()
   let shownTab: number | undefined
   let closed = false
   // The panel's own window: overlays of other windows belong to their own panel.
@@ -23,14 +42,26 @@ export function useOverlayLines(tabId: Ref<number | undefined>, status: Ref<TabS
     if (closed) return
     const open = lines.get(tab)
     if (open?.overlay === overlay) return
-    // A new overlay started on the tab: the old one is gone.
+    // A new overlay started on the tab: the old one is gone, and what it pointed at.
     open?.port.disconnect()
     lines.delete(tab)
+    lastPointed.delete(tab)
+    if (open && tab === shownTab) pointed.value = NOTHING
     try {
       const port = browser.tabs.connect(tab, { name: 'panel' })
       // The tab navigated or closed.
       port.onDisconnect.addListener(() => {
-        if (lines.get(tab)?.port === port) lines.delete(tab)
+        if (lines.get(tab)?.port !== port) return
+        lines.delete(tab)
+        lastPointed.delete(tab)
+        if (tab === shownTab) pointed.value = NOTHING
+      })
+      // Only the overlay the panel shows marks entries; the others are remembered for later.
+      port.onMessage.addListener((message: unknown) => {
+        if (lines.get(tab)?.port !== port || !isPinsPointed(message)) return
+        const now = { hovered: message.hovered, open: message.open }
+        lastPointed.set(tab, now)
+        if (tab === shownTab) pointed.value = now
       })
       lines.set(tab, { overlay, port })
     } catch {
@@ -50,6 +81,11 @@ export function useOverlayLines(tabId: Ref<number | undefined>, status: Ref<TabS
         } catch {
           // That overlay is gone already.
         }
+      }
+      // Back on a tab: its open popover is still open; the pointer is elsewhere now.
+      if (shownTab !== next?.tab) {
+        const open = next ? (lastPointed.get(next.tab)?.open ?? null) : null
+        pointed.value = { hovered: null, open }
       }
       shownTab = next?.tab
       if (next) lineTo(next.tab, next.overlay)
@@ -93,4 +129,5 @@ export function useOverlayLines(tabId: Ref<number | undefined>, status: Ref<TabS
     for (const { port } of lines.values()) port.disconnect()
     lines.clear()
   })
+  return { pointed }
 }

@@ -77,8 +77,32 @@
 @layer base {
   * {
     @apply border-border outline-ring/50;
+    /* Thin scrollbars in a muted tone, like the borders around them (Chrome 121 on). */
+    scrollbar-width: thin;
+    scrollbar-color: color-mix(in oklab, var(--color-muted-foreground) 35%, transparent) transparent;
+  }
+  /* Chrome before 121 knows only these; later versions ignore them where the above is set. */
+  ::-webkit-scrollbar {
+    width: 8px;
+    height: 8px;
+  }
+  ::-webkit-scrollbar-thumb {
+    border-radius: 9999px;
+    background: color-mix(in oklab, var(--color-muted-foreground) 35%, transparent);
+  }
+  ::-webkit-scrollbar-track {
+    background: transparent;
   }
   body {
     @apply bg-background text-foreground;
+  }
+  /* Tailwind v4 leaves buttons at the default cursor; everything clickable shows the pointer.
+     Utilities (cursor-default, cursor-crosshair) still win over this layer. */
+  button:not(:disabled):not([aria-disabled='true']),
+  [role='button']:not([aria-disabled='true']),
+  a[href],
+  select:not(:disabled),
+  summary {
+    cursor: pointer;
   }
 }

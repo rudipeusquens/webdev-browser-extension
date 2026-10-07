@@ -41,6 +41,21 @@ describe('remembered sites', () => {
   const overlayHosts = () =>
     session.page.evaluate(() => document.querySelectorAll('webdev-overlay').length)
 
+  /** Rests the pointer on the site pill until its action `id` shows. */
+  async function pillAction(id: string) {
+    await panel.hover('[data-testid="panel-title"]')
+    await panel.hover('[data-testid="site-pill"]')
+    const action = await panel.waitForSelector(`[data-testid="${id}"]`)
+    if (!action) throw new Error(`no ${id}`)
+    return action
+  }
+
+  async function forgetFromPill() {
+    await (await pillAction('forget-site')).click()
+    await (await panel.waitForSelector('[data-testid="forget-confirm"]'))?.click()
+    await panel.waitForSelector('[data-testid="forget-dialog"]', { hidden: true })
+  }
+
   async function pinCount() {
     const realm = await contentRealm(session)
     return realm.evaluate(
@@ -57,8 +72,8 @@ describe('remembered sites', () => {
     await waitInOverlay(session, '[data-testid="overlay-popover"]', false)
     await waitForItems(panel, 1)
 
-    await (await panel.waitForSelector('[data-testid="remember-site"]'))?.click()
-    await panel.waitForSelector('[data-testid="forget-site"]')
+    await (await pillAction('remember-site')).click()
+    await pillAction('forget-site')
 
     await session.page.reload()
     await overlayMounted(session)
@@ -66,28 +81,31 @@ describe('remembered sites', () => {
     for (let i = 0; i < 20 && (await pinCount()) !== 1; i++) await sleep(100)
     expect(await pinCount()).toBe(1)
 
-    await (await panel.waitForSelector('[data-testid="forget-site"]'))?.click()
-    await panel.waitForSelector('[data-testid="remember-site"]')
+    await forgetFromPill()
+    await pillAction('remember-site')
     await session.page.reload()
     await sleep(1500)
     expect(await overlayHosts()).toBe(0)
   })
 
   it('lists the site in the settings and forgets it there', async () => {
-    await (await panel.waitForSelector('[data-testid="remember-site"]'))?.click()
-    await panel.waitForSelector('[data-testid="forget-site"]')
+    await (await pillAction('remember-site')).click()
+    await pillAction('forget-site')
     await panel.click('[data-testid="open-settings"]')
-    await panel.waitForSelector(`[data-testid="site"] ::-p-text(${server.origin})`)
+    await panel.waitForSelector(`[data-testid="site"] ::-p-text(${new URL(server.origin).host})`)
     await panel.click('[data-testid="site"] [data-testid="remove-site"]')
-    await panel.waitForSelector('::-p-text(No remembered sites yet)')
+    await (await panel.waitForSelector('[data-testid="forget-confirm"]'))?.click()
+    await panel.waitForSelector('::-p-text(No sites yet)')
+    // Settings hides the controls of Edit; the next test starts from there.
+    await panel.click('[data-testid="close-settings"]')
     await session.page.reload()
     await sleep(1500)
     expect(await overlayHosts()).toBe(0)
   })
 
   it('loads the overlay only on the remembered origin', async () => {
-    await (await panel.waitForSelector('[data-testid="remember-site"]'))?.click()
-    await panel.waitForSelector('[data-testid="forget-site"]')
+    await (await pillAction('remember-site')).click()
+    await pillAction('forget-site')
     const other = server.origin.replace('localhost', '127.0.0.1')
     await session.page.goto(`${other}/plain/`)
     await sleep(1500)

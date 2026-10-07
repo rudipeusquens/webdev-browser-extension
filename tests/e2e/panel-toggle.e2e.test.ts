@@ -47,7 +47,7 @@ describe('the toolbar action toggles the side panel', () => {
   it('closes on a second click and leaves the page in browse mode with its pins', async () => {
     const panel = await clickAction(session)
     await overlayMounted(session)
-    await panel.waitForSelector('::-p-text(Active on localhost:)')
+    await panel.waitForSelector('[data-testid="site-pill"][data-state="active"]')
     await markElement(session, 'button[type="submit"]')
     await session.page.keyboard.type('Make it wider')
     await session.page.keyboard.press('Enter')
@@ -73,7 +73,7 @@ describe('the toolbar action toggles the side panel', () => {
 
     // And opens again on the next click.
     const again = await clickAction(session)
-    await again.waitForSelector('::-p-text(Active on localhost:)')
+    await again.waitForSelector('[data-testid="site-pill"][data-state="active"]')
   })
 
   it('activates another tab instead of closing', async () => {
@@ -82,10 +82,10 @@ describe('the toolbar action toggles the side panel', () => {
     const other = await session.browser.newPage()
     await other.goto(`${server.origin}/svg/`)
     await other.bringToFront()
-    await panel.waitForSelector('::-p-text(Not active on this page)')
+    await panel.waitForSelector('[data-testid="site-pill"][data-state="idle"]')
     await useAction(session, other)
     await overlayMounted({ ...session, page: other })
-    await panel.waitForSelector('::-p-text(Active on localhost:)')
+    await panel.waitForSelector('[data-testid="site-pill"][data-state="active"]')
     expect(panel.isClosed()).toBe(false)
   })
 
@@ -97,9 +97,9 @@ describe('the toolbar action toggles the side panel', () => {
     const other = await session.browser.newPage()
     await other.goto(`${server.origin}/svg/`)
     await other.bringToFront()
-    await panel.waitForSelector('::-p-text(Not active on this page)')
+    await panel.waitForSelector('[data-testid="site-pill"][data-state="idle"]')
     await session.page.bringToFront()
-    await panel.waitForSelector('::-p-text(Active on localhost:)')
+    await panel.waitForSelector('[data-testid="site-pill"][data-state="active"]')
     await sleep(300)
     await waitInOverlay(session, GLASS)
   })
@@ -112,7 +112,7 @@ describe('the toolbar action toggles the side panel', () => {
     const other = await session.browser.newPage()
     await other.goto(`${server.origin}/svg/`)
     await other.bringToFront()
-    await panel.waitForSelector('::-p-text(Not active on this page)')
+    await panel.waitForSelector('[data-testid="site-pill"][data-state="idle"]')
     await panel.close()
     await panelClosed(session)
     await session.page.bringToFront()

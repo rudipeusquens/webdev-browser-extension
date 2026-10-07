@@ -5,11 +5,13 @@ import {
   isAnnotationId,
   isCollection,
   isElementSnapshot,
+  isLegacyCollection,
   isPageInfo,
   isTarget,
 } from '@/lib/collection/validate'
-import { page, snapshot } from './helpers/collection'
+import { legacyOf, page, snapshot } from './helpers/collection'
 
+const SITE = 'http://localhost:3000'
 const URL_A = 'http://localhost:3000/a'
 const NOW = '2026-10-05T10:00:00.000Z'
 
@@ -42,7 +44,7 @@ function valid(): Collection {
   return targets.reduce(
     (c, target, i) =>
       addAnnotation(c, { id: `id-${i}`, page: page(URL_A), target, comment: 'x' }, NOW),
-    emptyCollection(),
+    emptyCollection(SITE),
   )
 }
 
@@ -62,11 +64,36 @@ const element = (c: Collection) => {
 describe('isCollection', () => {
   it('accepts element, text and area items', () => {
     expect(isCollection(valid())).toBe(true)
-    expect(isCollection(emptyCollection())).toBe(true)
+    expect(isCollection(emptyCollection(SITE))).toBe(true)
+    expect(isCollection(emptyCollection('file://'))).toBe(true)
+    expect(isCollection({ ...valid(), lastCopy: ['id-0', 'id-2'] })).toBe(true)
   })
 
   it.each([
-    ['a wrong version', (c: Collection) => Object.assign(c, { version: 2 })],
+    ['the old version', (c: Collection) => Object.assign(c, { version: 1 })],
+    ['a site with a path', (c: Collection) => (c.site = `${SITE}/a`)],
+    ['no site', (c: Collection) => delete (c as Partial<Collection>).site],
+    [
+      'an unknown status',
+      (c: Collection) => c.items[0] && Object.assign(c.items[0], { status: 'x' }),
+    ],
+    [
+      'an item without status',
+      (c: Collection) => c.items[0] && delete (c.items[0] as { status?: string }).status,
+    ],
+    [
+      'a page of another site',
+      (c: Collection) => {
+        c.site = 'http://localhost:5173'
+      },
+    ],
+    ['a copied id twice', (c: Collection) => (c.lastCopy = ['id-0', 'id-0'])],
+    ['a copied id that is no id', (c: Collection) => (c.lastCopy = ['a b'])],
+    [
+      'more than 1000 copied ids',
+      (c: Collection) => (c.lastCopy = Array.from({ length: 1001 }, (_, i) => `c${i}`)),
+    ],
+    ['no lastCopy', (c: Collection) => delete (c as Partial<Collection>).lastCopy],
     ['text over 120 code points', (c: Collection) => (element(c).text = 'x'.repeat(121))],
     ['a non-finite box value', (c: Collection) => (element(c).box.width = Number.NaN)],
     ['a negative box size', (c: Collection) => (element(c).box.height = -1)],
@@ -119,6 +146,15 @@ describe('isCollection', () => {
 
   it.each([null, undefined, 'x', 1, [], {}])('rejects %j', (value) => {
     expect(isCollection(value)).toBe(false)
+  })
+})
+
+describe('isLegacyCollection', () => {
+  it('accepts what milestones 2 to 5 stored, and only that', () => {
+    expect(isLegacyCollection(legacyOf(valid()))).toBe(true)
+    expect(isLegacyCollection(valid())).toBe(false)
+    expect(isLegacyCollection({ ...legacyOf(valid()), items: 'x' })).toBe(false)
+    expect(isLegacyCollection(null)).toBe(false)
   })
 })
 

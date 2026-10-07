@@ -50,23 +50,41 @@ export type AreaTarget = {
 }
 export type Target = ElementTarget | TextTarget | AreaTarget
 
+/** Open when created; done once copied as prompt; deleted until "Clear all" removes it. */
+export type Status = 'open' | 'done' | 'deleted'
+export const STATUSES: readonly Status[] = ['open', 'done', 'deleted']
+
 export interface Annotation {
   id: string
-  /** Stable; gaps after deletion; reset by "Clear all". */
+  /** Stable within its site; reset by "Clear all". */
   number: number
   pageKey: string
   comment: string
   createdAt: string
   updatedAt: string
+  status: Status
   target: Target
 }
 
+/** The items of one site (spec section 5), stored under `collection:<site>`. */
 export interface Collection {
-  version: 1
+  version: 2
+  /** `siteOf()` of every page in it. */
+  site: string
   nextNumber: number
   /** Key: the page URL without its hash (`pageKey()`). */
   pages: Record<string, PageInfo>
   items: Annotation[]
+  /** The ids the last "Copy as prompt" copied, for "Copy again". */
+  lastCopy: string[]
+}
+
+/** What milestones 2–5 stored: one collection of every site under `collection`. */
+export interface LegacyCollection {
+  version: 1
+  nextNumber: number
+  pages: Record<string, PageInfo>
+  items: Omit<Annotation, 'status'>[]
 }
 
 /** Spec section 6, in output order. */
@@ -109,4 +127,6 @@ export const LIMITS = {
   selector: 1000,
   path: 500,
   name: 100,
+  /** Ids one "Copy as prompt" remembers, and copies at once. */
+  copied: 1000,
 } as const

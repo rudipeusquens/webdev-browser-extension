@@ -3,12 +3,15 @@
 
 import type { CodeOrigin, PageInfo, Target } from './collection/model'
 import { LIMITS } from './collection/model'
-import { isSiteOrigin } from './settings'
+import { isSite } from './collection/site'
+import { isOption, isSiteOrigin, type Option } from './settings'
+import { type Filter, isFilter } from './view'
 import { isApiKey, isLanguage, isModelId } from './voice/settings'
 import {
   hasKeys,
   isAnnotationId,
   isComment,
+  isIdList as isIdSet,
   isObject,
   isPageInfo,
   isPageUrl,
@@ -19,12 +22,25 @@ import {
 export type Mode = 'browse' | 'element' | 'area'
 export const MODES: readonly Mode[] = ['browse', 'element', 'area']
 
-/** Overlay or side panel → background, which is the only writer of the collection. */
+/**
+ * Overlay or side panel → background, which is the only writer of the collections. Each names
+ * the site whose collection it changes; `annotation:add` takes it from its page.
+ */
 export type CollectionMessage =
   | { type: 'annotation:add'; id: string; page: PageInfo; target: Target; comment: string }
-  | { type: 'annotation:update'; id: string; comment: string }
-  | { type: 'annotation:remove'; id: string }
-  | { type: 'collection:clear' }
+  | { type: 'annotation:update'; site: string; id: string; comment: string }
+  /** Marks the item deleted; only "Clear all" removes items. */
+  | { type: 'annotation:remove'; site: string; id: string }
+  /** Deleted → open. */
+  | { type: 'annotation:restore'; site: string; id: string }
+  /** Done → open. */
+  | { type: 'annotation:reopen'; site: string; id: string }
+  /** The panel copied exactly these items as a prompt: open ones become done. */
+  | { type: 'collection:copied'; site: string; ids: string[] }
+  /** Open and done → deleted, every item of the site. */
+  | { type: 'collection:clear'; site: string }
+  /** The deleted items of the site go for good. */
+  | { type: 'collection:empty-bin'; site: string }
 
 /** Overlay → background: the code origins of the elements these selectors match. */
 export type OriginMessage = { type: 'origin:read'; selectors: string[] }
@@ -41,8 +57,21 @@ export type AnchorMessage = {
 export type SiteMessage =
   { type: 'site:remember'; origin: string } | { type: 'site:forget'; origin: string }
 
+/** Side panel → background: undo or redo the site's last change (spec section 5). */
+export type HistoryMessage =
+  { type: 'history:undo'; site: string } | { type: 'history:redo'; site: string }
+
+/** Side panel → background: list and pin these items from now on (spec section 5). */
+export type ViewMessage = { type: 'view:set'; filter: Filter }
+
+/** One of the panel's options in Settings. */
+export type SettingsMessage = { type: 'settings:set'; key: Option; value: boolean }
+
 /** Side panel → background: open a page of the collection in a tab (Go to). */
 export type GoToMessage = { type: 'tab:go'; tabId: number; pageKey: string }
+
+/** Side panel → background: start the overlay on a tab, where Chrome lets the extension. */
+export type StartMessage = { type: 'tab:start'; tabId: number }
 
 /** Overlay → background: it could not start; the error itself stays in the page's console. */
 export type FailedMessage = { type: 'overlay:failed' }
@@ -72,7 +101,11 @@ export type BackgroundMessage =
   | OriginMessage
   | AnchorMessage
   | SiteMessage
+  | HistoryMessage
+  | ViewMessage
+  | SettingsMessage
   | GoToMessage
+  | StartMessage
   | FailedMessage
   | VoiceSettingsMessage
   | VoiceRequestMessage
@@ -113,6 +146,23 @@ export type PanelToggleReply = { closing: boolean }
  * when the panel closes (or a new overlay replaces this one).
  */
 export type PanelAway = { type: 'panel:away' }
+
+/**
+ * Overlay → side panel, on the line the panel keeps to it: the pin under the pointer and the
+ * item whose popover is open, by id only (spec section 8).
+ */
+export type PinsPointed = { type: 'pins:pointed'; hovered: string | null; open: string | null }
+
+const isIdOrNull = (x: unknown) => x === null || isAnnotationId(x)
+
+export function isPinsPointed(x: unknown): x is PinsPointed {
+  return (
+    hasKeys(x, ['type', 'hovered', 'open']) &&
+    x.type === 'pins:pointed' &&
+    isIdOrNull(x.hovered) &&
+    isIdOrNull(x.open)
+  )
+}
 
 export type Message = BackgroundMessage | OverlayMessage | PanelMessage
 
@@ -157,10 +207,26 @@ export function isBackgroundMessage(x: unknown): x is BackgroundMessage {
         isComment(x.comment)
       )
     case 'annotation:update':
-      return hasKeys(x, ['type', 'id', 'comment']) && isAnnotationId(x.id) && isComment(x.comment)
+      return (
+        hasKeys(x, ['type', 'site', 'id', 'comment']) &&
+        isSite(x.site) &&
+        isAnnotationId(x.id) &&
+        isComment(x.comment)
+      )
     case 'annotation:remove':
-      return hasKeys(x, ['type', 'id']) && isAnnotationId(x.id)
+    case 'annotation:restore':
+    case 'annotation:reopen':
+      return hasKeys(x, ['type', 'site', 'id']) && isSite(x.site) && isAnnotationId(x.id)
+    case 'collection:copied':
+      return (
+        hasKeys(x, ['type', 'site', 'ids']) &&
+        isSite(x.site) &&
+        isIdSet(x.ids, LIMITS.copied) &&
+        x.ids.length >= 1
+      )
     case 'collection:clear':
+    case 'collection:empty-bin':
+      return hasKeys(x, ['type', 'site']) && isSite(x.site)
     case 'overlay:failed':
     case 'voice:key:remove':
     case 'voice:key:test':
@@ -173,6 +239,15 @@ export function isBackgroundMessage(x: unknown): x is BackgroundMessage {
       )
     case 'voice:key:save':
       return hasKeys(x, ['type', 'key']) && isApiKey(x.key)
+    case 'history:undo':
+    case 'history:redo':
+      return hasKeys(x, ['type', 'site']) && isSite(x.site)
+    case 'view:set':
+      return hasKeys(x, ['type', 'filter']) && isFilter(x.filter)
+    case 'settings:set':
+      return hasKeys(x, ['type', 'key', 'value']) && isOption(x.key) && typeof x.value === 'boolean'
+    case 'tab:start':
+      return hasKeys(x, ['type', 'tabId']) && Number.isInteger(x.tabId) && (x.tabId as number) >= 0
     case 'tab:go':
       return (
         hasKeys(x, ['type', 'tabId', 'pageKey']) &&

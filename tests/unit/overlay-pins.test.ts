@@ -20,6 +20,7 @@ const annotation = (id: string, target: Target): Annotation => ({
   comment: 'x',
   createdAt: 'T',
   updatedAt: 'T',
+  status: 'open',
   target,
 })
 const element = (id: string, selector: string) =>

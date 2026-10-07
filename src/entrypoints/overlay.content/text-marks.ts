@@ -7,11 +7,24 @@
 // The page can see and remove them: that only removes the shading, the pins stay. Text inside
 // the page's own shadow roots is not shaded, since the rules do not reach into them.
 
-const NORMAL = 'webdev-pins'
-const STRONG = 'webdev-pins-strong'
-const RULES =
-  `::highlight(${NORMAL}) { background-color: rgb(37 99 235 / 0.15); }\n` +
-  `::highlight(${STRONG}) { background-color: rgb(37 99 235 / 0.3); }`
+import { STATUSES, type Status } from '@/lib/collection/model'
+
+/** The status colors of the pins (src/lib/status.ts): blue-600, green-700, red-600. */
+const COLORS: Record<Status, string> = {
+  open: '37 99 235',
+  done: '21 128 61',
+  deleted: '220 38 38',
+}
+const name = (status: Status, strong: boolean) => `webdev-pins-${status}${strong ? '-strong' : ''}`
+const NAMES = STATUSES.flatMap((status) => [name(status, false), name(status, true)])
+const RULES = STATUSES.map(
+  (status) =>
+    `::highlight(${name(status, false)}) { background-color: rgb(${COLORS[status]} / 0.15); }\n` +
+    `::highlight(${name(status, true)}) { background-color: rgb(${COLORS[status]} / 0.3); }`,
+).join('\n')
+
+/** Pinned texts by status: `strong` ones are drawn stronger (their pin is hovered). */
+export type Marks = Partial<Record<Status, { normal: Range[]; strong: Range[] }>>
 
 /** What the marks use of the page; tests pass plain objects. */
 export interface MarkSurface {
@@ -22,8 +35,7 @@ export interface MarkSurface {
 }
 
 export interface TextMarks {
-  /** Marks `normal` texts, and `strong` ones stronger (their pin is hovered). */
-  set(normal: Range[], strong: Range[]): void
+  set(marks: Marks): void
   stop(): void
 }
 
@@ -48,21 +60,31 @@ export function createTextMarks(surface: MarkSurface | undefined): TextMarks {
   let sheet: CSSStyleSheet | undefined
 
   function clear() {
-    highlights.delete(NORMAL)
-    highlights.delete(STRONG)
+    for (const each of NAMES) highlights.delete(each)
   }
 
   return {
-    set(normal, strong) {
+    set(marks) {
       try {
-        if (normal.length === 0 && strong.length === 0) return clear()
+        const empty = STATUSES.every(
+          (status) => !marks[status]?.normal.length && !marks[status]?.strong.length,
+        )
+        if (empty) return clear()
         sheet ??= surface.sheet(RULES)
         // The page may have replaced its sheets since.
         if (!doc.adoptedStyleSheets.includes(sheet)) {
           doc.adoptedStyleSheets = [...doc.adoptedStyleSheets, sheet]
         }
-        highlights.set(NORMAL, surface.highlight(normal))
-        highlights.set(STRONG, surface.highlight(strong))
+        for (const status of STATUSES) {
+          const { normal = [], strong = [] } = marks[status] ?? {}
+          for (const [ranges, strongly] of [
+            [normal, false],
+            [strong, true],
+          ] as const) {
+            if (ranges.length) highlights.set(name(status, strongly), surface.highlight(ranges))
+            else highlights.delete(name(status, strongly))
+          }
+        }
       } catch {
         // A page that broke the registry or its sheets: no shading, the pins stay.
       }

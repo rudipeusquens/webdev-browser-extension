@@ -152,11 +152,14 @@ describe('dictating a comment', () => {
     // The dictated comment is in the prompt the panel copies.
     const panel = await panelPage()
     await panel.click('[data-testid="copy-prompt"]')
-    await panel.waitForSelector('::-p-text(Copied 1 item)')
+    await panel.waitForSelector('::-p-text(Copied 1 pin)')
     const prompt = await panel.evaluate(() => navigator.clipboard.readText())
     expect(prompt).toContain(`> Fix this ${FAKE_TEXT}`)
+    // Clear all, then empty the bin: the next tests start without pins.
     await panel.click('[data-testid="clear-all"]')
-    await panel.click('[data-testid="clear-confirm"]')
+    await (await panel.waitForSelector('[data-testid="empty-bin"]'))?.click()
+    await (await panel.waitForSelector('[data-testid="empty-bin-confirm"]'))?.click()
+    await panel.waitForSelector('[data-testid="clear-all"][disabled]')
     await s.page.bringToFront()
   })
 
@@ -190,7 +193,12 @@ describe('dictating a comment', () => {
     await popover()
     await record(600)
     await s.page.keyboard.press('Escape')
-    await waitForText('[data-testid="overlay-voice-status"]', 'Enter to save')
+    // Idle again: the status line says nothing.
+    for (let i = 0; i < 100; i++) {
+      if ((await overlayText(s, '[data-testid="overlay-voice-status"]'))?.trim() === '') break
+      await sleep(100)
+    }
+    expect((await overlayText(s, '[data-testid="overlay-voice-status"]'))?.trim()).toBe('')
     await sleep(300)
     expect(fake.transcriptions()).toHaveLength(0)
     expect(await offscreenDocuments()).toBe(0)
@@ -360,10 +368,11 @@ describe('dictating a comment', () => {
     for (let i = 0; i < 50; i++) {
       const comments = await worker.evaluate(async () => {
         const { storage } = (globalThis as unknown as { chrome: ExtensionApi }).chrome
-        const { collection } = await storage.local.get('collection')
-        return ((collection as { items?: { comment: string }[] } | undefined)?.items ?? []).map(
-          (item) => item.comment,
-        )
+        const all = await storage.local.get(null)
+        return Object.entries(all)
+          .filter(([key]) => key.startsWith('collection:'))
+          .flatMap(([, c]) => (c as { items: { comment: string }[] }).items)
+          .map((item) => item.comment)
       })
       if (comments.length) return comments
       await sleep(100)

@@ -1,14 +1,16 @@
 import { browser, type Browser } from 'wxt/browser'
 import { defineBackground } from 'wxt/utils/define-background'
-import { clearMissing, createAnchorStore } from '@/lib/background/anchor-status'
+import { createAnchorStore, forgetMissing } from '@/lib/background/anchor-status'
 import { goTo } from '@/lib/background/go-to'
 import { readOrigins } from '@/lib/background/origins'
 import { createSites, OVERLAY_SCRIPT } from '@/lib/background/sites'
 import { clearBlocked, clearFailed, markBlocked, markFailed } from '@/lib/background/tab-status'
 import { createVoice } from '@/lib/background/voice'
-import { isPanelSender, setVoice } from '@/lib/background/voice-settings'
+import { isPanelSender, pageSite } from '@/lib/background/senders'
+import { setVoice } from '@/lib/background/voice-settings'
 import { createWriter } from '@/lib/background/writer'
-import { loadCollection } from '@/lib/collection/store'
+import { siteOf } from '@/lib/collection/site'
+import { loadSite } from '@/lib/collection/store'
 import {
   type BackgroundMessage,
   isBackgroundMessage,
@@ -19,13 +21,16 @@ import {
   type PanelView,
   type Reply,
 } from '@/lib/messages'
-import { isSiteOrigin, originPattern } from '@/lib/settings'
+import { isSiteOrigin, loadSettings, originPattern } from '@/lib/settings'
+import { VIEW_KEY } from '@/lib/view'
 
 /** The page's context menu entry: it activates the extension like the toolbar icon. */
 const MENU_ENTRY = 'annotate'
 
 export default defineBackground(() => {
-  const write = createWriter()
+  const { write, migrate, undo, redo } = createWriter()
+  // Queued before any write: the collection of milestones 2–5 becomes one per site.
+  void migrate()
   const recordAnchors = createAnchorStore()
   const sites = createSites()
   const voice = createVoice()
@@ -53,6 +58,25 @@ export default defineBackground(() => {
         () => markBlocked(tabId),
       )
       .catch(() => undefined)
+  }
+
+  /**
+   * Annotate this page in the panel: a click there grants no `activeTab`, so this works only
+   * where the extension may run already (a grant that outlived its overlay, a granted origin).
+   * A refusal is no restricted page: nothing is marked.
+   */
+  async function startFromPanel(tabId: number): Promise<Reply> {
+    await clearFailed(tabId).catch(() => undefined)
+    try {
+      await inject(tabId)
+    } catch {
+      return {
+        ok: false,
+        error: 'Chrome does not let the extension on this page yet: click the toolbar icon.',
+      }
+    }
+    await clearBlocked(tabId).catch(() => undefined)
+    return { ok: true }
   }
 
   /** The context menu entry only ever opens the panel and starts the overlay. */
@@ -88,14 +112,19 @@ export default defineBackground(() => {
     if (info.menuItemId === MENU_ENTRY && tab) activate(tab)
   })
 
-  /** Chrome keeps the entry across restarts and updates; written again, it is never doubled. */
-  function addMenuEntry() {
+  /**
+   * The entry exists while its option is on (off by default). Chrome keeps entries across
+   * restarts and updates; written again, it is never doubled, and one an older version left
+   * goes.
+   */
+  function setMenuEntry(on: boolean) {
     // Read, so Chrome does not log an unchecked error.
     const checked = () => browser.runtime.lastError
     try {
       // Callbacks: contextMenus returns promises only from Chrome 123 on.
       browser.contextMenus.removeAll(() => {
         checked()
+        if (!on) return
         browser.contextMenus.create(
           {
             id: MENU_ENTRY,
@@ -110,6 +139,11 @@ export default defineBackground(() => {
       // No entry then; the icon and the shortcut still work.
     }
   }
+
+  const syncMenuEntry = () =>
+    loadSettings()
+      .then(({ contextMenu }) => setMenuEntry(contextMenu))
+      .catch(() => undefined)
 
   browser.tabs.onUpdated.addListener((tabId, info) => {
     if (info.status !== 'loading') return
@@ -127,7 +161,7 @@ export default defineBackground(() => {
   browser.permissions.onRemoved.addListener(() => void reconcile())
   browser.runtime.onStartup.addListener(() => {
     void reconcile()
-    addMenuEntry()
+    void syncMenuEntry()
   })
   browser.runtime.onInstalled.addListener(({ reason }) => {
     void reconcile().then(async (origins) => {
@@ -137,12 +171,12 @@ export default defineBackground(() => {
       const tabs = await browser.tabs.query({ url: origins.map(originPattern) })
       for (const { id } of tabs) if (id !== undefined) await inject(id).catch(() => undefined)
     })
-    addMenuEntry()
+    void syncMenuEntry()
   })
 
   /** Go to: only pages of the collection, only on the web. */
   async function openPage(tabId: number, pageKey: string): Promise<Reply> {
-    const { pages } = await loadCollection()
+    const { pages } = await loadSite(siteOf(pageKey))
     const page = pages[pageKey]
     const origin = page && new URL(page.url).origin
     if (!page || !origin || !isSiteOrigin(origin)) {
@@ -167,7 +201,9 @@ export default defineBackground(() => {
         )
       }
       case 'anchors:report':
-        if (!sender.tab) return { ok: false, error: 'Reports come from a page.' } satisfies Reply
+        if (pageSite(sender) !== siteOf(message.pageKey)) {
+          return { ok: false, error: 'Reports come from a page of their site.' } satisfies Reply
+        }
         return recordAnchors(message).then(() => ({ ok: true }) satisfies Reply)
       case 'site:remember':
       case 'site:forget':
@@ -175,13 +211,63 @@ export default defineBackground(() => {
         return message.type === 'site:remember'
           ? sites.remember(message.origin)
           : sites.forget(message.origin)
+      case 'history:undo':
+      case 'history:redo':
+        if (!isPanelSender(sender)) {
+          return { ok: false, error: 'Undo and Redo are buttons of the panel.' } satisfies Reply
+        }
+        return message.type === 'history:undo' ? undo(message.site) : redo(message.site)
+      case 'view:set':
+        if (!isPanelSender(sender)) {
+          return { ok: false, error: 'The filter is set in the panel.' } satisfies Reply
+        }
+        return browser.storage.local
+          .set({ [VIEW_KEY]: { filter: message.filter } })
+          .then(() => ({ ok: true }) satisfies Reply)
+      case 'settings:set':
+        if (!isPanelSender(sender)) {
+          return { ok: false, error: 'Settings are set in the panel.' } satisfies Reply
+        }
+        return sites.setOption(message.key, message.value).then((reply) => {
+          if (message.key === 'contextMenu') setMenuEntry(message.value)
+          return reply
+        })
+      case 'tab:start':
+        if (!isPanelSender(sender)) {
+          return { ok: false, error: 'The overlay is started from the panel.' } satisfies Reply
+        }
+        return startFromPanel(message.tabId)
       case 'tab:go':
         if (sender.tab)
           return { ok: false, error: 'Pages are opened from the panel.' } satisfies Reply
         return openPage(message.tabId, message.pageKey)
-      case 'annotation:add':
-        if (!sender.tab) return { ok: false, error: 'Items are added from a page.' } satisfies Reply
-        return write(message)
+      case 'annotation:add': {
+        const site = siteOf(message.page.url)
+        if (pageSite(sender) !== site) {
+          return { ok: false, error: 'Pins are added from a page of their site.' } satisfies Reply
+        }
+        return write(site, message)
+      }
+      case 'annotation:update':
+        if (pageSite(sender) !== message.site) {
+          return { ok: false, error: 'Pins are changed on a page of their site.' } satisfies Reply
+        }
+        return write(message.site, message)
+      case 'annotation:remove':
+      case 'annotation:restore':
+        if (pageSite(sender) !== message.site && !isPanelSender(sender)) {
+          return {
+            ok: false,
+            error: 'Pins are deleted and restored on their site or in the panel.',
+          } satisfies Reply
+        }
+        return write(message.site, message)
+      case 'annotation:reopen':
+      case 'collection:copied':
+        if (!isPanelSender(sender)) {
+          return { ok: false, error: 'This is a button of the panel.' } satisfies Reply
+        }
+        return write(message.site, message)
       case 'overlay:failed': {
         // The overlay runs in the top frame of a tab only.
         const tabId = sender.tab?.id
@@ -222,12 +308,25 @@ export default defineBackground(() => {
           .then(() => ({ ok: true }) satisfies Reply)
       }
       case 'collection:clear':
-        return write(message).then(async (reply) => {
-          if (reply.ok) await clearMissing().catch(() => undefined)
+        if (!isPanelSender(sender)) {
+          return { ok: false, error: 'Clear all is a button of the panel.' } satisfies Reply
+        }
+        return write(message.site, message)
+      case 'collection:empty-bin': {
+        if (!isPanelSender(sender)) {
+          return { ok: false, error: 'Empty bin is a button of the panel.' } satisfies Reply
+        }
+        const { site } = message
+        // The "Not found" marks of what went go with it.
+        return loadSite(site).then(async ({ items }) => {
+          const reply = await write(site, message)
+          if (!reply.ok) return reply
+          const kept = new Set((await loadSite(site)).items.map((item) => item.id))
+          const gone = items.filter((item) => !kept.has(item.id)).map((item) => item.id)
+          await forgetMissing(gone).catch(() => undefined)
           return reply
         })
-      default:
-        return write(message)
+      }
     }
   }
 

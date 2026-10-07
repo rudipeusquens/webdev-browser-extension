@@ -3,7 +3,8 @@
 // side panel for its "Not found" mark and the copied prompt. Content scripts cannot read it.
 
 import { browser } from 'wxt/browser'
-import { loadCollection } from '../collection/store'
+import { siteOf } from '../collection/site'
+import { loadSites } from '../collection/store'
 import { isAnnotationId } from '../collection/validate'
 import type { AnchorMessage } from '../messages'
 
@@ -27,8 +28,11 @@ export function watchMissing(cb: (missing: Set<string>) => void): () => void {
   return () => browser.storage.onChanged.removeListener(listener)
 }
 
-export async function clearMissing(): Promise<void> {
-  await browser.storage.session.remove(MISSING_KEY)
+/** Forgets these items, such as the items of a site that was cleared. */
+export async function forgetMissing(ids: Iterable<string>): Promise<void> {
+  const missing = await loadMissing()
+  for (const id of ids) missing.delete(id)
+  await browser.storage.session.set({ [MISSING_KEY]: [...missing] })
 }
 
 /**
@@ -39,11 +43,13 @@ export function createAnchorStore() {
   let queue: Promise<unknown> = Promise.resolve()
   return (report: Omit<AnchorMessage, 'type'>): Promise<void> => {
     const run = queue.then(async () => {
-      const { items } = await loadCollection()
+      const site = siteOf(report.pageKey)
+      const sites = await loadSites()
+      const items = sites.find((c) => c.site === site)?.items ?? []
       const onPage = new Set(
         items.filter((item) => item.pageKey === report.pageKey).map((item) => item.id),
       )
-      const existing = new Set(items.map((item) => item.id))
+      const existing = new Set(sites.flatMap((c) => c.items.map((item) => item.id)))
       const missing = await loadMissing()
       for (const id of report.found) if (onPage.has(id)) missing.delete(id)
       for (const id of report.missing) if (onPage.has(id)) missing.add(id)

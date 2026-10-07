@@ -1,31 +1,42 @@
 import { beforeEach, describe, expect, it } from 'vitest'
 import { fakeBrowser } from 'wxt/testing/fake-browser'
+import { loadLabels } from '@/lib/background/history'
 import { createWriter } from '@/lib/background/writer'
-import { COLLECTION_KEY, loadCollection } from '@/lib/collection/store'
+import { addAnnotation, emptyCollection } from '@/lib/collection/ops'
+import { collectionKey, LEGACY_KEY, loadSite } from '@/lib/collection/store'
 import type { CollectionMessage } from '@/lib/messages'
-import { elementInput } from './helpers/collection'
+import { elementInput, legacyOf } from './helpers/collection'
 
-const URL_A = 'http://localhost:3000/'
-const add = (id: string, comment = 'Make it wider.'): CollectionMessage => ({
+const SITE = 'http://localhost:3000'
+const OTHER = 'http://localhost:5173'
+const URL_A = `${SITE}/`
+const add = (id: string, comment = 'Make it wider.', url = URL_A): CollectionMessage => ({
   type: 'annotation:add',
-  ...elementInput(id, URL_A, comment),
+  ...elementInput(id, url, comment),
 })
+const stored = async () => fakeBrowser.storage.local.get(null)
 
 describe('createWriter', () => {
   beforeEach(() => fakeBrowser.reset())
 
   it('stores an added item with number 1 and a trimmed comment', async () => {
-    const write = createWriter(() => 'T1')
-    expect(await write(add('a1', '  Wider.\n'))).toEqual({ ok: true })
-    const c = await loadCollection()
+    const { write } = createWriter(() => 'T1')
+    expect(await write(SITE, add('a1', '  Wider.\n'))).toEqual({ ok: true })
+    const c = await loadSite(SITE)
     expect(c.items).toHaveLength(1)
-    expect(c.items[0]).toMatchObject({ id: 'a1', number: 1, comment: 'Wider.', createdAt: 'T1' })
+    expect(c.items[0]).toMatchObject({
+      id: 'a1',
+      number: 1,
+      comment: 'Wider.',
+      createdAt: 'T1',
+      status: 'open',
+    })
   })
 
   it('serializes parallel writes so none is lost', async () => {
-    const write = createWriter()
-    await Promise.all([write(add('a1')), write(add('a2')), write(add('a3'))])
-    const c = await loadCollection()
+    const { write } = createWriter()
+    await Promise.all([write(SITE, add('a1')), write(SITE, add('a2')), write(SITE, add('a3'))])
+    const c = await loadSite(SITE)
     expect(c.items.map((i) => [i.id, i.number])).toEqual([
       ['a1', 1],
       ['a2', 2],
@@ -33,44 +44,199 @@ describe('createWriter', () => {
     ])
   })
 
-  it('updates, removes and clears', async () => {
-    const write = createWriter(() => 'T')
-    await write(add('a1'))
-    await write(add('a2'))
-    expect(await write({ type: 'annotation:update', id: 'a2', comment: 'New' })).toEqual({
+  it('keeps each site to itself: numbers, items and Clear all', async () => {
+    const { write } = createWriter()
+    await write(SITE, add('a1'))
+    await write(SITE, add('a2'))
+    await write(OTHER, add('b1', 'On B', `${OTHER}/x`))
+    expect((await loadSite(OTHER)).items.map((i) => [i.id, i.number])).toEqual([['b1', 1]])
+    expect(await write(SITE, { type: 'collection:clear', site: SITE })).toEqual({ ok: true })
+    expect((await loadSite(SITE)).items.map((i) => i.status)).toEqual(['deleted', 'deleted'])
+    expect(await write(SITE, { type: 'collection:empty-bin', site: SITE })).toEqual({ ok: true })
+    expect((await loadSite(SITE)).items).toEqual([])
+    expect((await loadSite(OTHER)).items).toHaveLength(1)
+    // An emptied site leaves nothing behind.
+    expect(Object.keys(await stored())).toEqual([collectionKey(OTHER)])
+  })
+
+  it('names each step by its pins, for the Undo and Redo tooltips', async () => {
+    const { write } = createWriter()
+    const steps: string[] = []
+    const step = async (msg: CollectionMessage) => {
+      expect(await write(SITE, msg)).toEqual({ ok: true })
+      steps.push((await loadLabels(SITE)).undo ?? '')
+    }
+    await step(add('a1'))
+    await step({ type: 'annotation:update', site: SITE, id: 'a1', comment: 'Other.' })
+    await step(add('a2'))
+    await step({ type: 'collection:copied', site: SITE, ids: ['a1', 'a2'] })
+    await step({ type: 'annotation:reopen', site: SITE, id: 'a1' })
+    await step({ type: 'annotation:remove', site: SITE, id: 'a1' })
+    await step({ type: 'annotation:restore', site: SITE, id: 'a1' })
+    await step({ type: 'collection:copied', site: SITE, ids: ['a1'] })
+    await step({ type: 'collection:clear', site: SITE })
+    await step({ type: 'collection:empty-bin', site: SITE })
+    expect(steps).toEqual([
+      'Add pin 1',
+      'Edit pin 1',
+      'Add pin 2',
+      'Mark 2 pins done',
+      'Reopen pin 1',
+      'Delete pin 1',
+      'Restore pin 1',
+      'Copy pin 1',
+      'Clear all',
+      'Empty bin',
+    ])
+  })
+
+  it('refuses an item for another site than the page', async () => {
+    const { write } = createWriter()
+    expect(await write(OTHER, add('a1'))).toMatchObject({ ok: false })
+    expect(await stored()).toEqual({})
+  })
+
+  it('updates, deletes and clears', async () => {
+    const { write } = createWriter(() => 'T')
+    await write(SITE, add('a1'))
+    await write(SITE, add('a2'))
+    const update = { type: 'annotation:update', site: SITE, id: 'a2', comment: 'New' } as const
+    expect(await write(SITE, update)).toEqual({ ok: true })
+    expect((await loadSite(SITE)).items[1]).toMatchObject({ number: 2, comment: 'New' })
+    await write(SITE, { type: 'annotation:remove', site: SITE, id: 'a1' })
+    expect((await loadSite(SITE)).items.map((i) => [i.number, i.status])).toEqual([
+      [1, 'deleted'],
+      [2, 'open'],
+    ])
+    await write(SITE, { type: 'collection:clear', site: SITE })
+    expect((await loadSite(SITE)).items.map((i) => [i.number, i.status])).toEqual([
+      [1, 'deleted'],
+      [2, 'deleted'],
+    ])
+    await write(SITE, { type: 'collection:empty-bin', site: SITE })
+    expect((await loadSite(SITE)).items).toEqual([])
+  })
+
+  it('moves items between open, done and deleted', async () => {
+    const { write } = createWriter(() => 'T')
+    for (const id of ['a1', 'a2', 'a3']) await write(SITE, add(id))
+    const statuses = async () => (await loadSite(SITE)).items.map((i) => i.status)
+    const copied: CollectionMessage = { type: 'collection:copied', site: SITE, ids: ['a1', 'a2'] }
+    expect(await write(SITE, copied)).toEqual({ ok: true })
+    expect(await statuses()).toEqual(['done', 'done', 'open'])
+    expect((await loadSite(SITE)).lastCopy).toEqual(['a1', 'a2'])
+    await write(SITE, { type: 'annotation:reopen', site: SITE, id: 'a2' })
+    await write(SITE, { type: 'annotation:remove', site: SITE, id: 'a3' })
+    expect(await statuses()).toEqual(['done', 'open', 'deleted'])
+    await write(SITE, { type: 'annotation:restore', site: SITE, id: 'a3' })
+    expect(await statuses()).toEqual(['done', 'open', 'open'])
+    const edited = { type: 'annotation:update', site: SITE, id: 'a1', comment: 'Again' } as const
+    await write(SITE, edited)
+    expect(await statuses()).toEqual(['open', 'open', 'open'])
+  })
+
+  it('answers ok without writing when an item is in that state already', async () => {
+    const { write } = createWriter(() => 'T')
+    await write(SITE, add('a1', 'Same'))
+    const before = await stored()
+    for (const message of [
+      { type: 'annotation:restore', site: SITE, id: 'a1' },
+      { type: 'annotation:reopen', site: SITE, id: 'a1' },
+      { type: 'annotation:update', site: SITE, id: 'a1', comment: ' Same ' },
+    ] as const) {
+      expect(await write(SITE, message)).toEqual({ ok: true })
+    }
+    await write(SITE, { type: 'annotation:remove', site: SITE, id: 'a1' })
+    const deleted = await stored()
+    expect(deleted).not.toEqual(before)
+    expect(await write(SITE, { type: 'annotation:remove', site: SITE, id: 'a1' })).toEqual({
       ok: true,
     })
-    expect((await loadCollection()).items[1]).toMatchObject({ number: 2, comment: 'New' })
-    await write({ type: 'annotation:remove', id: 'a1' })
-    expect((await loadCollection()).items.map((i) => i.number)).toEqual([2])
-    await write({ type: 'collection:clear' })
-    expect((await loadCollection()).items).toEqual([])
+    expect(await stored()).toEqual(deleted)
   })
 
   it('refuses a duplicate id and unknown items without writing', async () => {
-    const write = createWriter()
-    await write(add('a1'))
-    const before = await loadCollection()
-    expect(await write(add('a1'))).toMatchObject({ ok: false })
-    expect(await write({ type: 'annotation:update', id: 'zz', comment: 'x' })).toMatchObject({
-      ok: false,
-    })
-    expect(await write({ type: 'annotation:remove', id: 'zz' })).toMatchObject({ ok: false })
-    expect(await loadCollection()).toEqual(before)
+    const { write } = createWriter()
+    await write(SITE, add('a1'))
+    const before = await stored()
+    expect(await write(SITE, add('a1'))).toMatchObject({ ok: false })
+    const update = { type: 'annotation:update', site: SITE, id: 'zz', comment: 'x' } as const
+    expect(await write(SITE, update)).toMatchObject({ ok: false })
+    for (const type of ['annotation:remove', 'annotation:restore', 'annotation:reopen'] as const) {
+      expect(await write(SITE, { type, site: SITE, id: 'zz' })).toEqual({
+        ok: false,
+        error: 'This pin no longer exists.',
+      })
+    }
+    expect(await stored()).toEqual(before)
   })
 
   it('replaces invalid stored data on the next write', async () => {
-    await fakeBrowser.storage.local.set({ [COLLECTION_KEY]: { version: 9 } })
-    await createWriter()(add('a1'))
-    expect((await loadCollection()).items.map((i) => i.number)).toEqual([1])
+    await fakeBrowser.storage.local.set({ [collectionKey(SITE)]: { version: 9 } })
+    await createWriter().write(SITE, add('a1'))
+    expect((await loadSite(SITE)).items.map((i) => i.number)).toEqual([1])
   })
 
   it('keeps working after a failed write', async () => {
-    const write = createWriter()
+    const { write } = createWriter()
     const set = fakeBrowser.storage.local.set
     fakeBrowser.storage.local.set = () => Promise.reject(new Error('quota'))
-    expect(await write(add('a1'))).toEqual({ ok: false, error: 'Could not save.' })
+    expect(await write(SITE, add('a1'))).toEqual({ ok: false, error: 'Could not save.' })
     fakeBrowser.storage.local.set = set
-    expect(await write(add('a2'))).toEqual({ ok: true })
+    expect(await write(SITE, add('a2'))).toEqual({ ok: true })
+  })
+})
+
+describe('the split of the old collection', () => {
+  beforeEach(() => fakeBrowser.reset())
+
+  const onA = addAnnotation(emptyCollection(SITE), elementInput('a1', URL_A), 'T')
+  const onB = addAnnotation(emptyCollection(OTHER), elementInput('b1', `${OTHER}/x`), 'T')
+
+  it('writes one collection per site and removes the old key', async () => {
+    await fakeBrowser.storage.local.set({ [LEGACY_KEY]: legacyOf(onA, onB), other: 1 })
+    await createWriter().migrate()
+    const all = await stored()
+    expect(Object.keys(all).sort()).toEqual([collectionKey(SITE), collectionKey(OTHER), 'other'])
+    expect((await loadSite(SITE)).items.map((i) => [i.id, i.status])).toEqual([['a1', 'open']])
+    expect((await loadSite(OTHER)).items.map((i) => i.id)).toEqual(['b1'])
+  })
+
+  it('does nothing without an old collection, also the second time', async () => {
+    await fakeBrowser.storage.local.set({ [LEGACY_KEY]: legacyOf(onA) })
+    const { migrate } = createWriter()
+    await migrate()
+    const once = await stored()
+    await migrate()
+    expect(await stored()).toEqual(once)
+  })
+
+  it('leaves collections that already exist alone', async () => {
+    const newer = addAnnotation(onA, elementInput('a2', URL_A), 'T')
+    await fakeBrowser.storage.local.set({
+      [LEGACY_KEY]: legacyOf(onA),
+      [collectionKey(SITE)]: newer,
+    })
+    await createWriter().migrate()
+    expect(await loadSite(SITE)).toEqual(newer)
+    expect((await stored())[LEGACY_KEY]).toBeUndefined()
+  })
+
+  it('removes an old collection it cannot read', async () => {
+    await fakeBrowser.storage.local.set({ [LEGACY_KEY]: { version: 1, items: 'x' } })
+    await createWriter().migrate()
+    expect(await stored()).toEqual({})
+  })
+
+  it('lets a write that arrives meanwhile land after the split', async () => {
+    await fakeBrowser.storage.local.set({ [LEGACY_KEY]: legacyOf(onA) })
+    const { migrate, write } = createWriter()
+    const done = migrate()
+    const written = write(SITE, add('a2'))
+    await Promise.all([done, written])
+    expect((await loadSite(SITE)).items.map((i) => [i.id, i.number])).toEqual([
+      ['a1', 1],
+      ['a2', 2],
+    ])
   })
 })

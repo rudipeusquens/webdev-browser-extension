@@ -17,7 +17,7 @@ and formatting; an offscreen document records audio for OpenRouter speech-to-tex
 
 **Spec:** `docs/specs/2026-10-05-annotation-extension.md` (read it before any task).
 
-**Depth:** Milestone 1 is planned task by task. Milestones 2–6 are outlined with goals, files,
+**Depth:** Milestone 1 is planned task by task. Milestones 2–7 are outlined with goals, files,
 required tests and acceptance criteria; each is expanded into tasks (in this file, in the PR
 that starts it) once the spike results of milestone 1 are recorded in the spec.
 
@@ -35,6 +35,8 @@ that starts it) once the spike results of milestone 1 are recorded in the spec.
   optional host permissions `http://*/*`, `https://*/*`; no
   `host_permissions`.
 - State in `chrome.storage.local` only, never `sync`; the background is the only writer.
+  Runtime state (tabs that refused the overlay, missing items, the undo history) in
+  `chrome.storage.session`.
 - Page-derived strings are untrusted: no `v-html`, no `eval`, no remote code; caps: visible
   text 120 chars, selected text 500, context 40 each side, origin chain 5, area elements 10,
   selector depth 8.
@@ -42,7 +44,8 @@ that starts it) once the spike results of milestone 1 are recorded in the spec.
   `action.onClicked` handler as the icon; the page's context menu entry **Annotate this page**
   does the same). Milestone 1 used `Alt+Shift+A`, which Chrome never assigns (spec section 13,
   spike 2); the task code below still shows it. `E` element, `A` area, `Esc` browse, `P` pins;
-  `Enter` save (not during IME composition), `Shift+Enter` new line, `Alt+V` voice.
+  `Enter` save (not during IME composition), `Shift+Enter` new line, `Alt+V` voice; in the
+  panel `Ctrl+Z` undo, `Ctrl+Shift+Z` / `Ctrl+Y` redo (`⌘Z`, `⇧⌘Z` on macOS).
 - Default speech-to-text model `openai/gpt-4o-mini-transcribe`; language `auto`; recordings
   stop at 120 s; request timeout 65 s.
 - OpenRouter test key: `OPENROUTER_API_KEY_TEST` in `.env` (gitignored). Used only by the local
@@ -3272,7 +3275,597 @@ calls OpenRouter.
 
 ---
 
-## Milestone 6: Hardening and release readiness
+## Milestone 6: Review workflow
+
+**Goal:** Make the extension fit a repeated review loop across several projects: one collection
+per site, items that become done when copied, Copy again, a filter for done and deleted items,
+undo and redo, an Edit and a Settings view with the shortcut list, and the page and the list
+pointing at each other.
+
+**Planned on 2026-10-06** after milestone 5 was tried in a real browser. Tasks 39–47 name files,
+interfaces and the tests to write first; the implementation follows in the same pull request.
+Steps are test-first: write the listed tests, watch them fail, implement, watch them pass,
+commit.
+
+**Facts this milestone relies on:**
+
+- `MessageSender.url` is the URL of the frame that sent a message; for the overlay (top frame
+  only) it names the page and so the site. `sender.frameId` is 0 for the top frame.
+- `chrome.storage.session` holds 10 MB from Chrome 112 on and is closed to content scripts by
+  default; `chrome.storage.local` and its change events reach content scripts.
+- `tabs.create` needs no permission; an extension page may open `chrome://extensions/shortcuts`
+  with it.
+- Tailwind v4 no longer gives buttons `cursor: pointer`; one base rule restores it for every
+  enabled button, link and `role="button"`.
+- Without the `tabs` permission the panel learns a tab's URL only from its overlay (or for
+  granted origins); a tab without an answering overlay has no known site.
+
+**Decisions:**
+
+- **A site is `URL.origin`** for `http:` and `https:` pages and `file://` for local files.
+  Each site's collection is stored under `collection:<site>`; a write touches one site. The
+  old single collection is split once, when the background starts (queued before any write).
+- **Statuses** `open | done | deleted` are part of the model from the first task that changes
+  it (Task 40), so the old collection is migrated once; the transitions come in Task 42.
+- **Delete keeps the item** (status `deleted`); only **Clear all** removes items, and only
+  those of the active site. Restore makes a deleted item open; Reopen makes a done item open;
+  saving a changed comment on a done item reopens it.
+- **Copy as prompt** formats the open items of the active site, writes the clipboard, then
+  sends the ids it copied (`collection:copied`); the background marks exactly those done, so an
+  item added meanwhile in another tab stays open. The same happens when the clipboard fails
+  and the text is offered in the dialog. **Copy again** formats the ids of `lastCopy` that still
+  exist and are not deleted, and changes nothing.
+- **The filter** (`view` in `storage.local`, written by the background on `view:set` from the
+  panel) is one choice for the panel's list and every tab's pins: `open`, `all` (open and
+  done), `with-deleted`. Default `open`. Pins of hidden items are not placed at all.
+- **Undo and redo** live in the background: every successful change of a site's collection is
+  recorded as a step (the changed items and pages before and after, plus `nextNumber` and
+  `lastCopy`), at most 50 per direction, in `storage.session` (`history:<site>`), with a small
+  `historyLabels:<site>` entry for the panel's buttons and tooltips. Undo checks that every
+  item and page it puts back still looks like the step's other side and refuses otherwise.
+- **Senders:** collection messages from a page count only from the top frame and only for the
+  site of `sender.url`; `collection:copied`, `collection:clear`, `annotation:reopen`,
+  `history:*` and `view:set` only from the panel's URL; `annotation:remove` and
+  `annotation:restore` from either.
+- **The panel's layout:** title row (Edit or Settings, site, count, Undo, Redo, gear or X),
+  then the buttons, then the texts, then the list; the footer holds Copy as prompt, Copy again
+  and Clear all. Settings hides the buttons, the texts and the footer.
+- **Status colors:** open `blue-600`, done `green-700`, deleted `red-600` (white numbers keep
+  at least 4.5:1 contrast). The same three tones mark outlines and text shading.
+- **Page ↔ list:** the overlay posts `{ type: 'pins:pointed', hovered, open }` (item ids or
+  null) on the lines the panel keeps to it; the panel marks those entries for the tab it
+  shows. A click on an entry of another page sends `tab:go`, then waits up to 30 s for the
+  overlay of that page to answer and sends `overlay:reveal`; the overlay waits up to 3 s for
+  the item to be placed.
+
+**Known limits:** undo lasts for the browser session; a tab whose overlay is not active shows
+no site in the panel (Chrome tells the panel nothing about it); the filter is the same for
+every site.
+
+**Review focus for this milestone** (each line has a test in the owning task):
+
+1. An existing collection from milestone 5, including file pages and a malformed one: split
+   by site with numbers kept and every item open; a second start changes nothing; nothing is
+   lost when the split runs while a page saves (Task 40).
+2. A page or another site's overlay sending collection, copy, clear, undo or view messages:
+   refused, nothing written (Tasks 40, 42, 43, 45).
+3. Copy while another tab adds an item: only the copied items become done; Copy again after
+   a deletion leaves the deleted item out (Tasks 42, 43).
+4. Undo and redo across tabs of a site, after a refused write, after the history and the
+   collection got out of step, at the 50-step limit and when `storage.session` is full
+   (Task 45).
+5. The filter, pins and list agree: a hidden item has no pin, hovering a pin of a status the
+   list hides cannot happen, a jump to a missing item or a page whose overlay never answers
+   ends quietly (Tasks 43, 44, 46).
+
+**Pre-flight (shared interfaces):** Task 40's `siteOf`, `Collection` (version 2 with `site`,
+`status`, `lastCopy`), `loadSite`/`watchSite`/`loadSites` and the writer's `write(site, msg)`
+feed every later task; Task 42's statuses and `collection:copied` are what Task 43's panel
+and Task 44's popover send; Task 43's `view` store is what Task 44's overlay reads; Task 45
+wraps the writer of Tasks 40 and 42; Task 46 uses Task 39's layout and Task 43's list.
+
+### Task 39: Edit and Settings views, the shortcut list, pointer cursors
+
+**Files:**
+
+- Create: `src/lib/shortcuts.ts`, `src/entrypoints/sidepanel/ShortcutList.vue`,
+  `tests/unit/shortcuts.test.ts`, `tests/e2e/panel-layout.e2e.test.ts`
+- Modify: `src/entrypoints/sidepanel/App.vue`, `src/entrypoints/sidepanel/SettingsView.vue`,
+  `src/assets/tailwind.css`, `src/entrypoints/overlay.content/CommentPopover.vue`
+- Test: `tests/unit/sidepanel-app.test.ts`, `tests/unit/sidepanel-voice.test.ts`,
+  `tests/unit/comment-popover.test.ts`, `tests/e2e/remembered.e2e.test.ts`,
+  `tests/e2e/voice.e2e.test.ts`
+
+**Interfaces:**
+
+- Produces (`shortcuts.ts`): `interface ShortcutRow { keys: string[]; action: string }`,
+  `interface ShortcutGroup { title: string; rows: ShortcutRow[] }`,
+  `shortcutGroups(mac: boolean): ShortcutGroup[]` (On the page, Element mode, Area mode, In a
+  comment), `isMacPlatform(platform: string): boolean`.
+- Produces (panel): `data-testid="panel-title"` (Edit or Settings), `open-settings` (gear) and
+  `close-settings` (X) in the same place of the title row, `shortcut-list`,
+  `change-shortcut`.
+
+- [ ] **Step 1: Write the failing tests:**
+  - panel: the title says Edit; the mode switch, Pins toggle and filter come before the tab
+    status in document order; the gear opens Settings, which says Settings, shows an X with
+    `close-settings` and no mode switch, Pins toggle, tab status or footer; X returns to Edit;
+    **Open settings** from a popover opens Settings with the same header.
+  - shortcut list: Settings lists the toolbar shortcut Chrome assigned (or "Not set") with
+    **Change**, which opens `chrome://extensions/shortcuts` in a new tab; it lists E, A, P,
+    Esc, ↑, ↓, Enter (element mode), Esc (area drag), Enter, Shift+Enter, Esc, Alt+V (in a
+    comment); macOS shows `⌥V` for Alt+V.
+  - keys agree with the handlers: each page row's key gives the named action through
+    `pageShortcut`, each comment row's through `popoverKey`.
+  - popover: the element that cuts the title with an ellipsis is the target label in the
+    muted color, never the title paragraph (the `…` takes the label's color).
+  - E2E: every enabled `button` in both panel views and the overlay's pins and popover buttons
+    computes `cursor: pointer`; a disabled one does not.
+- [ ] **Step 2: Run them, watch them fail;** **Step 3: implement;** **Step 4: run
+      `pnpm test:unit`, `pnpm build && pnpm test:e2e` for the touched files;** **Step 5:
+      commit** "Give the panel an Edit and a Settings view with the shortcut list".
+
+### Task 40: One collection per site
+
+**Files:**
+
+- Create: `src/lib/collection/site.ts`, `src/lib/collection/migrate.ts`,
+  `tests/unit/collection-site.test.ts`, `tests/unit/collection-migrate.test.ts`,
+  `tests/e2e/sites.e2e.test.ts`
+- Modify: `src/lib/collection/{model,ops,validate,store}.ts`,
+  `src/composables/use-collection.ts` (becomes `useSiteCollection`),
+  `src/lib/background/{writer,anchor-status}.ts`, `src/entrypoints/background.ts`,
+  `src/lib/messages.ts`, `src/entrypoints/sidepanel/App.vue`,
+  `src/entrypoints/overlay.content/Overlay.vue`, `tests/unit/helpers/collection.ts`,
+  `tests/e2e/overlay-helpers.ts` (`storedCollection` merges every site)
+- Test: the collection, writer, background, anchor-status, panel, overlay and formatter unit
+  tests; `tests/e2e/go-to.e2e.test.ts`, `tests/e2e/element-mode.e2e.test.ts`,
+  `tests/e2e/voice.e2e.test.ts`
+
+**Interfaces:**
+
+- Produces (`site.ts`): `siteOf(url: string): string` (throws on a URL that is not
+  `http:`, `https:` or `file:`), `isSite(x): x is string`, `siteLabel(site): string`
+  (`localhost:3000`, `example.com`, `Local files`).
+- Produces (`model.ts`): `type Status = 'open' | 'done' | 'deleted'`, `STATUSES`,
+  `Annotation.status: Status`, `Collection { version: 2; site; nextNumber; pages; items;
+lastCopy: string[] }`, `LegacyCollection` (version 1, items without status).
+- Produces (`ops.ts`): `emptyCollection(site)`; `addAnnotation` refuses a page of another
+  site and creates open items; `clearAll(c)` keeps the site.
+- Produces (`validate.ts`): `isCollection(x)` for version 2 (site is a site, every page and
+  item belongs to it, statuses known, `lastCopy` ids unique and at most 1000),
+  `isLegacyCollection(x)`.
+- Produces (`migrate.ts`): `splitLegacy(legacy: LegacyCollection): Collection[]`.
+- Produces (`store.ts`): `COLLECTION_PREFIX = 'collection:'`, `LEGACY_KEY = 'collection'`,
+  `collectionKey(site)`, `loadSite(site): Promise<Collection>` (empty for none, malformed or
+  another site's value), `watchSite(site, cb): () => void`, `loadSites(): Promise<Collection[]>`
+  (valid ones, by site), `watchSites(cb: () => void): () => void`.
+- Produces (writer): `createWriter(now?)` → `{ write(site: string, msg: CollectionMessage):
+Promise<Reply>; migrate(): Promise<void> }`; an empty collection removes its key.
+- Produces (messages): `annotation:update`, `annotation:remove` and `collection:clear` carry
+  `site`; `annotation:add` takes its site from `page.url`.
+- Produces (composable): `useSiteCollection(site: Ref<string | null>): { collection:
+Ref<Collection | null> }`.
+
+- [ ] **Step 1: Write the failing tests:**
+  - site: origins for `http`/`https` with and without port; `file:///a/b.html` → `file://`;
+    credentials and paths never reach the site; `siteLabel`; `isSite` refuses paths, other
+    schemes and `null`.
+  - migrate: a legacy collection with items on two origins and a file page becomes three
+    collections; every item keeps id, number, comment and target and is open; pages go with
+    their items; `nextNumber` stays the legacy one; `lastCopy` empty.
+  - validate: version 2 accepted; refused: unknown status, a page or item of another site,
+    a `lastCopy` id twice, a version-1 value; `isLegacyCollection` accepts what milestone 5
+    stored.
+  - store: `loadSite` for a missing key, a malformed value and a value of another site under
+    the key → empty collection of the asked site; `watchSite` reports only its key;
+    `loadSites` skips malformed values.
+  - writer: writes go to the page's site only; two sites count numbers from 1 each; clearing
+    one site leaves the other; an emptied site removes its key; `migrate` splits the legacy
+    key and removes it, leaves existing site keys alone, removes a malformed legacy value, and
+    a second `migrate` does nothing; a write queued during `migrate` lands after it.
+  - background: `annotation:add` from a tab whose `sender.url` is on another site, from a
+    sub-frame or without a tab is refused; `annotation:update`/`remove` for another site than
+    the sender's are refused; `collection:clear` only from the panel; anchor reports count only
+    for the reported page's site; Go to finds the page in its site's collection.
+  - panel: lists only the active site's items; switching to a tab of another site switches
+    the list; a tab without an answering overlay shows the status and no list; copy and
+    clear name the site.
+  - overlay: pins and saves use the page's site.
+  - E2E (`sites.e2e.test.ts`): two fixture servers on two ports; items on each start at 1;
+    the panel follows the active tab; Copy as prompt on one copies only its items; a legacy
+    `collection` written before the service worker restarts is split.
+- [ ] **Steps 2–5** as in Task 39; commit "Keep one collection per site".
+
+### Task 41: The site in the panel and in Settings
+
+**Files:**
+
+- Create: `src/entrypoints/sidepanel/use-sites.ts`, `src/entrypoints/sidepanel/SiteList.vue`
+- Modify: `App.vue`, `ItemList.vue`, `SettingsView.vue`
+- Test: `tests/unit/sidepanel-app.test.ts`, `tests/unit/sidepanel-sites.test.ts`
+
+**Interfaces:**
+
+- Produces: `useSites(remembered: Ref<string[]>): { sites: Ref<SiteEntry[]> }` with
+  `SiteEntry { site: string; open: number; remembered: boolean }` (remembered sites and sites
+  with items, sorted by label); `data-testid="site-label"`, `site-link`, `site-open-count`.
+
+- [ ] **Step 1: Write the failing tests:** the title row shows `localhost:3000` with the full
+      origin as tooltip and the open count; page headings show title and path (`/settings?tab=2`);
+      Settings › Sites lists remembered sites and sites with feedback (counts of open items,
+      **Auto** and **Forget** for remembered ones only); clicking a web site's address opens it in
+      a new tab; a `file://` site has no link; nothing renders page strings as HTML.
+- [ ] **Steps 2–5;** commit "Show the site in the panel and every site in Settings".
+
+### Task 42: Statuses in the background
+
+**Files:**
+
+- Modify: `src/lib/collection/ops.ts`, `src/lib/background/writer.ts`,
+  `src/lib/messages.ts`, `src/entrypoints/background.ts`
+- Test: `tests/unit/collection-ops.test.ts`, `tests/unit/background-writer.test.ts`,
+  `tests/unit/background.test.ts`, `tests/unit/messages.test.ts`
+
+**Interfaces:**
+
+- Produces (`ops.ts`): `setStatus(c, id, status, now)`, `markCopied(c, ids, now)` (open
+  items among `ids` become done; `lastCopy` = the ids that exist), `updateComment` reopens a
+  done item whose comment changed.
+- Produces (messages): `annotation:remove` now marks deleted; new `{ type: 'annotation:restore';
+site; id }`, `{ type: 'annotation:reopen'; site; id }`, `{ type: 'collection:copied'; site;
+ids: string[] }` (1–1000 ids).
+
+- [ ] **Step 1: Write the failing tests:** remove marks deleted and keeps the item, its page
+      and its number; restore and reopen change only the matching status and answer ok without a
+      write otherwise; a missing id says "This item no longer exists."; `markCopied` with an id
+      added after the copy started leaves that item open, skips deleted ids, and sets `lastCopy`;
+      editing a done item's comment reopens it, the same text does not; `collection:copied` and
+      `annotation:reopen` from a tab are refused; restore from another site's overlay is refused.
+- [ ] **Steps 2–5;** commit "Keep deleted items and mark copied ones done".
+
+### Task 43: Copy, Copy again and the filter in the panel
+
+**Files:**
+
+- Create: `src/lib/view.ts`, `src/lib/status.ts` (labels and color classes),
+  `tests/unit/view.test.ts`
+- Modify: `src/lib/collection/ops.ts` (`pick`), `src/lib/messages.ts` (`view:set`),
+  `src/entrypoints/background.ts`, `App.vue`, `ItemList.vue`, `ClearAllDialog.vue`
+- Test: `tests/unit/sidepanel-app.test.ts`, `tests/unit/collection-ops.test.ts`,
+  `tests/unit/background.test.ts`
+
+**Interfaces:**
+
+- Produces (`view.ts`): `VIEW_KEY = 'view'`, `type Filter = 'open' | 'all' | 'with-deleted'`,
+  `FILTERS`, `isView`, `loadView()`, `watchView(cb)`, `shows(item, filter): boolean`.
+- Produces (`status.ts`): `STATUS_BADGE: Record<Status, string>` (Tailwind classes),
+  `STATUS_NAME`.
+- Produces (`ops.ts`): `pick(c, ids: ReadonlySet<string>): Collection` (those items and their
+  pages, for the formatter).
+- Produces (messages): `{ type: 'view:set'; filter: Filter }`, panel only.
+- Produces (panel): `filter-open`, `filter-all`, `filter-with-deleted`, `copy-again`,
+  `item-reopen`, `item-restore`, `item-delete`.
+
+- [ ] **Step 1: Write the failing tests:** Copy as prompt copies only open items and then
+      sends `collection:copied` with exactly their ids (also when the fallback dialog opens);
+      it is disabled without open items; Copy again copies the last copy's items that are not
+      deleted, sends nothing, and is disabled without them; the three filters show open / open and
+      done / everything, with counts, and send `view:set`; numbers take the status colors and a
+      deleted comment is struck through; Reopen, Restore and Delete send their messages; Clear all
+      names the site and its item count; `view` falls back to `open` when malformed; `view:set`
+      from a tab is refused.
+- [ ] **Steps 2–5;** commit "Copy open items, copy again, and filter by status".
+
+### Task 44: Pins by status, Delete and Restore in the popover
+
+**Files:**
+
+- Modify: `src/entrypoints/overlay.content/{Overlay,CommentPopover}.vue`,
+  `src/entrypoints/overlay.content/text-marks.ts`
+- Test: `tests/unit/comment-popover.test.ts`, `tests/unit/overlay-text-marks.test.ts`,
+  `tests/e2e/pins.e2e.test.ts`, `tests/e2e/voice.e2e.test.ts` ("Enter to save" is gone)
+
+**Interfaces:**
+
+- Produces (`CommentPopover`): props `status?: Status`; emits `remove` and `restore`;
+  `data-testid="overlay-delete"` and `overlay-restore`.
+- Produces (`text-marks.ts`): `set(marks: Record<Status, { normal: Range[]; strong:
+Range[] }>)`, highlight names `webdev-pins-<status>` and `webdev-pins-<status>-strong`.
+
+- [ ] **Step 1: Write the failing tests:** an existing open or done item's popover shows
+      **Delete** on the left, a deleted one **Restore**, a new comment neither; no "Enter to
+      save"; while dictating the status replaces the button; Delete and Restore act only on
+      trusted clicks; text marks set one highlight pair per status and clear them all;
+      E2E: with filter Open a done item has no pin and no outline, with All a green pin, with + Deleted a red one; Delete in the popover makes the pin go (filter Open) and the panel
+      entry red (filter + Deleted).
+- [ ] **Steps 2–5;** commit "Color pins by status and delete from the popover".
+
+### Task 45: Undo and redo
+
+**Files:**
+
+- Create: `src/lib/background/history.ts`, `tests/unit/background-history.test.ts`
+- Modify: `src/lib/background/writer.ts`, `src/lib/messages.ts`,
+  `src/entrypoints/background.ts`, `App.vue`, `src/lib/shortcuts.ts`
+- Test: `tests/unit/background-writer.test.ts`, `tests/unit/sidepanel-app.test.ts`,
+  `tests/unit/shortcuts.test.ts`, `tests/e2e/sites.e2e.test.ts`
+
+**Interfaces:**
+
+- Produces (`history.ts`): `interface Step { label; items; pages; nextNumber; lastCopy }`
+  (spec section 5), `HISTORY_LIMIT = 50`, `HISTORY_PREFIX = 'history:'`,
+  `LABELS_PREFIX = 'historyLabels:'`, `stepBetween(before, after, label): Step | null`
+  (null when nothing changed), `applyStep(c, step, to: 'before' | 'after'): Collection | null`
+  (null when the collection does not match the other side), `loadLabels(site)`,
+  `watchLabels(site, cb)`.
+- Produces (messages): `{ type: 'history:undo'; site }`, `{ type: 'history:redo'; site }`,
+  panel only.
+- Produces (panel): `undo`, `redo` buttons with tooltips "Undo: <label>", "Redo: <label>".
+
+- [ ] **Step 1: Write the failing tests:** each change (add, edit, delete, restore, reopen,
+      copied, clear) is undone and redone exactly, including `nextNumber` and `lastCopy`; a new
+      change clears redo; 51 changes keep 50; an item changed outside the history makes undo
+      refuse with the spec's message and clears the history; a refused write records nothing; a
+      full `storage.session` drops the oldest steps; the history of one site never touches
+      another; the panel's buttons are disabled without steps, name the step, and Ctrl+Z,
+      Ctrl+Shift+Z and Ctrl+Y (⌘Z, ⇧⌘Z on macOS) work only outside text fields and only in
+      Edit; undo and redo from a tab are refused; E2E: delete, undo, redo across two tabs of a
+      site.
+- [ ] **Steps 2–5;** commit "Undo and redo every change of a site".
+
+### Task 46: Page and list point at each other
+
+**Files:**
+
+- Modify: `src/lib/messages.ts` (`pins:pointed`), `Overlay.vue`,
+  `src/entrypoints/sidepanel/{use-overlay-lines.ts,App.vue,ItemList.vue}`
+- Test: `tests/unit/sidepanel-app.test.ts`, `tests/unit/messages.test.ts`,
+  `tests/e2e/go-to.e2e.test.ts`, `tests/e2e/pins.e2e.test.ts`
+
+**Interfaces:**
+
+- Produces (messages): `type PinsPointed = { type: 'pins:pointed'; hovered: string | null;
+open: string | null }`, `isPinsPointed(x)`.
+- Produces (`use-overlay-lines.ts`): returns `{ pointed: Ref<{ hovered: string | null; open:
+string | null }> }` for the tab the panel shows.
+- Produces (overlay): `overlay:reveal` waits up to `REVEAL_WAIT = 3000` ms for the item to be
+  placed.
+
+- [ ] **Step 1: Write the failing tests:** a `pins:pointed` from the shown tab marks the entry
+      (and scrolls it into view), from another tab or malformed does nothing, and the mark goes
+      when the panel moves to another tab; the overlay posts hovered and open ids on every line
+      and nothing else; clicking an entry of another page sends `tab:go` and, once the overlay of
+      that page answers, `overlay:reveal`, and gives up after 30 s or when the developer
+      clicks something else; E2E: hovering a pin marks its entry; clicking an entry of another
+      page opens that page, scrolls to the item and opens its popover.
+- [ ] **Steps 2–5;** commit "Let the page and the list point at each other".
+
+### Task 47: The review loop end to end, docs
+
+**Files:**
+
+- Create: `tests/e2e/review-loop.e2e.test.ts`
+- Modify: `AGENTS.md` (status), this plan (milestone 7 numbering), the spec where the
+  implementation differs
+
+- [ ] **Step 1: Write the E2E test:** two sites; mark three items on one; Copy as prompt →
+      clipboard holds three items, all green; mark one more → Copy as prompt copies only it; Copy
+      again copies it again; Undo makes it open, Redo done again; delete from the popover, find
+      it under + Deleted, Restore; Clear all on one site leaves the other.
+- [ ] **Step 2: run the whole suite** (`pnpm check`, `pnpm build`, `pnpm test:e2e`,
+      `pnpm manifest:check`); **Step 3: commit** "Test the review loop and update the docs".
+
+## Milestone 6b: Review polish
+
+**Goal:** Smooth the review workflow after trying it on real projects: pins as the one name,
+one pin copied on its own, Clear all into Deleted with a bin to empty, the site as a status pill
+in the middle of the title row, starting the overlay from the panel where Chrome allows it, two
+options in Settings, markings in the status color, and native scrolling in element and area
+mode.
+
+**Planned on 2026-10-06** after milestone 6 was tried in a real browser. Tasks 48–54; the
+implementation follows in the same pull request. Steps are test-first.
+
+**Facts this milestone relies on (2026-10-06, Chrome for Testing 154):**
+
+- A click in the side panel does not grant `activeTab`: `scripting.executeScript` on a tab the
+  extension has no access to fails ("Cannot access contents of the page"), and `tabs.query`
+  leaves out that tab's `url`. The panel learns a tab's URL only where it may run already (an
+  `activeTab` grant that outlived its overlay, e.g. after a reload or a same-origin navigation,
+  or a granted origin).
+- A wheel turn over a fixed element scrolls the viewport: the glass needs to scroll by script
+  only what lies inside a scroll container. `scrollBy()` follows the page's
+  `scroll-behavior: smooth`, and a smooth scroll started while another runs starts from where
+  that one is, so quick turns lose distance; `behavior: 'instant'` does not.
+- `contextMenus` entries persist across restarts until removed.
+
+**Decisions:**
+
+- **Pin is the name** of an item everywhere the developer reads it: the chip on a selection,
+  the popover's title (**New pin**, **Pin 3**), the panel's texts, tooltips, labels and undo
+  steps. The text of a pin stays its comment. Code names (`Annotation`, `CommentPopover`) stay.
+- **Copy one pin:** an open entry has a copy button where a done entry has Reopen. It copies
+  that pin as the prompt and sends `collection:copied` with its id: it becomes done and is
+  what Copy again copies.
+- **Clear all moves to Deleted:** `collection:clear` marks every open and done pin of the site
+  deleted (no dialog: Undo and Restore bring them back). When only deleted pins are left, the
+  button becomes **Empty bin**, which removes them for good after a confirmation
+  (`collection:empty-bin`, undoable until the browser closes); numbering starts again at 1 once
+  nothing is left. Both carry the bin icon.
+- **The title row** is a three-column grid: the view's title on the left, the site pill in the
+  middle (a dot and the site: green active, grey not active, red refused or failed; "Not
+  active" when Chrome does not tell the panel the page), Undo, Redo and the gear on the right.
+  The count badge goes; the filter shows the counts. Hovering or focusing the pill opens a
+  small popover with its one action: **Forget this site** (remembered; asks in a dialog first),
+  **Always enable here** (active, not remembered), **Annotate this page** (not active, page
+  known). States without an action get no popover; the pill's tooltip names the full origin.
+- **Annotate this page from the panel:** `tab:start { tabId }`, from the panel only, injects
+  the overlay as the toolbar does; Chrome refuses where it gives no access, and the panel says
+  so. The empty Edit view shows the button in its middle when the page is known, else how to
+  start the overlay (toolbar icon, shortcut, and the context menu only while it is enabled).
+- **Settings:** a General section with two switches stored in `settings` (written by the
+  background on `settings:set { key, value }`, from the panel only, in the same queue as the
+  remembered sites): **Show page titles** (off: page headings show the path only) and
+  **Annotate this page in the context menu** (off: the background removes the entry; on: it
+  adds it). Sections get more space between them. Settings › Sites asks before forgetting too.
+- **Page headings:** **This page** first, then the path; the path of another page on the web
+  is the Go to link (ghost button style, arrow), no separate button. More space between groups.
+- **Layout:** the mode switch and Pins fill the row (equal widths, 8 px between Area and Pins);
+  empty states sit in the middle of the list area; no key hints on the Edit view; the copy
+  status and errors sit above the footer's buttons, so the footer's padding is the same on
+  every side; scrollbars thin, in the border color.
+- **Status color for every marking of a saved pin:** the panel's hover highlight and the
+  marking of the pin being edited take its status color (blue, green, red); a new pin's stays
+  blue.
+- **Wheel in element and area mode:** over the document the browser scrolls by itself; inside
+  a scroll container under the pointer, the glass scrolls the nearest one that can still move
+  that way, at once and by the full distance. A body that is the scroll container itself (the
+  root's overflow is not visible) counts as one; a container at its end that keeps the wheel
+  (`overscroll-behavior`) scrolls nothing, as without the glass. No option: slower scrolling
+  was a bug.
+
+**Known limits:** a page the extension has no access to cannot be started from the panel and
+its site cannot be named (Chrome); the panel's switches are the same for every site.
+
+**Review focus for this milestone** (each line has a test in the owning task):
+
+1. A page or another extension context sending `tab:start`, `settings:set` or
+   `collection:empty-bin`: refused, nothing written or injected (Tasks 49–51).
+2. Settings stored by milestone 6 (no options): read with both options off; a malformed option
+   leaves the remembered sites intact (Task 49).
+3. Clear all, then Undo; Empty bin, then Undo; Copy again after Clear all; Empty bin while
+   open pins exist cannot be reached (Task 51).
+4. A status change while the filter shows the pin: pin, outline, text shading, panel highlight
+   and popover marking change color without a reload (Task 52).
+5. Wheel over the document with `scroll-behavior: smooth`, over a container at its end, and
+   with Ctrl held (Task 53).
+
+### Task 48: Pins by name, and the panel's layout
+
+**Files:**
+
+- Modify: `src/entrypoints/sidepanel/{App,ItemList,SettingsView}.vue`,
+  `src/entrypoints/overlay.content/{SelectionChip,CommentPopover,Overlay}.vue`,
+  `src/lib/background/writer.ts` (step labels), `src/assets/tailwind.css` (scrollbars)
+- Test: `tests/unit/{sidepanel-app,comment-popover,background-writer}.test.ts`,
+  `tests/e2e/panel-layout.e2e.test.ts` and the E2E tests that name items
+
+- [ ] **Step 1: Write the failing tests:** the chip says Pin; the popover says New pin or Pin 3
+      and its buttons say "pin"; the panel says "Copied 2 pins", "Delete pin 1", "2 pins are
+      hidden by this filter"; undo steps read "Delete pin 1", "Mark 2 pins done"; the Edit view
+      has no key hints; the empty states are centered in the list area; E2E at 400 px: the four
+      mode buttons span the row, Area and Pins are 8 px apart, the footer's bottom padding
+      equals its side padding, groups are at least 16 px apart.
+- [ ] **Step 2–4:** watch them fail, implement, run `pnpm test:unit` and the touched E2E files;
+      **Step 5: commit** "Call them pins, and tidy the panel".
+
+### Task 49: Settings options, page headings
+
+**Files:**
+
+- Create: `src/entrypoints/sidepanel/GeneralSettings.vue`, `src/components/ui/switch/*`
+  (shadcn-vue CLI)
+- Modify: `src/lib/settings.ts`, `src/lib/background/sites.ts` (the settings queue),
+  `src/lib/messages.ts`, `src/entrypoints/background.ts`, `src/entrypoints/sidepanel/
+{SettingsView,ItemList,App}.vue`
+- Test: `tests/unit/{settings,background,messages,sidepanel-app}.test.ts`,
+  `tests/e2e/panel-layout.e2e.test.ts`
+
+**Interfaces:** `Settings { rememberedOrigins: string[]; pageTitles: boolean; contextMenu:
+boolean }`; `{ type: 'settings:set'; key: 'pageTitles' | 'contextMenu'; value: boolean }` →
+`Reply`.
+
+- [ ] **Step 1: Write the failing tests:** old settings read with both off; a non-boolean option
+      falls back to off without dropping the sites; `settings:set` from a page is refused; it
+      keeps the remembered sites and runs in their queue; the context menu entry exists only
+      while the option is on (startup, install, change); headings show the path only, the title
+      too with the option on; **This page** comes before the path; another page's path is the
+      Go to button and there is no `go-to` button; page-derived titles still render as text.
+- [ ] **Step 2–4;** **Step 5: commit** "Add page titles and the context menu as options".
+
+### Task 50: The site pill, Annotate this page from the panel
+
+**Files:**
+
+- Create: `src/entrypoints/sidepanel/{SitePill,ForgetSiteDialog}.vue`
+- Modify: `src/entrypoints/sidepanel/{App,SiteList}.vue`,
+  `src/entrypoints/sidepanel/use-active-tab.ts` (`url` of a known idle tab),
+  `src/lib/messages.ts`, `src/entrypoints/background.ts`
+- Test: `tests/unit/{sidepanel-app,background,messages}.test.ts`,
+  `tests/e2e/{remembered,reactivate}.e2e.test.ts`
+
+**Interfaces:** `TabStatus` idle and failed carry `url?: string`;
+`{ type: 'tab:start'; tabId: number }` → `Reply`.
+
+- [ ] **Step 1: Write the failing tests:** the pill sits between title and Undo, centered, with
+      a green, grey or red dot and the site; hovering or focusing opens its action; Forget asks
+      first and forgets only on confirm (also in Settings › Sites); Always enable here asks
+      Chrome first; a known idle page offers Annotate this page in the pill and in the middle of
+      the view, which sends `tab:start`; an unknown page shows "Not active" and how to start;
+      `tab:start` from a page is refused; a refused start is shown. E2E: reload a page, start
+      the overlay again from the panel without the toolbar.
+- [ ] **Step 2–4;** **Step 5: commit** "Show the site as a pill and start the overlay from the
+      panel".
+
+### Task 51: Copy one pin, Clear all into Deleted, Empty bin
+
+**Files:**
+
+- Create: `src/entrypoints/sidepanel/EmptyBinDialog.vue` (replaces `ClearAllDialog.vue`)
+- Modify: `src/lib/collection/ops.ts` (`clearAll`, `emptyBin`), `src/lib/messages.ts`,
+  `src/lib/background/writer.ts`, `src/entrypoints/background.ts`,
+  `src/entrypoints/sidepanel/{App,ItemList}.vue`
+- Test: `tests/unit/{collection-ops,background-writer,background,messages,sidepanel-app}.test.ts`,
+  `tests/e2e/review-loop.e2e.test.ts`
+
+**Interfaces:** `clearAll(c, now): Collection` (open and done → deleted);
+`emptyBin(c): Collection` (deleted pins removed, pages without pins dropped, `lastCopy`
+filtered, numbering reset when empty); `{ type: 'collection:empty-bin'; site: string }`.
+
+- [ ] **Step 1: Write the failing tests:** ops; writer labels "Clear all" and "Empty bin";
+      undo after each; `collection:empty-bin` from a page refused, missing marks of removed pins
+      forgotten; the panel's copy button on open entries copies one pin and sends its id, Copy
+      again copies it again; Clear all needs no dialog and says how many moved; Empty bin shows
+      only when nothing open or done is left, asks first.
+- [ ] **Step 2–4;** **Step 5: commit** "Copy one pin, and clear into Deleted".
+
+### Task 52: Markings in the status color
+
+**Files:**
+
+- Modify: `src/entrypoints/overlay.content/{HoverBox,TextHighlight,Overlay}.vue`,
+  `src/lib/status.ts`
+- Test: `tests/unit/overlay-boxes.test.ts` (new), `tests/e2e/pin-outlines.e2e.test.ts`
+
+- [ ] **Step 1: Write the failing tests:** the panel's highlight and the popover's marking of a
+      done pin are green, of a deleted one red, of an open one and a new one blue; E2E with All:
+      Copy as prompt turns pin, outline and text shading green and Reopen blue, without a
+      reload.
+- [ ] **Step 2–4;** **Step 5: commit** "Mark pins in their status color everywhere".
+
+### Task 53: Native scrolling in element and area mode
+
+**Files:**
+
+- Create: `tests/fixtures/sites/plain/smooth.html`
+- Modify: `src/entrypoints/overlay.content/{picker.ts,Overlay.vue}`
+- Test: `tests/unit/picker.test.ts`, `tests/e2e/element-mode.e2e.test.ts`
+
+- [ ] **Step 1: Write the failing tests:** `scrollableAncestor` skips a container that cannot
+      move further that way; E2E on a page with `scroll-behavior: smooth`: four quick wheel
+      turns scroll the document as far in element mode as in browse mode, and a smooth inner
+      container by the full distance; a container at its end lets the page scroll.
+- [ ] **Step 2–4;** **Step 5: commit** "Scroll as fast in element mode as without it".
+
+### Task 54: The loop end to end, docs
+
+- Modify: `tests/e2e/review-loop.e2e.test.ts`, the spec (sections 5, 8, 10, 11), `AGENTS.md`
+- [ ] **Step 1:** the review loop copies one pin, clears into Deleted, empties the bin;
+      **Step 2:** whole suite (`pnpm check`, `pnpm build`, `pnpm test:e2e`,
+      `pnpm manifest:check`); **Step 3: commit** "Test the polished loop and update the docs".
+
+## Milestone 7: Hardening and release readiness
 
 **Goal:** Independent security review, smoke checklist, user documentation.
 

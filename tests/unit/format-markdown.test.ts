@@ -1,7 +1,7 @@
 import { readFileSync } from 'node:fs'
 import { describe, expect, it } from 'vitest'
 import type { Collection, Target } from '@/lib/collection/model'
-import { addAnnotation, emptyCollection, removeAnnotation } from '@/lib/collection/ops'
+import { addAnnotation, emptyCollection } from '@/lib/collection/ops'
 import { formatCollection } from '@/lib/format/markdown'
 import { elementInput, page, snapshot } from './helpers/collection'
 
@@ -12,7 +12,7 @@ function collect(...items: { url: string; target: Target; comment: string; title
   return items.reduce<Collection>(
     (c, { url, target, comment, title }, i) =>
       addAnnotation(c, { id: `i${i}`, page: page(url, { title }), target, comment }, NOW),
-    emptyCollection(),
+    emptyCollection('http://localhost:3000'),
   )
 }
 
@@ -194,8 +194,9 @@ describe('formatCollection', () => {
     expect(out).toContain('\n\n> First\n>\n> Second\n\n')
   })
 
-  it('keeps gaps in the numbering after a deletion', () => {
-    const c = removeAnnotation(collect(elementLine(), elementLine(), elementLine()), 'i1')
+  it('keeps the numbers of the items it is given, gaps and all', () => {
+    const all = collect(elementLine(), elementLine(), elementLine())
+    const c = { ...all, items: all.items.filter((item) => item.id !== 'i1') }
     const out = formatCollection(c)
     expect(out).toContain('### 1. Element')
     expect(out).not.toContain('### 2.')

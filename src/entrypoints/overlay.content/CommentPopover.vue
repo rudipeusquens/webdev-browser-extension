@@ -1,9 +1,9 @@
 <script setup lang="ts">
-import { LoaderCircleIcon, XIcon } from '@lucide/vue'
+import { ArchiveRestoreIcon, LoaderCircleIcon, Trash2Icon, XIcon } from '@lucide/vue'
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, useTemplateRef } from 'vue'
 import { browser } from 'wxt/browser'
 import { Button } from '@/components/ui/button'
-import { LIMITS, type Rect } from '@/lib/collection/model'
+import { LIMITS, type Rect, type Status } from '@/lib/collection/model'
 import type { BackgroundMessage } from '@/lib/messages'
 import { voiceErrorText } from '@/lib/voice/protocol'
 import { CommentGuard } from './comment-guard'
@@ -21,13 +21,15 @@ const props = defineProps<{
   initial?: string
   /** Set when an existing item is edited. */
   number?: number
+  /** The status of an existing item: Delete, or Restore for a deleted one. */
+  status?: Status
   error?: string
   busy?: boolean
   /** Changes whenever positions may have changed (see use-tracking.ts). */
   frame?: number
 }>()
 
-const emit = defineEmits<{ save: [comment: string]; cancel: [] }>()
+const emit = defineEmits<{ save: [comment: string]; cancel: []; remove: []; restore: [] }>()
 
 const guard = new CommentGuard(props.initial ?? '')
 const text = ref(guard.verified)
@@ -170,15 +172,18 @@ onBeforeUnmount(() => resizes.disconnect())
     ref="card"
     data-testid="overlay-popover"
     role="dialog"
-    :aria-label="number ? `Edit item ${number}` : 'Comment'"
+    :aria-label="number ? `Edit pin ${number}` : 'New pin'"
     class="fixed z-[2147483647] flex w-72 flex-col gap-2 rounded-lg border bg-popover p-3 text-sm text-popover-foreground shadow-lg"
     :style="position"
     @keydown="onKeydown"
   >
     <div class="flex items-center justify-between gap-2">
-      <p class="min-w-0 truncate font-medium">
-        {{ number ? `Item ${number}` : 'Comment' }}
-        <span class="font-mono text-xs font-normal text-muted-foreground">{{ label }}</span>
+      <!-- The label cuts itself: an ellipsis takes the color of the element that cuts. -->
+      <p class="flex min-w-0 items-baseline gap-1 font-medium">
+        <span class="shrink-0">{{ number ? `Pin ${number}` : 'New pin' }}</span>
+        <span class="min-w-0 truncate font-mono text-xs font-normal text-muted-foreground">{{
+          label
+        }}</span>
       </p>
       <Button
         variant="ghost"
@@ -253,10 +258,31 @@ onBeforeUnmount(() => resizes.disconnect())
       {{ notice }}
     </p>
     <div class="flex items-center justify-between gap-2">
+      <Button
+        v-if="number && status !== 'deleted' && !voice.busy.value"
+        data-testid="overlay-delete"
+        variant="ghost"
+        size="sm"
+        class="-ml-2 text-muted-foreground hover:text-destructive"
+        :aria-label="`Delete pin ${number}`"
+        @click="onButton($event, () => emit('remove'))"
+      >
+        <Trash2Icon /> Delete
+      </Button>
+      <Button
+        v-else-if="number && status === 'deleted' && !voice.busy.value"
+        data-testid="overlay-restore"
+        variant="ghost"
+        size="sm"
+        class="-ml-2 text-muted-foreground"
+        :aria-label="`Restore pin ${number}`"
+        @click="onButton($event, () => emit('restore'))"
+      >
+        <ArchiveRestoreIcon /> Restore
+      </Button>
       <p
         data-testid="overlay-voice-status"
-        class="flex min-w-0 items-center gap-1.5 text-xs whitespace-nowrap text-muted-foreground"
-        :title="voice.busy.value ? undefined : 'Shift+Enter adds a line'"
+        class="flex min-w-0 flex-1 items-center gap-1.5 text-xs whitespace-nowrap text-muted-foreground"
       >
         <template v-if="voice.state.value.state === 'recording'">
           <span class="size-2 shrink-0 animate-pulse rounded-full bg-red-600" aria-hidden="true" />
@@ -270,7 +296,6 @@ onBeforeUnmount(() => resizes.disconnect())
         <template v-else-if="voice.state.value.state === 'starting'">
           Starting the microphone…
         </template>
-        <template v-else>Enter to save</template>
       </p>
       <span class="sr-only" role="status" aria-live="polite">{{ spoken }}</span>
       <div class="flex shrink-0 items-center gap-1.5">

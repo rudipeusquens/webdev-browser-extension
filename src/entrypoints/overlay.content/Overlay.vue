@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed, onBeforeUnmount, onMounted, ref, shallowReactive, shallowRef, watch } from 'vue'
-import { browser } from 'wxt/browser'
-import { useCollection } from '@/composables/use-collection'
+import { browser, type Browser } from 'wxt/browser'
+import { useSiteCollection } from '@/composables/use-site-collection'
 import { closestOf, deepActiveElement, queryFirst, tagOf } from '@/lib/capture/dom'
 import { findText } from '@/lib/capture/find-text'
 import { snapshotArea } from '@/lib/capture/area'
@@ -15,7 +15,10 @@ import {
   selectionRange,
   snapshotRange,
 } from '@/lib/capture/text'
-import type { PageInfo, Rect, Target } from '@/lib/collection/model'
+import type { PageInfo, Rect, Status, Target } from '@/lib/collection/model'
+import { siteOf } from '@/lib/collection/site'
+import { STATUS_BADGE } from '@/lib/status'
+import { type Filter, loadView, shows, watchView } from '@/lib/view'
 import { truncate } from '@/lib/text'
 import {
   type BackgroundMessage,
@@ -24,6 +27,7 @@ import {
   type Mode,
   type OverlayStatus,
   type PanelMessage,
+  type PinsPointed,
   type Reply,
 } from '@/lib/messages'
 import { createAnchorStatus } from './anchor-status'
@@ -32,7 +36,7 @@ import HoverBox from './HoverBox.vue'
 import { newId } from './ids'
 import { type Origins, readOrigins, sourcesOf, within, withOrigins } from './origins'
 import { pageShortcut } from './keys'
-import { forwardsWheel, isEditable, pickAt, scrollableAncestor, TargetPath } from './picker'
+import { forwardsWheel, isEditable, pickAt, TargetPath, wheelTarget } from './picker'
 import {
   boxOf,
   clippersOf,
@@ -50,7 +54,7 @@ import { rectBetween } from './place'
 import SelectionChip from './SelectionChip.vue'
 import TextHighlight from './TextHighlight.vue'
 import { usePage } from './use-page'
-import { createTextMarks, pageSurface } from './text-marks'
+import { createTextMarks, type Marks, pageSurface } from './text-marks'
 import { useTracking } from './use-tracking'
 
 const props = defineProps<{ host: HTMLElement; layer: Layer }>()
@@ -69,6 +73,8 @@ const ORIGIN_WAIT = 2000
 const HOVER_DWELL = 150
 /** Text items are searched again at most this often while the page changes. */
 const REANCHOR_EVERY = 300
+/** How long a reveal waits for its item to be placed: the page may still be loading. */
+const REVEAL_WAIT = 3000
 
 interface Draft {
   key: number
@@ -92,7 +98,7 @@ interface Draft {
   /** The page a new item was marked on: the app may navigate while the comment is written. */
   page?: PageInfo
   /** An existing item being edited. */
-  edit?: { id: string; number: number; comment: string }
+  edit?: { id: string; number: number; comment: string; status: Status }
 }
 
 // This overlay, for the panel: a second toolbar click starts a new one on the same tab.
@@ -114,7 +120,19 @@ const drag = shallowRef<{ from: { x: number; y: number }; to: { x: number; y: nu
 )
 const { frame, layout } = useTracking()
 const { key: page } = usePage()
-const { collection } = useCollection()
+// The site of this page: a single-page app stays on it while it navigates.
+const site = siteOf(location.href)
+const { collection } = useSiteCollection(ref(site))
+// The panel's filter: which items have pins (spec section 8).
+const filter = ref<Filter>('open')
+let filterChanged = false
+const stopView = watchView((view) => {
+  filterChanged = true
+  filter.value = view.filter
+})
+void loadView().then((view) => {
+  if (!filterChanged) filter.value = view.filter
+})
 // What was marked in this session, by item id: more precise than the stored selector.
 const live = shallowReactive(new Map<string, LiveAnchor>())
 let pointed: Element | null = null
@@ -189,8 +207,11 @@ const chipLine = computed(() => {
   return { x: r.x, y: r.y, width: r.width, height: r.height }
 })
 
+/** The items of this page that the filter shows: only they are placed and pinned. */
 const pageItems = computed(() =>
-  collection.value.items.filter((item) => item.pageKey === page.value),
+  (collection.value?.items ?? []).filter(
+    (item) => item.pageKey === page.value && shows(item, filter.value),
+  ),
 )
 const placements = computed(() => {
   // Again after DOM changes, not on every scroll: an element may have been replaced.
@@ -222,15 +243,22 @@ const shown = computed(() => {
   })
 })
 const pins = computed(() => {
-  const numbers = new Map(pageItems.value.map((item) => [item.id, item.number]))
+  const items = new Map(pageItems.value.map((item) => [item.id, item]))
   const onPage = shown.value.map(({ item, rect, bounds }) => ({ id: item.id, rect, bounds }))
   return pinPositions(onPage).map(({ id, x, y }) => ({
     id,
-    number: numbers.get(id),
+    number: items.get(id)?.number,
+    tone: STATUS_BADGE[items.get(id)?.status ?? 'open'],
     left: `${x}px`,
     top: `${y}px`,
   }))
 })
+/** Outline colors by status: drawn fully while its pin is hovered. */
+const OUTLINE: Record<Status, { normal: string; strong: string }> = {
+  open: { normal: 'border-blue-600/70', strong: 'border-blue-600' },
+  done: { normal: 'border-green-700/70', strong: 'border-green-700' },
+  deleted: { normal: 'border-red-600/70', strong: 'border-red-600' },
+}
 // A pin that goes away under the pointer (hidden, scrolled out of its box) gets no mouseleave.
 watch(pins, (current) => {
   if (hoveredPin.value && !current.some((pin) => pin.id === hoveredPin.value)) {
@@ -260,8 +288,15 @@ const outlines = computed(() => {
       borderBottomWidth: side(box.sides.bottom),
       borderLeftWidth: side(box.sides.left),
     }
-    return [{ id: item.id, strong, dashed: item.target.kind === 'area', style }]
+    const tone = OUTLINE[item.status][strong ? 'strong' : 'normal']
+    return [{ id: item.id, strong, tone, dashed: item.target.kind === 'area', style }]
   })
+})
+/** The status of the pin being edited, now: the panel may change it while its popover is open. */
+const editStatus = computed(() => {
+  const edit = draft.value?.edit
+  if (!edit) return undefined
+  return collection.value?.items.find((item) => item.id === edit.id)?.status ?? edit.status
 })
 const highlight = computed(() => {
   void frame.value
@@ -270,7 +305,7 @@ const highlight = computed(() => {
   const rect = placement?.rect()
   // A target without a box (not rendered) has nothing to outline.
   if (!item || !rect || rect.width === 0 || rect.height === 0) return null
-  return { rect, label: `Item ${item.number}` }
+  return { rect, label: `Pin ${item.number}`, status: item.status }
 })
 
 // Pinned texts are shaded by the browser: set again when what is pinned, hovered or edited
@@ -279,23 +314,23 @@ const textMarks = createTextMarks(pageSurface(document))
 watch(
   [placements, pinsShown, hoveredPin, () => draft.value?.edit?.id],
   () => {
-    const normal: Range[] = []
-    const strong: Range[] = []
+    const marks: Marks = {}
     const editing = draft.value?.edit?.id
     if (pinsShown.value) {
       for (const item of pageItems.value) {
         const range = placements.value.get(item.id)?.range
         // A text not found again has its pin at its container, and no shading.
         if (!range || item.id === editing) continue
-        ;(item.id === hoveredPin.value ? strong : normal).push(range)
+        const tone = (marks[item.status] ??= { normal: [], strong: [] })
+        ;(item.id === hoveredPin.value ? tone.strong : tone.normal).push(range)
       }
     }
-    textMarks.set(normal, strong)
+    textMarks.set(marks)
   },
   { immediate: true },
 )
 
-watch(collection, (current) => pruneLive(live, current.items))
+watch(collection, (current) => pruneLive(live, current?.items ?? []))
 
 // Text items without a selection from this session are found again by their text: at once
 // when the page's items change (mount, another page), so the pin does not jump from the
@@ -494,7 +529,7 @@ function openEdit(id: string): boolean {
     rect,
     range,
     label: labelOf(item.target, el, rect()),
-    edit: { id, number: item.number, comment: item.comment },
+    edit: { id, number: item.number, comment: item.comment, status: item.status },
   })
   return true
 }
@@ -505,6 +540,28 @@ function reveal(id: string): boolean {
   placement.el.scrollIntoView({ block: 'center', inline: 'nearest' })
   return openEdit(id)
 }
+
+// A reveal that came before its item was placed (the panel jumped to this page): it happens
+// once the item is placed, or not at all after REVEAL_WAIT.
+let wanted: string | null = null
+let wantedTimer: ReturnType<typeof setTimeout> | undefined
+
+function revealSoon(id: string): boolean {
+  clearTimeout(wantedTimer)
+  wanted = null
+  if (reveal(id)) return true
+  wanted = id
+  wantedTimer = setTimeout(() => (wanted = null), REVEAL_WAIT)
+  return false
+}
+
+watch(placements, (placed) => {
+  if (!wanted || !placed.has(wanted) || draft.value) return
+  const id = wanted
+  wanted = null
+  clearTimeout(wantedTimer)
+  reveal(id)
+})
 
 /**
  * Offers the chip for the page's selection after the user let go of the mouse or a key: a
@@ -563,6 +620,28 @@ function commentOnSelection() {
   })
 }
 
+/** Delete or Restore in the popover of an existing item: it closes once the change is saved. */
+async function changeStatus(type: 'annotation:remove' | 'annotation:restore') {
+  const current = draft.value
+  const id = current?.edit?.id
+  if (!current || !id || current.busy) return
+  draft.value = { ...current, busy: true, error: undefined }
+  const message: BackgroundMessage = { type, site, id }
+  let reply: Reply | undefined
+  try {
+    reply = (await browser.runtime.sendMessage(message)) as Reply | undefined
+  } catch {
+    reply = undefined
+  }
+  if (draft.value?.key !== current.key) return
+  if (reply?.ok) {
+    draft.value = null
+    return
+  }
+  const error = reply && !reply.ok ? reply.error : 'Could not save. Reload the page and try again.'
+  draft.value = { ...current, busy: false, error }
+}
+
 function onPinClick(e: MouseEvent, id: string) {
   if (e.isTrusted) openEdit(id)
 }
@@ -585,7 +664,7 @@ async function save(comment: string) {
     if (origins) target = withOrigins(target, origins)
   }
   const message: BackgroundMessage = current.edit
-    ? { type: 'annotation:update', id, comment }
+    ? { type: 'annotation:update', site, id, comment }
     : {
         type: 'annotation:add',
         id,
@@ -655,15 +734,20 @@ function onGlassClick(e: MouseEvent) {
   select(path.value?.current ?? null)
 }
 
+/**
+ * The glass takes the pointer: the browser scrolls the document under it by itself, but no
+ * scroll container. Those are scrolled from here, at once and by the whole turn: with the
+ * page's smooth scrolling, each turn would start from where the last one is and lose distance.
+ */
 function onWheel(e: WheelEvent) {
   if (!e.isTrusted || !forwardsWheel(e)) return
-  // The glass takes the pointer, so scroll what lies under it ourselves.
   const vertical = Math.abs(e.deltaY) >= Math.abs(e.deltaX)
-  const target = scrollableAncestor(pickAt(document, e.clientX, e.clientY, props.host), vertical)
-  if (!target) return
-  e.preventDefault()
   const unit = e.deltaMode === 1 ? 16 : e.deltaMode === 2 ? window.innerHeight : 1
-  target.scrollBy({ left: e.deltaX * unit, top: e.deltaY * unit })
+  const under = pickAt(document, e.clientX, e.clientY, props.host)
+  const target = wheelTarget(under, vertical, (vertical ? e.deltaY : e.deltaX) * unit)
+  if (target === 'page') return
+  e.preventDefault()
+  target?.scrollBy({ left: e.deltaX * unit, top: e.deltaY * unit, behavior: 'instant' })
 }
 
 function onKeydown(e: KeyboardEvent) {
@@ -730,9 +814,9 @@ const onMessage: Parameters<typeof browser.runtime.onMessage.addListener>[0] = (
       return
     case 'overlay:reveal':
       sendResponse(
-        (reveal(message.id)
+        (revealSoon(message.id)
           ? { ok: true }
-          : { ok: false, error: 'Not found on this page.' }) satisfies Reply,
+          : { ok: false, error: 'Not found on this page yet.' }) satisfies Reply,
       )
       return
   }
@@ -743,15 +827,38 @@ const onMessage: Parameters<typeof browser.runtime.onMessage.addListener>[0] = (
  * highlight goes; when it closes, the line goes and the page is left to work normally (spec
  * section 8).
  */
+const panels = new Set<Browser.runtime.Port>()
+
+/** What the pins point at, by id only: the panel marks the entries (spec section 8). */
+function pointedNow(): PinsPointed {
+  return { type: 'pins:pointed', hovered: hoveredPin.value, open: draft.value?.edit?.id ?? null }
+}
+
+function tellPanels(message: PinsPointed) {
+  for (const port of panels) {
+    try {
+      port.postMessage(message)
+    } catch {
+      panels.delete(port)
+    }
+  }
+}
+
+watch([hoveredPin, () => draft.value?.edit?.id ?? null], () => tellPanels(pointedNow()))
+
 const onConnect: Parameters<typeof browser.runtime.onConnect.addListener>[0] = (port) => {
   if (port.name !== 'panel' || port.sender?.id !== browser.runtime.id) return
+  panels.add(port)
   port.onMessage.addListener((message) => {
     if (isPanelAway(message)) highlighted.value = null
   })
   port.onDisconnect.addListener(() => {
+    panels.delete(port)
     highlighted.value = null
     setMode('browse')
   })
+  const now = pointedNow()
+  if (now.hovered || now.open) tellPanels(now)
 }
 
 const RELEASES = ['pointerup', 'mouseup', 'keyup'] as const
@@ -767,6 +874,8 @@ onMounted(() => {
 })
 
 onBeforeUnmount(() => {
+  stopView()
+  clearTimeout(wantedTimer)
   textMarks.stop()
   clearTimeout(hoverTimer)
   clearTimeout(reanchorTimer)
@@ -801,10 +910,7 @@ onBeforeUnmount(() => {
         data-testid="overlay-outline"
         :data-strong="outline.strong"
         class="pointer-events-none fixed top-0 left-0 z-[2147483647] rounded-[3px] will-change-transform"
-        :class="[
-          outline.dashed ? 'border-dashed' : 'border-solid',
-          outline.strong ? 'border-blue-600' : 'border-blue-600/70',
-        ]"
+        :class="[outline.dashed ? 'border-dashed' : 'border-solid', outline.tone]"
         :style="outline.style"
       />
     </template>
@@ -813,6 +919,7 @@ onBeforeUnmount(() => {
       v-if="highlight && !draft"
       :rect="highlight.rect"
       :label="highlight.label"
+      :status="highlight.status"
       testid="overlay-highlight"
     />
     <button
@@ -820,20 +927,22 @@ onBeforeUnmount(() => {
       :key="pin.id"
       type="button"
       data-testid="overlay-pin"
-      class="fixed z-[2147483647] flex size-5 items-center justify-center rounded-full bg-blue-600 text-xs leading-none font-semibold text-white shadow-md ring-2 ring-white"
+      class="fixed z-[2147483647] flex size-5 items-center justify-center rounded-full text-xs leading-none font-semibold text-white shadow-md ring-2 ring-white"
+      :class="pin.tone"
       :style="{ left: pin.left, top: pin.top }"
-      :aria-label="`Edit item ${pin.number}`"
+      :aria-label="`Edit pin ${pin.number}`"
       @mouseenter="hoveredPin = pin.id"
       @mouseleave="hoveredPin = null"
       @click="onPinClick($event, pin.id)"
     >
       {{ pin.number }}
     </button>
-    <TextHighlight v-if="draftText" :boxes="draftText.lines" />
+    <TextHighlight v-if="draftText" :boxes="draftText.lines" :status="editStatus" />
     <HoverBox
       v-else-if="draftRect"
       :rect="draftRect"
       :tone="draft?.kind === 'area' ? 'area' : 'selected'"
+      :status="editStatus"
     />
     <HoverBox
       v-if="dragRect"
@@ -850,11 +959,14 @@ onBeforeUnmount(() => {
       :label="draft.label"
       :initial="draft.edit?.comment"
       :number="draft.edit?.number"
+      :status="draft.edit?.status"
       :busy="draft.busy"
       :error="draft.error"
       :frame="frame"
       @save="save"
       @cancel="cancel"
+      @remove="changeStatus('annotation:remove')"
+      @restore="changeStatus('annotation:restore')"
     />
   </div>
 </template>

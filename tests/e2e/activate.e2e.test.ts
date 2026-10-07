@@ -1,6 +1,7 @@
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest'
 import type { WebWorker } from 'puppeteer'
 import { clickAction, launch, serviceWorker, type Session, startFixtureServer } from './harness'
+import { overlayMounted } from './overlay-helpers'
 
 type Command = { name?: string; shortcut?: string }
 type Chrome = {
@@ -63,10 +64,33 @@ describe('activation', () => {
     expect(await assignedShortcut(await serviceWorker(session))).toMatch(SHORTCUT)
   })
 
-  it('adds "Annotate this page" to the context menu of pages', async () => {
+  it('adds "Annotate this page" to the context menu only while Settings turns it on', async () => {
+    await session.page.goto(`${server.origin}/plain/`)
+    const panel = await clickAction(session)
     const worker = await serviceWorker(session)
+    expect(await menuEntry(worker, 'annotate')).not.toBe('found')
+    await panel.click('[data-testid="open-settings"]')
+    await panel.click('[data-testid="option-context-menu"]')
     await vi.waitFor(async () => expect(await menuEntry(worker, 'annotate')).toBe('found'))
     expect(await menuEntry(worker, 'nothing')).not.toBe('found')
+    await panel.click('[data-testid="option-context-menu"]')
+    await vi.waitFor(async () => expect(await menuEntry(worker, 'annotate')).not.toBe('found'))
+    await panel.click('[data-testid="close-settings"]')
+  })
+
+  it('starts the overlay from the panel again after a reload, without the toolbar', async () => {
+    await session.page.goto(`${server.origin}/plain/`)
+    const panel = await clickAction(session)
+    await overlayMounted(session)
+    await panel.waitForSelector('[data-testid="site-pill"][data-state="active"]')
+    // A reload drops the overlay; the grant of the toolbar click stays with the tab.
+    await session.page.reload()
+    await panel.waitForSelector('[data-testid="site-pill"][data-state="idle"]')
+    const host = new URL(server.origin).host
+    expect(await panel.$eval('[data-testid="title-site"]', (p) => p.textContent?.trim())).toBe(host)
+    await panel.click('[data-testid="start-overlay-center"]')
+    await overlayMounted(session)
+    await panel.waitForSelector('[data-testid="site-pill"][data-state="active"]')
   })
 
   it('says when the overlay cannot start on a page', async () => {
@@ -86,14 +110,16 @@ describe('activation', () => {
     const other = await session.browser.newPage()
     await other.goto(`${server.origin}/plain/`)
     await other.bringToFront()
-    await panel.waitForFunction(() =>
-      document.querySelector('[data-testid="tab-status"]')?.textContent?.includes('Not active'),
+    // A tab the extension was never invited to: Chrome tells the panel nothing about it.
+    await panel.waitForSelector('[data-testid="site-pill"][data-state="idle"]')
+    expect(await panel.$eval('[data-testid="title-site"]', (p) => p.textContent?.trim())).toBe(
+      'Not active',
     )
     const text = await panel.$eval('[data-testid="tab-status"]', (p) => p.textContent ?? '')
     const shortcut = await assignedShortcut(await serviceWorker(session))
     expect(shortcut).toMatch(SHORTCUT)
-    expect(text).toContain(`press ${shortcut}`)
-    expect(text).toContain('Annotate this page')
+    expect(text).toContain(`press ${shortcut} to annotate this page`)
+    expect(await panel.$('[data-testid="start-overlay-center"]')).toBeNull()
     await other.close()
   })
 })

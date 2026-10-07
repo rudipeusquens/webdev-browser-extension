@@ -5,7 +5,14 @@
 
 import { browser } from 'wxt/browser'
 import type { Reply } from '../messages'
-import { loadSettings, MAX_SITES, originPattern, type Settings, SETTINGS_KEY } from '../settings'
+import {
+  loadSettings,
+  MAX_SITES,
+  type Option,
+  originPattern,
+  type Settings,
+  SETTINGS_KEY,
+} from '../settings'
 
 const SCRIPT_ID = 'overlay'
 export const OVERLAY_SCRIPT = 'content-scripts/overlay.js'
@@ -88,6 +95,14 @@ export function createSites() {
           if (await granted(origin)) kept.push(origin)
         await save(settings, kept)
         return kept
+      }),
+
+    /** Sets one of the panel's options, in the same queue as the sites: none is lost. */
+    setOption: (option: Option, value: boolean): Promise<Reply> =>
+      inOrder(async () => {
+        const settings = await loadSettings()
+        await browser.storage.local.set({ [SETTINGS_KEY]: { ...settings, [option]: value } })
+        return { ok: true }
       }),
 
     isRemembered: async (origin: string) =>

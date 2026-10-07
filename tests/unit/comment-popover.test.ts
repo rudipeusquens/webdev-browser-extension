@@ -2,6 +2,7 @@ import { mount } from '@vue/test-utils'
 import { nextTick } from 'vue'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { fakeBrowser } from 'wxt/testing/fake-browser'
+import type { Status } from '@/lib/collection/model'
 import CommentPopover from '@/entrypoints/overlay.content/CommentPopover.vue'
 import { type FakePort, fakePort } from './helpers/fake-ports'
 
@@ -56,12 +57,30 @@ describe('CommentPopover', () => {
     )
   })
 
-  it('prefills an existing comment and names the item', () => {
+  it('prefills an existing comment and names the pin', () => {
     const wrapper = mount(CommentPopover, {
-      props: { rect, label: 'button', initial: 'Old text', number: 3 },
+      props: { rect, label: 'button', initial: 'Old text', number: 3, status: 'open' },
     })
     expect((wrapper.get('textarea').element as HTMLTextAreaElement).value).toBe('Old text')
-    expect(wrapper.text()).toContain('Item 3')
+    expect(wrapper.text()).toContain('Pin 3')
+    expect(wrapper.text()).not.toContain('Item')
+    expect(wrapper.get('[role="dialog"]').attributes('aria-label')).toBe('Edit pin 3')
+    expect(wrapper.get('[data-testid="overlay-delete"]').attributes('aria-label')).toBe(
+      'Delete pin 3',
+    )
+  })
+
+  it('calls a new one New pin, and Restore names the pin', () => {
+    const fresh = mount(CommentPopover, { props: { rect, label: 'button' } })
+    expect(fresh.text()).toContain('New pin')
+    expect(fresh.text()).not.toContain('Comment')
+    expect(fresh.get('[role="dialog"]').attributes('aria-label')).toBe('New pin')
+    const deleted = mount(CommentPopover, {
+      props: { rect, label: 'button', number: 4, status: 'deleted' },
+    })
+    expect(deleted.get('[data-testid="overlay-restore"]').attributes('aria-label')).toBe(
+      'Restore pin 4',
+    )
   })
 
   it('shows an error and keeps the text', () => {
@@ -70,6 +89,17 @@ describe('CommentPopover', () => {
     })
     expect(wrapper.text()).toContain('Could not save.')
     expect((wrapper.get('textarea').element as HTMLTextAreaElement).value).toBe('Keep me')
+  })
+
+  // The ellipsis takes the color of the element that cuts the text.
+  it('cuts a long target with an ellipsis in the color of the target', () => {
+    const label = `"${'very long selected text '.repeat(3)}"`
+    const wrapper = mount(CommentPopover, { props: { rect, label } })
+    const cut = wrapper.findAll('*').filter((w) => w.classes().includes('truncate'))
+    expect(cut).toHaveLength(1)
+    expect(cut[0]?.text()).toBe(label)
+    expect(cut[0]?.classes()).toContain('text-muted-foreground')
+    expect(wrapper.text()).toContain('New pin')
   })
 
   it('renders the target label as text', () => {
@@ -113,7 +143,7 @@ describe('CommentPopover: dictation', () => {
     document.body.innerHTML = ''
   })
 
-  function open(props: { initial?: string } = {}) {
+  function open(props: { initial?: string; number?: number; status?: Status } = {}) {
     const wrapper = mount(CommentPopover, {
       props: { rect, label: 'button', ...props },
       attachTo: document.body,
@@ -126,6 +156,51 @@ describe('CommentPopover: dictation', () => {
     }
     return { wrapper, get, field, receive }
   }
+
+  it('offers Delete for an existing item, Restore for a deleted one, neither for a new one', () => {
+    const shown = (props: object) => {
+      const { wrapper } = open(props)
+      const result = ['overlay-delete', 'overlay-restore'].filter((id) =>
+        wrapper.find(`[data-testid="${id}"]`).exists(),
+      )
+      wrapper.unmount()
+      return result
+    }
+    expect(shown({})).toEqual([])
+    expect(shown({ number: 3, status: 'open' })).toEqual(['overlay-delete'])
+    expect(shown({ number: 3, status: 'done' })).toEqual(['overlay-delete'])
+    expect(shown({ number: 3, status: 'deleted' })).toEqual(['overlay-restore'])
+  })
+
+  it('no longer says Enter to save', () => {
+    const { wrapper } = open({ number: 3, status: 'open' })
+    expect(wrapper.text()).not.toContain('Enter to save')
+    const { wrapper: fresh } = open()
+    expect(fresh.text()).not.toContain('Enter to save')
+  })
+
+  it('deletes and restores on trusted clicks only', async () => {
+    const { wrapper, get } = open({ number: 3, status: 'open' })
+    await get('overlay-delete').trigger('click')
+    expect(wrapper.emitted('remove')).toBeUndefined()
+    click(get('overlay-delete').element)
+    expect(wrapper.emitted('remove')).toHaveLength(1)
+    const deleted = open({ number: 4, status: 'deleted' })
+    await deleted.get('overlay-restore').trigger('click')
+    expect(deleted.wrapper.emitted('restore')).toBeUndefined()
+    click(deleted.get('overlay-restore').element)
+    expect(deleted.wrapper.emitted('restore')).toHaveLength(1)
+  })
+
+  it('shows the dictation instead of Delete while it runs', async () => {
+    const { wrapper, get, receive } = open({ number: 3, status: 'open', initial: 'Wider' })
+    click(get('overlay-mic').element)
+    await receive({ state: 'recording', limit: 120_000 })
+    expect(wrapper.find('[data-testid="overlay-delete"]').exists()).toBe(false)
+    expect(get('overlay-voice-status').text()).toContain('0:00')
+    await receive({ state: 'idle' })
+    expect(wrapper.find('[data-testid="overlay-delete"]').exists()).toBe(true)
+  })
 
   it('puts the mic button right before Save', () => {
     const { get } = open()
