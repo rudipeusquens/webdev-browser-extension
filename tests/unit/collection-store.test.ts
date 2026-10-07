@@ -1,5 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { fakeBrowser } from 'wxt/testing/fake-browser'
+import { LIMITS } from '@/lib/collection/model'
 import { addAnnotation, emptyCollection } from '@/lib/collection/ops'
 import {
   COLLECTION_PREFIX,
@@ -41,6 +42,26 @@ describe('collection store', () => {
     expect(await loadSite(A)).toEqual(emptyCollection(A))
   })
 
+  it('keeps the valid pins of a collection that no longer validates as a whole', async () => {
+    let c = onA
+    c = addAnnotation(c, elementInput('a2', `${A}/x`, 'Second'), 'now')
+    c = addAnnotation(c, elementInput('a3', `${A}/z`, 'Third'), 'now')
+    // Pin 2 was stored by a version with a larger limit, or got damaged.
+    const broken = {
+      ...c,
+      items: c.items.map((item) =>
+        item.id === 'a2' ? { ...item, comment: 'x'.repeat(LIMITS.comment + 1) } : item,
+      ),
+      lastCopy: ['a1', 'a2'],
+    }
+    await fakeBrowser.storage.local.set({ [collectionKey(A)]: broken })
+    const loaded = await loadSite(A)
+    expect(loaded.items.map((item) => item.id)).toEqual(['a1', 'a3'])
+    expect(Object.keys(loaded.pages).sort()).toEqual([`${A}/x`, `${A}/z`])
+    expect(loaded.nextNumber).toBe(4)
+    expect(loaded.lastCopy).toEqual(['a1'])
+  })
+
   it('reports changes of its own site in local storage only', async () => {
     const seen = vi.fn()
     const stop = watchSite(A, seen)
@@ -54,15 +75,20 @@ describe('collection store', () => {
     expect(seen).toHaveBeenCalledTimes(2)
   })
 
-  it('lists every valid site collection, by site', async () => {
+  it('lists every site collection by what of it can be read, by site', async () => {
+    const C = 'https://c.example.com'
+    const onC = addAnnotation(emptyCollection(C), elementInput('c1', `${C}/`), 'now')
+    const damaged = { ...onC, items: [...onC.items, { id: 'c2', broken: true }] }
     await fakeBrowser.storage.local.set({
       [collectionKey(B)]: onB,
       [collectionKey(A)]: onA,
+      [collectionKey(C)]: damaged,
       [collectionKey('https://example.com')]: { broken: true },
+      [`collection-unreadable:${A}`]: onA,
       [LEGACY_KEY]: { version: 1 },
       other: 1,
     })
-    expect(await loadSites()).toEqual([onA, onB])
+    expect(await loadSites()).toEqual([onA, onB, onC])
   })
 
   it('says when any site changed', async () => {

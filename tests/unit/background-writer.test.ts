@@ -33,6 +33,29 @@ describe('createWriter', () => {
     })
   })
 
+  it('keeps a collection that no longer validates: its valid pins stay, and it is copied aside', async () => {
+    const { write } = createWriter(() => 'T1')
+    let c = addAnnotation(emptyCollection(SITE), elementInput('a1', URL_A, 'First'), 'T0')
+    c = addAnnotation(c, elementInput('a2', URL_A, 'Second'), 'T0')
+    const broken = {
+      ...c,
+      items: c.items.map((item) =>
+        item.id === 'a2'
+          ? { ...item, target: { kind: 'element', element: { selector: 1 } } }
+          : item,
+      ),
+    }
+    await fakeBrowser.storage.local.set({ [collectionKey(SITE)]: broken })
+    expect(await write(SITE, add('n1'))).toEqual({ ok: true })
+    const after = await loadSite(SITE)
+    expect(after.items.map((item) => item.id)).toEqual(['a1', 'n1'])
+    expect(after.items.at(-1)?.number).toBe(3)
+    expect((await stored())[`collection-unreadable:${SITE}`]).toEqual(broken)
+    // Copied aside once: a later write keeps the first copy.
+    expect(await write(SITE, add('n2'))).toEqual({ ok: true })
+    expect((await stored())[`collection-unreadable:${SITE}`]).toEqual(broken)
+  })
+
   it('serializes parallel writes so none is lost', async () => {
     const { write } = createWriter()
     await Promise.all([write(SITE, add('a1')), write(SITE, add('a2')), write(SITE, add('a3'))])

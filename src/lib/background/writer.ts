@@ -13,7 +13,7 @@ import {
   setStatus,
   updateComment,
 } from '../collection/ops'
-import { collectionKey, LEGACY_KEY, loadSite } from '../collection/store'
+import { collectionKey, LEGACY_KEY, readSite, unreadableKey } from '../collection/store'
 import { isLegacyCollection } from '../collection/validate'
 import type { CollectionMessage, Reply } from '../messages'
 import { applyStep, forgetHistory, loadHistory, saveHistory, stepBetween } from './history'
@@ -92,6 +92,21 @@ const isEmpty = (c: Collection) =>
   c.nextNumber === 1 &&
   c.lastCopy.length === 0
 
+/**
+ * The collection of `site` to change. A stored value that no longer validated as it was is
+ * copied aside first, once: the change then builds on what of it could be read, and nothing
+ * of it is lost.
+ */
+async function current(site: string): Promise<Collection> {
+  const { collection, unreadable } = await readSite(site)
+  if (unreadable !== undefined) {
+    const key = unreadableKey(site)
+    const kept = (await browser.storage.local.get(key))[key]
+    if (kept === undefined) await browser.storage.local.set({ [key]: unreadable })
+  }
+  return collection
+}
+
 /** An empty collection is the default: its key goes. */
 async function save(c: Collection): Promise<void> {
   const key = collectionKey(c.site)
@@ -121,7 +136,7 @@ export function createWriter(now = () => new Date().toISOString()) {
       const h = await loadHistory(site)
       const step = h[from].at(-1)
       if (!step) return { ok: false, error: `Nothing to ${from}.` }
-      const next = applyStep(await loadSite(site), step, from === 'undo' ? 'before' : 'after')
+      const next = applyStep(await current(site), step, from === 'undo' ? 'before' : 'after')
       if (!next) {
         await forgetHistory(site)
         const done = from === 'undo' ? 'undone' : 'redone'
@@ -137,13 +152,13 @@ export function createWriter(now = () => new Date().toISOString()) {
     /** Applies `msg` to the collection of `site`. */
     write(site: string, msg: CollectionMessage): Promise<Reply> {
       return inOrder(async (): Promise<Reply> => {
-        const current = await loadSite(site)
-        const next = apply(current, msg, now())
+        const before = await current(site)
+        const next = apply(before, msg, now())
         if (typeof next === 'string') return { ok: false, error: next }
-        if (next === current) return { ok: true }
+        if (next === before) return { ok: true }
         await save(next)
         // The change is saved; a history that cannot be kept only loses its undo.
-        await record(site, stepBetween(current, next, labelOf(msg, current, next))).catch(
+        await record(site, stepBetween(before, next, labelOf(msg, before, next))).catch(
           () => undefined,
         )
         return { ok: true }

@@ -189,7 +189,7 @@ function isItem(x: unknown, keys: string[]): x is Omit<Annotation, 'status'> {
 
 export const isStatus = (x: unknown): x is Status => STATUSES.includes(x as Status)
 
-function isAnnotation(x: unknown): x is Annotation {
+export function isAnnotation(x: unknown): x is Annotation {
   return isItem(x, [...ITEM_KEYS, 'status']) && isStatus((x as Fields).status)
 }
 
@@ -213,7 +213,8 @@ function isConsistent(
   )
 }
 
-const belongsTo = (url: string, site: string) => {
+/** Whether the page `url` belongs to `site`. */
+export const belongsTo = (url: string, site: string) => {
   try {
     return siteOf(url) === site
   } catch {
