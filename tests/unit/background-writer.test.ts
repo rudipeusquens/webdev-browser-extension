@@ -56,6 +56,25 @@ describe('createWriter', () => {
     expect((await stored())[`collection-unreadable:${SITE}`]).toEqual(broken)
   })
 
+  it("refuses a pin beyond the site's budget and says how to make room; the rest still works", async () => {
+    const { write } = createWriter(() => 'T1', { siteBudget: 12_000 })
+    const long = 'Make it wider. '.repeat(300)
+    const replies = []
+    for (let i = 1; i <= 6; i++) replies.push(await write(SITE, add(`a${i}`, long)))
+    expect(replies.at(-1)).toEqual({
+      ok: false,
+      error: 'This site holds too much feedback: empty its bin or delete pins first.',
+    })
+    const kept = (await loadSite(SITE)).items.length
+    expect(kept).toBeLessThan(6)
+    // Changes that do not grow it, and other sites, still work.
+    expect(await write(SITE, { type: 'annotation:remove', site: SITE, id: 'a1' })).toEqual({
+      ok: true,
+    })
+    expect(await write(OTHER, add('o1', 'Here too.', `${OTHER}/`))).toEqual({ ok: true })
+    expect((await loadSite(SITE)).items.length).toBe(kept)
+  })
+
   it('serializes parallel writes so none is lost', async () => {
     const { write } = createWriter()
     await Promise.all([write(SITE, add('a1')), write(SITE, add('a2')), write(SITE, add('a3'))])

@@ -114,7 +114,15 @@ async function save(c: Collection): Promise<void> {
   else await browser.storage.local.set({ [key]: c })
 }
 
-export function createWriter(now = () => new Date().toISOString()) {
+/** Most UTF-8 bytes one site's collection may take: each save writes all of it. */
+export const SITE_BUDGET = 4_000_000
+
+const byteSize = (c: Collection) => new TextEncoder().encode(JSON.stringify(c)).length
+
+export function createWriter(
+  now = () => new Date().toISOString(),
+  { siteBudget = SITE_BUDGET }: { siteBudget?: number } = {},
+) {
   let queue: Promise<unknown> = Promise.resolve()
 
   function inOrder<T>(task: () => Promise<T>): Promise<T> {
@@ -156,6 +164,14 @@ export function createWriter(now = () => new Date().toISOString()) {
         const next = apply(before, msg, now())
         if (typeof next === 'string') return { ok: false, error: next }
         if (next === before) return { ok: true }
+        // A new pin or a longer comment must fit the site's budget; every other change frees room.
+        const grows = msg.type === 'annotation:add' || msg.type === 'annotation:update'
+        if (grows && byteSize(next) > siteBudget) {
+          return {
+            ok: false,
+            error: 'This site holds too much feedback: empty its bin or delete pins first.',
+          }
+        }
         await save(next)
         // The change is saved; a history that cannot be kept only loses its undo.
         await record(site, stepBetween(before, next, labelOf(msg, before, next))).catch(

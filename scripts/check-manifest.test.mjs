@@ -14,6 +14,7 @@ const valid = () => ({
     'clipboardWrite',
     'sidePanel',
     'contextMenus',
+    'unlimitedStorage',
   ],
   optional_host_permissions: ['https://*/*', 'http://*/*'],
   commands: { _execute_action: { suggested_key: { default: 'Ctrl+Shift+K' } } },

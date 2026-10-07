@@ -13,6 +13,9 @@ const PERMISSIONS = [
   'scripting',
   'sidePanel',
   'storage',
+  // No quota for storage.local: one site's feedback cannot fill the extension's storage (the
+  // writer keeps each site within its own budget). Chrome shows no warning for it.
+  'unlimitedStorage',
 ]
 const OPTIONAL_HOSTS = ['http://*/*', 'https://*/*']
 // Chrome assigns no suggested key that is one of its own shortcuts (Alt+Shift+A, Ctrl+K), and

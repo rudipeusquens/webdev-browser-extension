@@ -21,6 +21,7 @@ export default defineConfig({
       'offscreen',
       'clipboardWrite',
       'contextMenus',
+      'unlimitedStorage',
     ],
     optional_host_permissions: ['http://*/*', 'https://*/*'],
     action: { default_title: 'Annotate this page' },
