@@ -88,6 +88,9 @@ nothing syncs.
    - **Element** (`E`): point at it, `↑` and `↓` for its parent and child, click or `Enter`.
    - **Area** (`A`): drag a rectangle.
    - **Text:** in Browse mode (`Esc`), select the text and click the **Pin** chip below it.
+
+   <img src="docs/images/element.png" width="380" alt="Element mode: an email field outlined, with a chip that names the tag, the Vue component ProfileForm and the size">
+
 4. Type the comment and press `Enter` (`Shift+Enter` for a new line), or dictate it. The mark
    gets a numbered pin, and the panel lists it.
 
@@ -100,6 +103,8 @@ The toolbar icon and its shortcut close the panel again. The page then works as 
 pins stay.
 
 ### The review loop
+
+![After a copy: two pins done in green, one deleted in red and struck through in the list, and a new open pin in blue, with the filter + Deleted](docs/images/review.png)
 
 - Open pins are blue. Copied pins become **done**, green. The filter
   **Open · All · + Deleted** chooses what the list and the pins on the page show.
@@ -173,6 +178,8 @@ The keys on the page work while no field of the page has the focus. On macOS: `�
 ## Settings
 
 The gear in the panel:
+
+<img src="docs/images/settings.png" width="640" alt="The Settings view: General options, Voice with a masked API key, model, language and the microphone allowed, the remembered site, and the keyboard shortcuts">
 
 - **General:** **Show page titles** shows each page's title next to its path in the list.
   **Annotate this page in the context menu** adds the entry to the page's right-click menu
