@@ -407,7 +407,9 @@ may not run on. Where it may run already (a grant that outlived its overlay, aft
 a navigation on the same site, or a remembered origin), the panel shows the site and offers
 **Annotate this page**, which starts the overlay without the toolbar. Elsewhere the panel says
 how to start it, with the shortcut Chrome actually assigned (the developer can change it in
-`chrome://extensions/shortcuts`) and the context menu while that is on.
+`chrome://extensions/shortcuts`) and the context menu while that is on. Where the overlay runs
+on the tab already (it answers the background), none of them starts it again: it keeps its open
+popover, its mode and what was marked in the session.
 
 The action click and its shortcut toggle: while the panel is open and the overlay answers on that
 tab, they close the panel instead (the background asks the open panel, which checks the tab again,
@@ -421,11 +423,11 @@ mode; when the panel closes, every one of them switches to Browse.
 
 **Modes** (switch in the panel, or keys while focus is not in a page field):
 
-| Mode    | Key   | Behavior                                                                                                                                                                                                                |
-| ------- | ----- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Browse  | `Esc` | Page works normally. When the mouse or a key is released with text selected, a small **Pin** chip appears below the end of the selection; it goes when the selection changes. Selections made by page scripts get none. |
-| Element | `E`   | Hover outline with a chip `tag · Component · W×H`; `↑`/`↓` move to parent/child; click or `Enter` selects. Page clicks are swallowed; the mouse wheel scrolls what lies under the pointer (below).                      |
-| Area    | `A`   | Drag a rectangle (dashed outline with its size); release selects when it is at least 4 × 4 px; `Esc` cancels the drag. The mouse wheel scrolls under the pointer as in element mode; `Ctrl`/`Cmd` + wheel zooms.        |
+| Mode    | Key   | Behavior                                                                                                                                                                                                                                                                                                                                         |
+| ------- | ----- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| Browse  | `Esc` | Page works normally. When the mouse or a key is released with text selected, a small **Pin** chip appears below the end of the selection, also when the drag ends on a pin; it goes when the selection changes, and while all of the selection is scrolled out of view or out of its scroll container. Selections made by page scripts get none. |
+| Element | `E`   | Hover outline with a chip `tag · Component · W×H`; `↑`/`↓` move to parent/child; click or `Enter` selects. Page clicks are swallowed; the mouse wheel scrolls what lies under the pointer (below).                                                                                                                                               |
+| Area    | `A`   | Drag a rectangle (dashed outline with its size); release selects when it is at least 4 × 4 px; `Esc` cancels the drag. The mouse wheel scrolls under the pointer as in element mode; `Ctrl`/`Cmd` + wheel zooms.                                                                                                                                 |
 
 After an annotation is saved the mode stays, so several elements can be marked in a row.
 `P` (same condition: focus not in a page field, no comment open) shows or hides the pins, like
@@ -439,8 +441,8 @@ the last one is and lose distance); a container at its end passes the turn on, u
 document, unless it keeps the wheel (`overscroll-behavior`), as without the overlay.
 
 **Comment popover:** anchored next to the target. Its header names the pin ("New pin" or
-"Pin 3") and the target (`button · 160×48`, a quoted text); a long target is cut with an
-ellipsis in the target's own color. Textarea; below it on the left **Delete** for an existing
+"Pin 3") and the target (`button · 160×48`, a quoted text; "hidden" instead of the size while
+the target is not rendered); a long target is cut with an ellipsis in the target's own color. Textarea; below it on the left **Delete** for an existing
 item (**Restore** for a deleted one), or the dictation status while dictating (`● 0:12`,
 "Transcribing…"); the mic button next to **Save** on the right; a dictation message with its
 action (**Retry**, **Grant**, **Open settings**) above them. `Enter` saves (not during IME
@@ -448,6 +450,12 @@ composition), `Shift+Enter` new line, `Esc` cancels (or first cancels a running 
 transcription), `Alt+V` starts and stops recording. Save waits while a recording or
 transcription runs; the field stays editable. **Delete** marks the item deleted and closes the
 popover; **Restore** makes it open again. Saving a changed comment on a done item reopens it.
+While the popover holds unsaved text (a comment that differs from the saved one, spaces at the
+ends aside, or a dictation that runs or holds a recording for **Retry**), a click on another
+pin, an entry in the panel or Go to does not replace it: it says "Save or cancel this pin
+first." and takes the focus, and the panel shows the refusal. Clicking its own pin or entry
+keeps it as it is. A target that is not rendered (a closed menu) gets its popover in the middle
+of the viewport, a third from the top, until it is rendered again.
 
 **Pins:** numbered markers at the top-right of each target on the current page; they follow
 scroll, resize and layout changes and stay inside the scroll containers and clipping boxes
@@ -494,7 +502,9 @@ while a pin's popover is open, its entry stays marked.
     missing on the page's last visit. Hover highlights the target on the page (the highlight
     goes when the panel closes). Click goes to the pin: on the current page it scrolls to the
     target and opens its popover; on another page of the site (on the web) it opens that page
-    in the tab, waits for the overlay and does the same there. Actions: **Copy** (open: that pin
+    in the tab, waits for the overlay and does the same there. Both, and Go to, wait while the open
+    popover holds unsaved text (above). After a switch to another site, the list stays empty until
+    that site's pins are read. Actions: **Copy** (open: that pin
     as the prompt; it becomes done and is what Copy again copies), **Reopen** (done),
     **Restore** (deleted), **Delete** (open and done).
   - Footer: notes and refusals above the buttons ("Copied 3 pins"), so its padding is the same
@@ -549,14 +559,17 @@ select-parent), ClickUp and Air comment pins with a side list.
 - **Language:** `auto` (omit the field) by default, or an ISO-639-1 code.
 - **Limits:** recordings stop automatically after 120 seconds with a notice; client timeout
   65 seconds per request.
-- **Insertion:** the transcript is inserted at the caret (with a separating space when needed)
-  and the textarea gets focus again, so the developer can edit before saving.
+- **Insertion:** the transcript is inserted at the caret (with a separating space when needed,
+  none after an opening bracket or quote) and the textarea gets focus again, so the developer
+  can edit before saving. `Ctrl+Z` (`⌘Z`) takes the dictated text out again and `Ctrl+Shift+Z`
+  puts it back, while nothing else changed the field. The text is set as a whole, not as an
+  edit of the field: the page's listeners see the input events of edits and would read it.
 - **Retry:** after a failed request the audio stays in the recorder until the popover
   closes, so **Retry** does not require speaking again; it reads the key and the settings
   again, so a fixed key works at once.
 - **Messages:** 401 "Invalid API key", 402 "Out of credits", 429 "Rate limited, try again",
   400/404/422 "Transcription failed: " and OpenRouter's own message (one line, at most 200
-  characters, text only), 5xx "Transcription failed", no answer within 65 s "Transcription
+  characters, text only) with **Open settings** (most often a model OpenRouter does not know), 5xx "Transcription failed", no answer within 65 s "Transcription
   timed out", no network "Could not reach OpenRouter", empty text "No speech detected". A
   recording that ends without the developer's stop (device unplugged, permission revoked) is
   not sent: "The microphone stopped. Retry sends what was recorded."
@@ -597,11 +610,15 @@ select-parent), ClickUp and Air comment pins with a side list.
 | Clear all, then a paste went wrong                                                                                                                      | Copy again leaves out deleted pins: after Clear all it is disabled; Undo brings the pins back as they were.                                                                                                                                                                                      |
 | Wheel over a scroll container at its end in element or area mode                                                                                        | The turn goes on to the container around it, up to the page, as without the overlay.                                                                                                                                                                                                             |
 | Jump to an item on another page whose target is missing there                                                                                           | The page opens; the popover does not; the entry keeps or gets "Not found".                                                                                                                                                                                                                       |
+| A click on another pin, an entry or Go to while the popover holds unsaved text                                                                          | Refused: the popover says "Save or cancel this pin first." and takes the focus, the panel "Save or cancel the open pin first."; `Esc` or Cancel discards the text.                                                                                                                               |
+| A reload or a navigation by the page while the popover holds unsaved text                                                                               | Known limit: the text is lost; the overlay does not hold up the page's own navigation.                                                                                                                                                                                                           |
+| Toolbar, shortcut, context menu or Annotate this page where the overlay runs already                                                                    | It is not started again: the open popover, the mode and the session's marks stay. An overlay that does not answer within a second (orphaned, a busy page) counts as none.                                                                                                                        |
+| An entry is clicked while its target is not rendered (a closed menu)                                                                                    | Its popover opens in the middle of the viewport with "hidden" in its header and moves next to the target once that is rendered.                                                                                                                                                                  |
 | Voice: no key                                                                                                                                           | The popover says "Add an OpenRouter API key in settings." with **Open settings**, which opens the panel on its settings.                                                                                                                                                                         |
 | Voice: microphone not granted or no device                                                                                                              | "Allow the microphone first." with **Grant** (opens the permission page), "The microphone is blocked for this extension." with **Grant** (the page says how to allow it), or "No microphone found."                                                                                              |
 | Voice: 401 / 402 / 429 / 5xx / timeout / offline                                                                                                        | Inline message (section 9) with **Retry**, which sends the kept audio again.                                                                                                                                                                                                                     |
 | Voice: popover closed, page navigated or overlay replaced while recording or transcribing                                                               | The port closes: the recording is dropped or the request aborted, the recorder closes and releases the microphone; nothing is inserted.                                                                                                                                                          |
-| Voice: a second popover starts dictating                                                                                                                | The first dictation ends; its popover says "Recording stopped: another one started."                                                                                                                                                                                                             |
+| Voice: a second popover starts dictating                                                                                                                | The first dictation ends, also one that only holds a recording for **Retry**; its popover says "Another dictation started, this one ended."                                                                                                                                                      |
 | Voice: service worker stopped mid-dictation (it should not be: the recorder's heartbeat keeps it)                                                       | The popover says "Recording stopped unexpectedly."; the recorder sees its port close and drops everything.                                                                                                                                                                                       |
 | Voice: empty transcript                                                                                                                                 | "No speech detected."                                                                                                                                                                                                                                                                            |
 
@@ -637,6 +654,7 @@ select-parent), ClickUp and Air comment pins with a side list.
   despite the closed shadow root, with trusted `input` events. The overlay accepts only edits
   announced by a trusted `beforeinput` of the same type and text, restores the developer's own
   text otherwise and never saves anything else, so a page cannot put words into a comment.
+  A dictated text is set as a whole, not as an edit, so the page's listeners never see it.
   A page can still observe what is typed (capture-phase key listeners, the selection) and can
   disturb or block commenting on itself; an extension-origin iframe for the editor would close
   that gap but needs `web_accessible_resources` (candidate for milestone 6).
@@ -645,7 +663,10 @@ select-parent), ClickUp and Air comment pins with a side list.
   from the top frame and only for the site of that frame (`sender.url`); copying, clearing,
   emptying the bin, reopening, undo and redo, the filter, the Settings options and starting the
   overlay from the panel (`tab:start`, which Chrome refuses on tabs the extension may not run
-  on) are accepted only from the panel's URL. The overlay tells the panel
+  on) are accepted only from the panel's URL. Before it starts an overlay and before Go to, the
+  background asks the tab's overlay (`overlay:status`, `overlay:leave`); only the extension's
+  own content scripts receive these, and a missing, late (1 s) or malformed answer counts as
+  no overlay. The overlay tells the panel
   which pin is pointed at or open by item id only. The sites list opens only `http:` and
   `https:` origins.
 - **API key:** see section 9. The OpenRouter key pattern (`sk-or-v1-…`) is added to the secret
