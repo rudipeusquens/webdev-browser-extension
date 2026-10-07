@@ -4189,6 +4189,91 @@ use-unobscured.ts}`, `tests/fixtures/sites/covering/`, `tests/e2e/top-layer.e2e.
 - [ ] **Step 1:** failing tests: a rebased commit with another committer is refused before the
       push; history scan finds an address, a forbidden path and an author name. **Step 2–5.**
 
+## Milestone 7c: Release readiness
+
+**Goal:** The rest of milestone 7: an installable package from `pnpm zip`, a README for the
+developer who installs and uses the extension, and the manual smoke checklist.
+
+**Planned on 2026-10-07** after milestone 7b. Tasks 71–74; one pull request. Steps are
+test-first wherever there is code, or a fact the docs repeat from the code.
+
+**Decisions:**
+
+- **The package:** `pnpm zip` builds for production and packs `.output/chrome-mv3` into
+  `.output/webdev-browser-extension-<version>-chrome.zip` (WXT). It is installed by unpacking
+  it into a folder that stays, then **Load unpacked** with Developer mode on. No Chrome Web
+  Store listing and no signed `.crx`: Chrome installs `.crx` files only from the store, and a
+  signing key would have to be kept. After the manifest and bundle checks, a zip check reads
+  the package and compares it with the checked build, byte for byte, so what ships is what
+  was checked: plain files only, stored or deflated, no encryption, no name outside the
+  folder, nothing missing, nothing extra. It reads the zip format itself (Node's own modules
+  only). CI runs `pnpm zip`, so every pull request proves the package.
+- **Version 0.1.0:** the first version for daily use; the manifest takes the package's
+  version.
+- **One folder, one extension:** Chrome derives an unpacked extension's id from its folder,
+  and pins, settings, the API key and the microphone grant belong to that id. The README says
+  so: update by unpacking over the same folder and reloading; another folder is another
+  extension with empty storage; removing the extension deletes its data. No `key` in the
+  manifest: a fixed id needs a key pair whose private half must be kept, and nothing needs a
+  fixed id.
+- **README for users:** what it does, an excerpt of a real prompt, install and update, first
+  steps, sites, code origin, dictation, the keys, settings, privacy and permissions, limits,
+  development. Tests hold it to the code: the keys to the Settings list, the permissions to
+  the manifest check, the prompt excerpt to the formatter's golden output. The logo is
+  `public/icon/128.png`, no second image. No screenshots (the public-repo policy, and they
+  would age with every change of the UI).
+- **Smoke checklist** (`docs/smoke-test.md`): what automation cannot do, in a real Chrome and
+  in Brave: install from the zip, the toolbar icon and its shortcut, the context menu entry,
+  Chrome's prompt for **Always enable here**, the microphone prompt and the operating
+  system's, a real dictation, an update in place that keeps the data, the paste into an agent,
+  the icon on a light and a dark toolbar. Pages: `https://example.com` and a local dev server
+  of the developer's own app (Vue or Astro for the code origin). Before a release all of it;
+  before a pull request the sections its change touches, which the pull request names (spec
+  section 12). The owner runs it: an agent has no real browser profile, prompt or microphone.
+
+**Review focus for this milestone** (each line has a test in the owning task):
+
+1. A zip of an earlier version or build left in `.output/`: the zip check reads the zip of
+   the current name and version, and fails when it is missing or differs from the build
+   (Task 71).
+2. A zip entry named outside the folder (`../`, an absolute path, a backslash, a drive
+   letter), a directory entry, an unsupported method or encryption: refused (Task 71).
+3. CI without the `pnpm zip` step: the repository configuration test fails (Task 71).
+4. A key or a permission added later without the README: the tests fail (Task 72).
+5. A change to the preamble or the format: the README's excerpt is held to the golden output
+   (Task 72).
+
+### Task 71: The package
+
+- Files: `scripts/check-zip.mjs`, `scripts/check-zip.test.mjs`, `package.json`,
+  `.github/workflows/ci.yml`, `scripts/repo-config.test.mjs`, `AGENTS.md`
+- [ ] **Step 1:** failing tests: a zip equal to the build passes; a missing, extra or changed
+      file, an entry outside the folder, a directory entry, an unsupported method, an
+      encrypted entry and a file that is no zip are refused; the zip is found by the
+      package's name and version; CI runs `pnpm zip`. **Step 2–5.**
+
+### Task 72: README for users
+
+- Files: `README.md`, `tests/unit/readme.test.ts`, `scripts/check-manifest.mjs`,
+  `scripts/check-manifest.test.mjs`
+- [ ] **Step 1:** failing tests: the README lists every key of the Settings list; it explains
+      every permission and optional host the manifest check allows, and names the toolbar
+      shortcut; its prompt excerpt is formatter output (its lines appear in the golden
+      example, in order). **Step 2:** the README. **Step 3–5.**
+
+### Task 73: The smoke checklist
+
+- Files: `docs/smoke-test.md`, `README.md`, `AGENTS.md`
+- [ ] **Step 1:** the checklist, each step with what to do and what to see; every quoted text
+      checked against the source. **Step 2:** links from the README and `AGENTS.md`.
+      **Step 3: commit.**
+
+### Task 74: Docs and the whole suite
+
+- Files: this plan, the spec, `AGENTS.md`
+- [ ] **Step 1:** status in `AGENTS.md`, milestone 7 done in this plan. **Step 2:**
+      `pnpm check`, `pnpm zip`, `pnpm test:e2e`. **Step 3: commit.**
+
 ## Milestone 7: Hardening and release readiness
 
 **Goal:** Independent security review, smoke checklist, user documentation.
