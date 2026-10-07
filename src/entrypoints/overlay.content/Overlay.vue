@@ -10,6 +10,7 @@ import { pageInfo, snapshotElement } from '@/lib/capture/snapshot'
 import {
   type CapturedText,
   chipAnchor,
+  firstShownCharacter,
   rangeContainer,
   sameRange,
   selectionRange,
@@ -41,6 +42,7 @@ import { forwardsWheel, isEditable, pickAt, TargetPath, wheelTarget } from './pi
 import {
   boxOf,
   clippersOf,
+  inBounds,
   isLiveRange,
   type LiveAnchor,
   linesOf,
@@ -119,9 +121,9 @@ const highlighted = ref<string | null>(null)
 // The panel or the P key can hide the pins, until they show them again or the overlay
 // restarts.
 const pinsShown = ref(true)
-// The page's selection the Comment chip offers to comment on (browse mode), and the
-// character the chip sits under.
-const chip = shallowRef<{ range: Range; anchor: Range } | null>(null)
+// The page's selection the Pin chip offers to pin (browse mode), the character the chip sits
+// under, and the first one the selection shows.
+const chip = shallowRef<{ range: Range; anchor: Range; start: Range | null } | null>(null)
 // The rectangle being dragged in area mode, in viewport coordinates.
 const drag = shallowRef<{ from: { x: number; y: number }; to: { x: number; y: number } } | null>(
   null,
@@ -214,12 +216,33 @@ const draftLabel = computed(() =>
 )
 /** The target being commented on is rendered: it gets a marking (a closed menu has none). */
 const draftShown = computed(() => !!draftRect.value && sizeOf(draftRect.value) !== 'hidden')
+// The scroll containers and clipping boxes around the chip's selection: looked up once per
+// selection, measured on every frame.
+const chipClippers = computed(() => {
+  const anchor = chip.value?.anchor
+  return anchor ? clippersOf(rangeContainer(anchor), true) : []
+})
 const chipLine = computed(() => {
   void frame.value
   const anchor = chip.value?.anchor
   if (!anchor || mode.value !== 'browse' || draft.value) return null
   const r = anchor.getBoundingClientRect()
-  return { x: r.x, y: r.y, width: r.width, height: r.height }
+  const line = { x: r.x, y: r.y, width: r.width, height: r.height }
+  // From the first character to the last: a long selection keeps its chip at the edge while
+  // any of it is in view.
+  const s = chip.value?.start?.getBoundingClientRect() ?? r
+  const x = Math.min(r.x, s.x)
+  const y = Math.min(r.y, s.y)
+  const span = {
+    x,
+    y,
+    width: Math.max(r.right, s.right) - x,
+    height: Math.max(r.bottom, s.bottom) - y,
+  }
+  const viewport = { x: 0, y: 0, width: window.innerWidth, height: window.innerHeight }
+  // Scrolled out of view or out of its box: no chip, until the selection is back.
+  const bounds = visibleBounds(chipClippers.value, viewport)
+  return bounds && inBounds(span, bounds) ? line : null
 })
 
 /** The items of this page that the filter shows: only they are placed and pinned. */
@@ -611,7 +634,8 @@ watch(placements, (placed) => {
 /**
  * Offers the chip for the page's selection after the user let go of the mouse or a key: a
  * selection the page makes by script gets none. The check waits a frame, until the
- * selection has settled.
+ * selection has settled. Releases inside the overlay reach the window as the host's and are
+ * not checked, except over a pin (its own listener): a selection dragged onto a pin.
  */
 function onRelease(e: Event) {
   if (!e.isTrusted || e.target === props.host || mode.value !== 'browse' || draft.value) return
@@ -619,7 +643,7 @@ function onRelease(e: Event) {
   chipCheck = requestAnimationFrame(() => {
     const range = selectionRange(document)
     const anchor = range && chipAnchor(range)
-    chip.value = range && anchor ? { range, anchor } : null
+    chip.value = range && anchor ? { range, anchor, start: firstShownCharacter(range) } : null
   })
 }
 
@@ -981,6 +1005,7 @@ onBeforeUnmount(() => {
       :class="pin.tone"
       :style="{ left: pin.left, top: pin.top }"
       :aria-label="`Edit pin ${pin.number}`"
+      @pointerup="onRelease"
       @mouseenter="hoveredPin = pin.id"
       @mouseleave="hoveredPin = null"
       @click="onPinClick($event, pin.id)"

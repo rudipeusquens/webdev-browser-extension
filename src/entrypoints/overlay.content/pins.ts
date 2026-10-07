@@ -232,6 +232,16 @@ export function linesOf(range: Range, viewportHeight: number): { rect: Rect; lin
   return { rect, lines }
 }
 
+/** Whether any of `rect` lies within `bounds`, edges included: also a box without a size. */
+export function inBounds(rect: Rect, bounds: Rect): boolean {
+  return (
+    rect.x + rect.width >= bounds.x &&
+    rect.x <= bounds.x + bounds.width &&
+    rect.y + rect.height >= bounds.y &&
+    rect.y <= bounds.y + bounds.height
+  )
+}
+
 /** The part of the viewport that `clippers` let through, or null when nothing is visible. */
 export function visibleBounds(clippers: Element[], viewport: Rect): Rect | null {
   let bounds: Rect | null = viewport
