@@ -1094,15 +1094,16 @@ describe('side panel', () => {
     const exists = (id: string) => document.querySelector(`[data-testid="${id}"]`) !== null
     const before = (a: string, b: string) =>
       (byTestId(a).compareDocumentPosition(byTestId(b)) & Node.DOCUMENT_POSITION_FOLLOWING) !== 0
-    const EDIT_ONLY = ['mode-browse', 'toggle-pins', 'filter-open', 'copy-prompt']
+    const EDIT_ONLY = ['mode-browse', 'rec', 'toggle-pins', 'filter-open', 'copy-prompt']
 
-    it('is titled Edit, with the buttons above the filter and the list', async () => {
+    it('is titled Edit: the modes and Rec, then the filter and Pins, then the list', async () => {
       overlayReply = active
       await render(twoPages())
       expect(byTestId('panel-title').textContent).toBe('Edit')
-      expect(before('mode-browse', 'filter-open')).toBe(true)
-      expect(before('toggle-pins', 'filter-open')).toBe(true)
-      expect(before('filter-open', 'item')).toBe(true)
+      expect(before('mode-area', 'rec')).toBe(true)
+      expect(before('rec', 'filter-open')).toBe(true)
+      expect(before('filter-with-deleted', 'toggle-pins')).toBe(true)
+      expect(before('toggle-pins', 'item')).toBe(true)
     })
 
     it('swaps to Settings, the gear for a close button, and hides what belongs to Edit', async () => {

@@ -165,24 +165,93 @@ describe("the panel's layout", () => {
     expect(Math.abs((empty.left + empty.right) / 2 - (list.left + list.right) / 2)).toBeLessThan(2)
   })
 
-  it('fills the row with the modes and Pins, 8 px between Area and Pins', async () => {
-    const header = await boxOf(panel, 'header')
-    const buttons = await Promise.all(
-      ['mode-browse', 'mode-element', 'mode-area', 'toggle-pins'].map((id) =>
-        boxOf(panel, `[data-testid="${id}"]`),
-      ),
+  /** The boxes of the controls, and whether Rec and Pins show their words. */
+  async function controls() {
+    const ids = [
+      'controls',
+      'mode-browse',
+      'mode-element',
+      'mode-area',
+      'rec',
+      'filter-open',
+      'filter-with-deleted',
+      'toggle-pins',
+    ]
+    const [grid, browse, element, area, rec, open, deleted, pins] = (await Promise.all(
+      ids.map((id) => boxOf(panel, `[data-testid="${id}"]`)),
+    )) as [Box, Box, Box, Box, Box, Box, Box, Box]
+    const labels = await panel.$$eval(
+      '[data-testid="rec"] span, [data-testid="toggle-pins"] span',
+      (els) => els.map((el) => getComputedStyle(el).display !== 'none'),
     )
-    const [browse, , area, pins] = buttons as [Box, Box, Box, Box]
-    const filter = await boxOf(panel, '[data-testid="filter-open"]')
-    // The same edges as the filter below, which fills the row.
-    expect(browse.left).toBeCloseTo(filter.left, 0)
-    expect(pins.right).toBeCloseTo(header.right - (filter.left - header.left), 0)
-    expect(pins.left - area.right).toBeCloseTo(8, 0)
-    // The modes share the rest of the row; joined toggles share borders, so the first one is
-    // a pixel wider.
-    for (const b of buttons.slice(0, 3)) {
-      expect(Math.abs(b.width - browse.width)).toBeLessThanOrEqual(1.5)
+    return { grid, browse, element, area, rec, open, deleted, pins, labels }
+  }
+
+  it('puts Rec beside the modes and Pins beside the filter, as wide as each other', async () => {
+    const header = await boxOf(panel, 'header')
+    const c = await controls()
+    // The rows fill the header between its padding.
+    expect(c.browse.left).toBeCloseTo(c.open.left, 0)
+    expect(c.rec.right).toBeCloseTo(header.right - (c.browse.left - header.left), 0)
+    expect(c.pins.right).toBeCloseTo(c.rec.right, 0)
+    expect(c.pins.width).toBeCloseTo(c.rec.width, 0)
+    expect(c.rec.left - c.area.right).toBeCloseTo(8, 0)
+    expect(c.pins.left - c.deleted.right).toBeCloseTo(8, 0)
+    // The modes share the rest of the row, each at least as wide as its word.
+    expect(c.area.right).toBeCloseTo(c.deleted.right, 0)
+    const clipped = await panel.$$eval('[data-testid="controls"] button', (els) =>
+      els.filter((el) => el.scrollWidth > el.clientWidth).map((el) => el.textContent?.trim()),
+    )
+    expect(clipped).toEqual([])
+    // In a 400 px panel: a fifth of the row or so, wide enough for their words.
+    expect(c.rec.width / c.grid.width).toBeCloseTo(0.22, 2)
+    expect(c.labels).toEqual([true, true])
+  })
+
+  it('grows Rec and Pins with the panel', async () => {
+    await panel.setViewport({ width: 600, height: 800 })
+    await panel.waitForFunction(() => innerWidth === 600)
+    const c = await controls()
+    expect(c.rec.width / c.grid.width).toBeCloseTo(0.22, 2)
+    expect(c.pins.width).toBeCloseTo(c.rec.width, 0)
+    expect(c.rec.left - c.area.right).toBeCloseTo(8, 0)
+    expect(c.labels).toEqual([true, true])
+    // With room to spare, the modes are as wide as each other; joined toggles share borders,
+    // so the first one is a pixel wider.
+    for (const b of [c.element, c.area]) {
+      expect(Math.abs(b.width - c.browse.width)).toBeLessThanOrEqual(1.5)
     }
+    await panel.setViewport({ width: 400, height: 800 })
+    await panel.waitForFunction(() => innerWidth === 400)
+  })
+
+  it('fits the controls into a narrow panel: Rec and Pins show their icons only', async () => {
+    await panel.setViewport({ width: 320, height: 800 })
+    await panel.waitForFunction(() => innerWidth === 320)
+    // Counts of two digits, written in: the rows must hold them.
+    await panel.$$eval('[data-testid^="filter-"] span', (els) => {
+      for (const el of els) el.textContent = '12'
+    })
+    const overflowing = await panel.$$eval('header *', (els) =>
+      els
+        .filter(
+          (el) =>
+            el.getBoundingClientRect().right > window.innerWidth ||
+            (el.matches('button') && el.scrollWidth > el.clientWidth),
+        )
+        .map((el) => el.outerHTML.slice(0, 60)),
+    )
+    expect(overflowing).toEqual([])
+    const c = await controls()
+    expect(c.labels).toEqual([false, false])
+    expect(c.pins.width).toBeCloseTo(c.rec.width, 0)
+    expect(c.rec.left - c.area.right).toBeCloseTo(8, 0)
+    expect(c.pins.left - c.deleted.right).toBeCloseTo(8, 0)
+    const named = await panel.$eval('[data-testid="rec"]', (el) => el.getAttribute('aria-label'))
+    expect(named).toMatch(/^Rec: /)
+    await panel.reload()
+    await panel.setViewport({ width: 400, height: 800 })
+    await panel.waitForSelector('[data-testid="rec"]')
   })
 
   it('pads the footer the same below its buttons as at its sides', async () => {

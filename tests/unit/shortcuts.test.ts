@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { pageShortcut, popoverKey, type ShortcutState } from '@/entrypoints/overlay.content/keys'
-import { isMacPlatform, panelKey, shortcutGroups } from '@/lib/shortcuts'
+import { isMacPlatform, panelKey, recKey, shortcutGroups } from '@/lib/shortcuts'
 
 const key = (init: Partial<KeyboardEvent>) => ({
   isTrusted: true,
@@ -132,6 +132,31 @@ describe('the shortcut list', () => {
     [true, key({ key: 'z', ctrlKey: true }), null],
   ])('the panel keys on a Mac: %s, %j → %s', (mac, event, expected) => {
     expect(panelKey(event, mac)).toBe(expected)
+  })
+
+  it.each([
+    ['Start or stop Rec', 'Alt+V', key({ key: 'v', code: 'KeyV', altKey: true }), 'toggle'],
+    ['Cancel Rec', 'Esc', key({ key: 'Escape' }), 'cancel'],
+  ])('in the panel: %s is %s', (action, shown, event, expected) => {
+    expect(row(groups, 'In this panel', action).keys).toEqual([shown])
+    expect(recKey(event)).toBe(expected)
+  })
+
+  it.each([
+    // By the key's place: Option+V types "√" on a Mac.
+    [key({ key: '√', code: 'KeyV', altKey: true }), 'toggle'],
+    [key({ key: 'v', code: 'KeyV', altKey: true, repeat: true }), null],
+    [key({ key: 'v', code: 'KeyV', altKey: true, ctrlKey: true }), null],
+    [key({ key: 'V', code: 'KeyV', altKey: true, shiftKey: true }), null],
+    [key({ key: 'v', code: 'KeyV', altKey: true, metaKey: true }), null],
+    [key({ key: 'v', code: 'KeyV' }), null],
+    [key({ key: 'Escape', isComposing: true }), null],
+  ])("Rec's keys: %j → %s", (event, expected) => {
+    expect(recKey(event)).toBe(expected)
+  })
+
+  it("writes Rec's key the way macOS does on a Mac", () => {
+    expect(row(shortcutGroups(true), 'In this panel', 'Start or stop Rec').keys).toEqual(['⌥V'])
   })
 
   it('tells a Mac by its platform', () => {

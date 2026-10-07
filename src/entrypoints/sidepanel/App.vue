@@ -32,12 +32,15 @@ import {
 } from '@/lib/messages'
 import { isSiteOrigin, originPattern } from '@/lib/settings'
 import EmptyBinDialog from './EmptyBinDialog.vue'
-import CopyFallbackDialog from './CopyFallbackDialog.vue'
+import CopyFallbackDialog, { type Fallback } from './CopyFallbackDialog.vue'
 import ForgetSiteDialog from './ForgetSiteDialog.vue'
 import ItemList from './ItemList.vue'
+import RecButton from './RecButton.vue'
 import SitePill from './SitePill.vue'
 import SettingsView from './SettingsView.vue'
 import { useActiveTab } from './use-active-tab'
+import { writeClipboard } from './clipboard'
+import { useDictation } from './use-dictation'
 import { usePanelView } from './use-panel-view'
 import { useMissing } from './use-missing'
 import { useOverlayLines } from './use-overlay-lines'
@@ -49,7 +52,7 @@ import { emptyCollection, pick } from '@/lib/collection/ops'
 import { type Filter, shows } from '@/lib/view'
 import { useView } from './use-view'
 import { useHistory } from './use-history'
-import { currentPlatform, isMacPlatform, panelKey } from '@/lib/shortcuts'
+import { currentPlatform, isMacPlatform, panelKey, recKey } from '@/lib/shortcuts'
 import { siteLabel, siteOf } from '@/lib/collection/site'
 
 const { tabId, windowId, status, refresh } = useActiveTab()
@@ -78,17 +81,35 @@ const { labels } = useHistory(site)
 const mac = isMacPlatform(currentPlatform())
 const undoKey = mac ? '⌘Z' : 'Ctrl+Z'
 const redoKey = mac ? '⇧⌘Z' : 'Ctrl+Shift+Z'
+const recShortcut = mac ? '⌥V' : 'Alt+V'
 
 function history(type: 'history:undo' | 'history:redo') {
   if (site.value) void change({ type, site: site.value })
 }
 
-/** Ctrl+Z and Ctrl+Shift+Z (⌘ on macOS) in Edit, outside text fields; the page keeps its own. */
+/**
+ * In Edit, outside text fields: Ctrl+Z and Ctrl+Shift+Z (⌘ on macOS), the page keeps its own;
+ * Alt+V starts and stops Rec, Escape cancels it while no dialog is open.
+ */
 function onKeydown(e: KeyboardEvent) {
   if (showSettings.value || e.defaultPrevented) return
   const target = e.target as HTMLElement | null
   if (target?.closest?.('input, textarea, select, [contenteditable=""], [contenteditable="true"]'))
     return
+  const rec = recKey(e)
+  if (rec === 'toggle') {
+    e.preventDefault()
+    dictation.toggle()
+    return
+  }
+  if (rec === 'cancel') {
+    const dialog = fallback.value !== null || confirmEmpty.value || forgetting.value !== null
+    if (dictation.busy.value && !dialog) {
+      e.preventDefault()
+      dictation.cancel()
+    }
+    return
+  }
   const action = panelKey(e, mac)
   if (!action) return
   e.preventDefault()
@@ -181,7 +202,8 @@ const startable = computed(() => {
 })
 
 const copyStatus = ref('')
-const fallbackText = ref<string | null>(null)
+/** Text the clipboard did not take, offered for copying by hand. */
+const fallback = ref<Fallback | null>(null)
 const confirmEmpty = ref(false)
 let copyTimer: ReturnType<typeof setTimeout> | undefined
 
@@ -232,11 +254,29 @@ async function writePrompt(ids: string[], done: string): Promise<boolean> {
   try {
     await navigator.clipboard.writeText(text)
   } catch {
-    fallbackText.value = text
+    fallback.value = { text, kind: 'prompt' }
     return true
   }
   say(done)
   return true
+}
+
+const dictation = useDictation({
+  write: writeClipboard,
+  copied: (atLimit) =>
+    say(atLimit ? 'Copied dictation. The recording stopped after 2 minutes.' : 'Copied dictation'),
+  offer: (text, refused) => (fallback.value = { text, kind: refused ? 'dictation' : 'outdone' }),
+})
+/** What screen readers hear of Rec: its changes, not every second of its clock. */
+const recSpoken = computed(() => {
+  const now = dictation.state.value.state
+  if (now === 'recording') return `Recording. ${recShortcut} stops it.`
+  if (now === 'transcribing') return 'Transcribing.'
+  return ''
+})
+
+function grantMicrophone() {
+  void browser.tabs.create({ url: browser.runtime.getURL('/mic-permission.html') })
 }
 
 /** The open items; then exactly those become done (spec section 7). */
@@ -244,6 +284,7 @@ async function copy() {
   const ids = openIds.value
   const current = site.value
   if (!current || ids.length === 0) return
+  dictation.outdo()
   await writePrompt(ids, `Copied ${plural(ids.length, 'pin')}`)
   await change(
     { type: 'collection:copied', site: current, ids },
@@ -256,6 +297,7 @@ async function copyOne(id: string) {
   const current = site.value
   const item = items.value.find((i) => i.id === id)
   if (!current || !item) return
+  dictation.outdo()
   await writePrompt([id], `Copied pin ${item.number}`)
   await change(
     { type: 'collection:copied', site: current, ids: [id] },
@@ -266,7 +308,9 @@ async function copyOne(id: string) {
 /** The last copy again, for a paste that went wrong; it changes nothing. */
 async function copyAgain() {
   const ids = againIds.value
-  if (ids.length > 0) await writePrompt(ids, `Copied ${plural(ids.length, 'pin')} again`)
+  if (ids.length === 0) return
+  dictation.outdo()
+  await writePrompt(ids, `Copied ${plural(ids.length, 'pin')} again`)
 }
 
 const siteError = ref('')
@@ -482,58 +526,58 @@ function setMode(next: unknown) {
           <SettingsIcon />
         </Button>
       </div>
-      <template v-if="!showSettings">
-        <!-- The modes share the row; Pins keeps 8 px to them, and wraps when it must. -->
-        <div class="flex flex-wrap items-center gap-2">
-          <ToggleGroup
-            type="single"
-            variant="outline"
-            size="sm"
-            class="w-auto flex-1"
-            :model-value="mode"
-            :disabled="status.kind !== 'active'"
-            @update:model-value="setMode"
+      <!--
+        Two rows on one grid: the modes and Rec, the filter and Pins. Rec and Pins share a
+        column that grows with the panel (22 %), 8 px from the rest, which keeps at least the
+        width of its content. Too narrow for their words, Rec and Pins show their icons only.
+      -->
+      <div
+        v-if="!showSettings"
+        data-testid="controls"
+        class="grid grid-cols-[minmax(min-content,1fr)_minmax(2.25rem,22%)] items-center gap-x-2 gap-y-3"
+      >
+        <ToggleGroup
+          type="single"
+          variant="outline"
+          size="sm"
+          class="w-full"
+          :model-value="mode"
+          :disabled="status.kind !== 'active'"
+          @update:model-value="setMode"
+        >
+          <ToggleGroupItem
+            value="browse"
+            data-testid="mode-browse"
+            class="min-w-max flex-1 gap-1.5 px-2"
+            aria-label="Browse mode"
           >
-            <ToggleGroupItem
-              value="browse"
-              data-testid="mode-browse"
-              class="flex-1 gap-1.5 px-2"
-              aria-label="Browse mode"
-            >
-              <MousePointer2Icon /> Browse
-            </ToggleGroupItem>
-            <ToggleGroupItem
-              value="element"
-              data-testid="mode-element"
-              class="flex-1 gap-1.5 px-2"
-              aria-label="Element mode"
-            >
-              <SquareMousePointerIcon /> Element
-            </ToggleGroupItem>
-            <ToggleGroupItem
-              value="area"
-              data-testid="mode-area"
-              class="flex-1 gap-1.5 px-2"
-              aria-label="Area mode"
-            >
-              <SquareDashedIcon /> Area
-            </ToggleGroupItem>
-          </ToggleGroup>
-          <Toggle
-            data-testid="toggle-pins"
-            variant="outline"
-            size="sm"
-            class="gap-1.5 px-2"
-            :model-value="pinsShown"
-            :disabled="status.kind !== 'active'"
-            :aria-label="pinsShown ? 'Hide pins' : 'Show pins'"
-            :title="pinsShown ? 'Hide pins on the page (P)' : 'Show pins on the page (P)'"
-            @update:model-value="setPins"
+            <MousePointer2Icon /> Browse
+          </ToggleGroupItem>
+          <ToggleGroupItem
+            value="element"
+            data-testid="mode-element"
+            class="min-w-max flex-1 gap-1.5 px-2"
+            aria-label="Element mode"
           >
-            <MapPinIcon v-if="pinsShown" />
-            <MapPinOffIcon v-else />
-            Pins
-          </Toggle>
+            <SquareMousePointerIcon /> Element
+          </ToggleGroupItem>
+          <ToggleGroupItem
+            value="area"
+            data-testid="mode-area"
+            class="min-w-max flex-1 gap-1.5 px-2"
+            aria-label="Area mode"
+          >
+            <SquareDashedIcon /> Area
+          </ToggleGroupItem>
+        </ToggleGroup>
+        <div class="@container min-w-0">
+          <RecButton
+            data-testid="rec"
+            :state="dictation.state.value.state"
+            :clock="dictation.clock.value"
+            :shortcut="recShortcut"
+            @toggle="dictation.toggle()"
+          />
         </div>
         <ToggleGroup
           type="single"
@@ -548,7 +592,7 @@ function setMode(next: unknown) {
           <ToggleGroupItem
             value="open"
             data-testid="filter-open"
-            class="flex-1"
+            class="min-w-max flex-1 px-2"
             title="Open pins only: what Copy as prompt copies"
           >
             Open <span class="text-muted-foreground tabular-nums">{{ counts.open }}</span>
@@ -556,7 +600,7 @@ function setMode(next: unknown) {
           <ToggleGroupItem
             value="all"
             data-testid="filter-all"
-            class="flex-1"
+            class="min-w-max flex-1 px-2"
             title="Open and done pins"
           >
             All <span class="text-muted-foreground tabular-nums">{{ counts.all }}</span>
@@ -564,13 +608,31 @@ function setMode(next: unknown) {
           <ToggleGroupItem
             value="with-deleted"
             data-testid="filter-with-deleted"
-            class="flex-1"
+            class="min-w-max flex-1 px-2"
             title="Deleted pins too"
           >
             + Deleted <span class="text-muted-foreground tabular-nums">{{ counts.deleted }}</span>
           </ToggleGroupItem>
         </ToggleGroup>
-      </template>
+        <div class="@container min-w-0">
+          <Toggle
+            data-testid="toggle-pins"
+            variant="outline"
+            size="sm"
+            class="w-full gap-1.5 px-2"
+            :model-value="pinsShown"
+            :disabled="status.kind !== 'active'"
+            :aria-label="pinsShown ? 'Hide pins' : 'Show pins'"
+            :title="pinsShown ? 'Hide pins on the page (P)' : 'Show pins on the page (P)'"
+            @update:model-value="setPins"
+          >
+            <MapPinIcon v-if="pinsShown" />
+            <MapPinOffIcon v-else />
+            <span class="hidden @min-[4.75rem]:inline">Pins</span>
+          </Toggle>
+        </div>
+      </div>
+      <span class="sr-only" role="status" aria-live="polite">{{ recSpoken }}</span>
       <p v-if="siteError" data-testid="site-error" role="alert" class="text-xs text-destructive">
         {{ siteError }}
       </p>
@@ -630,10 +692,48 @@ function setMode(next: unknown) {
 
     <footer v-if="!showSettings" class="relative border-t p-3">
       <!-- Above the buttons, so the footer's padding is the same on every side. -->
-      <div v-if="panelError || copyStatus" class="mb-2 space-y-1 text-xs">
+      <div
+        v-if="panelError || dictation.failure.value || copyStatus"
+        class="mb-2 space-y-1 text-xs"
+      >
         <p v-if="panelError" data-testid="panel-error" role="alert" class="text-destructive">
           {{ panelError }}
         </p>
+        <div
+          v-if="dictation.failure.value"
+          data-testid="rec-message"
+          role="alert"
+          class="flex flex-wrap items-center gap-x-2 gap-y-1 text-destructive"
+        >
+          <span class="min-w-0 flex-1 basis-40">{{ dictation.failure.value.text }}</span>
+          <Button
+            v-if="dictation.failure.value.grant"
+            data-testid="rec-grant"
+            variant="outline"
+            size="xs"
+            @click="grantMicrophone"
+          >
+            Grant
+          </Button>
+          <Button
+            v-if="dictation.failure.value.settings"
+            data-testid="rec-settings"
+            variant="outline"
+            size="xs"
+            @click="showSettings = true"
+          >
+            Open settings
+          </Button>
+          <Button
+            v-if="dictation.failure.value.retry"
+            data-testid="rec-retry"
+            variant="outline"
+            size="xs"
+            @click="dictation.retry()"
+          >
+            Retry
+          </Button>
+        </div>
         <p v-if="copyStatus" class="text-muted-foreground" aria-hidden="true">{{ copyStatus }}</p>
       </div>
       <!-- Two rows: three labels do not fit side by side in a narrow panel. -->
@@ -688,7 +788,7 @@ function setMode(next: unknown) {
       :site="site ? siteLabel(site) : ''"
       @confirm="emptySiteBin"
     />
-    <CopyFallbackDialog :text="fallbackText" @close="fallbackText = null" />
+    <CopyFallbackDialog :fallback="fallback" @close="fallback = null" />
     <ForgetSiteDialog :origin="forgetting" @confirm="forgetSite" @close="forgetting = null" />
   </main>
 </template>

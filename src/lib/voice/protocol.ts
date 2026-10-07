@@ -51,6 +51,25 @@ export function voiceErrorText(error: VoiceError, detail?: string): string {
   return error === 'rejected' && detail ? `Transcription failed: ${detail}` : TEXTS[error]
 }
 
+/** What a failed dictation says, and which of Retry, Grant and Open settings help. */
+export interface DictationFailure {
+  text: string
+  retry: boolean
+  grant: boolean
+  settings: boolean
+}
+
+export function dictationFailure(now: VoiceState): DictationFailure | null {
+  if (now.state !== 'failed') return null
+  return {
+    text: voiceErrorText(now.error, now.detail),
+    retry: now.retry,
+    grant: now.error === 'mic-not-granted' || now.error === 'mic-blocked',
+    // A refused request is most often a model OpenRouter does not know.
+    settings: now.error === 'no-key' || now.error === 'invalid-key' || now.error === 'rejected',
+  }
+}
+
 /** The port to the background: one per comment popover that dictates, one for the panel's Rec. */
 export const VOICE_PORT = 'voice'
 /** The offscreen recorder's port to the background. */

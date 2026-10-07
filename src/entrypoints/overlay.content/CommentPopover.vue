@@ -6,14 +6,14 @@ import { Button } from '@/components/ui/button'
 import { LIMITS, type Rect, type Status } from '@/lib/collection/model'
 import type { BackgroundMessage } from '@/lib/messages'
 import { currentPlatform, isMacPlatform, panelKey } from '@/lib/shortcuts'
-import { voiceErrorText } from '@/lib/voice/protocol'
+import { dictationFailure } from '@/lib/voice/protocol'
 import { CommentGuard } from './comment-guard'
 import { popoverKey } from './keys'
 import { placeNear } from './place'
 import { insertTranscript } from './transcript'
 import { fieldState, putBack, useFieldSelection } from './use-field-selection'
 import { useUnobscured } from './use-unobscured'
-import { useVoice } from './use-voice'
+import { useVoice } from '@/composables/use-voice'
 import VoiceButton from './VoiceButton.vue'
 
 const props = defineProps<{
@@ -60,10 +60,6 @@ const notice = ref('')
 
 // Save waits for a running dictation: its text would otherwise be lost.
 const canSave = computed(() => text.value.trim() !== '' && !props.busy && !voice.busy.value)
-const clock = computed(() => {
-  const s = voice.seconds.value
-  return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`
-})
 /** What screen readers hear: changes of the dictation, not every second of its clock. */
 const spoken = computed(() => {
   const now = voice.state.value.state
@@ -71,17 +67,7 @@ const spoken = computed(() => {
   if (now === 'transcribing') return 'Transcribing.'
   return ''
 })
-const failure = computed(() => {
-  const now = voice.state.value
-  if (now.state !== 'failed') return null
-  return {
-    text: voiceErrorText(now.error, now.detail),
-    retry: now.retry,
-    grant: now.error === 'mic-not-granted' || now.error === 'mic-blocked',
-    // A refused request is most often a model OpenRouter does not know.
-    settings: now.error === 'no-key' || now.error === 'invalid-key' || now.error === 'rejected',
-  }
-})
+const failure = computed(() => dictationFailure(voice.state.value))
 // Spaces at the ends are not saved, so they change nothing.
 const unsaved = computed(() => {
   const now = voice.state.value
@@ -395,7 +381,7 @@ onBeforeUnmount(() => {
       >
         <template v-if="voice.state.value.state === 'recording'">
           <span class="size-2 shrink-0 animate-pulse rounded-full bg-red-600" aria-hidden="true" />
-          <span class="font-medium text-foreground tabular-nums">{{ clock }}</span>
+          <span class="font-medium text-foreground tabular-nums">{{ voice.clock.value }}</span>
           <span class="truncate">· Alt+V to stop</span>
         </template>
         <template v-else-if="voice.state.value.state === 'transcribing'">

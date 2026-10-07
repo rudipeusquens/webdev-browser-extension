@@ -150,6 +150,16 @@ OpenRouter, with your own key; OpenRouter bills it to your account.
 **Model** (default `openai/gpt-4o-mini-transcribe`) and **Language** (default: detect
 automatically) are in the same section.
 
+**Rec** is dictation without a pin, for anything you want to tell the agent in your own
+words. Click **Rec** at the top of the panel (or press `Alt+V` there), speak, and click it
+again: the text goes to the clipboard as it is, nothing added, also when you have switched to
+the agent's window in the meantime. Paste it wherever you like. It works on any tab, also
+where the overlay is not running, and it changes no pin.
+
+Rec and **Copy as prompt** each copy their own text; the clipboard holds whichever you did
+last. If you copy pins while Rec's text is still being transcribed, the pins stay on the
+clipboard and the panel shows the dictated text for copying by hand.
+
 ## Keys
 
 The toolbar shortcut, `Ctrl+Shift+K` (`⇧⌘K` on macOS), opens and closes the panel; change it
@@ -171,6 +181,8 @@ at `chrome://extensions/shortcuts`. Settings lists every key, as Chrome assigned
 | In a pin      | `Alt+V`                    | Start or stop dictation            |
 | In this panel | `Ctrl+Z`                   | Undo                               |
 | In this panel | `Ctrl+Shift+Z` or `Ctrl+Y` | Redo                               |
+| In this panel | `Alt+V`                    | Start or stop Rec                  |
+| In this panel | `Esc`                      | Cancel Rec                         |
 
 The keys on the page work while no field of the page has the focus. On macOS: `⇧` for Shift,
 `⌥` for Alt, and `⌘Z` and `⇧⌘Z` in the panel.

@@ -108,8 +108,9 @@ function grant() {
     <div class="space-y-1">
       <h3 class="text-xs font-medium text-muted-foreground">Voice</h3>
       <p class="text-xs text-muted-foreground">
-        Dictate a comment with the mic button next to Save, or Alt+V. Only the recording leaves the
-        browser: it goes to OpenRouter with your own key, with data collection turned off.
+        Dictate a comment with the mic button next to Save, or Alt+V; anything else with Rec, which
+        copies the text. Only the recording leaves the browser: it goes to OpenRouter with your own
+        key, with data collection turned off.
       </p>
     </div>
 
