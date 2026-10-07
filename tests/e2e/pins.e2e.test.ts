@@ -148,6 +148,44 @@ describe('pins and editing', () => {
     expect(visible).toBe(true)
   })
 
+  it("opens a hidden target's popover in the middle, and next to the target once shown", async () => {
+    await save(BUTTON, 'Hidden later')
+    await session.page.keyboard.press('Escape')
+    await session.page.$eval(BUTTON, (el) => ((el as HTMLElement).style.display = 'none'))
+    await panel.click('[data-testid="item"] button')
+    await waitInOverlay(session, '[data-testid="overlay-popover"]')
+    await sleep(200)
+    const realm = await contentRealm(session)
+    const popover = () =>
+      realm.evaluate(() => {
+        const shadow = globalThis.__webdevOverlay?.shadow
+        const card = shadow?.querySelector('[data-testid="overlay-popover"]')
+        const r = card?.getBoundingClientRect()
+        return {
+          middle: r ? r.x + r.width / 2 : -1,
+          top: r?.y ?? -1,
+          // The target's part of the header, after "Pin 1".
+          header: card?.querySelector('p > span:last-child')?.textContent?.trim(),
+          // The marking of the target being edited.
+          marked: !!shadow?.querySelector('[data-testid="overlay-hover"]'),
+          width: innerWidth,
+        }
+      })
+    const hidden = await popover()
+    expect(Math.abs(hidden.middle - hidden.width / 2)).toBeLessThanOrEqual(1)
+    expect(hidden.header).toBe('button · hidden')
+    expect(hidden.marked).toBe(false)
+
+    await session.page.$eval(BUTTON, (el) => ((el as HTMLElement).style.display = ''))
+    await sleep(300)
+    const shown = await popover()
+    const below = await session.page.$eval(BUTTON, (el) => el.getBoundingClientRect().bottom + 8)
+    expect(shown.header).toMatch(/^button · \d+×\d+$/)
+    expect(Math.abs(shown.top - below)).toBeLessThanOrEqual(1)
+    expect(shown.marked).toBe(true)
+    await session.page.keyboard.press('Escape')
+  })
+
   /** The pins on the page: number and color classes. */
   async function pinsShown() {
     const realm = await contentRealm(session)

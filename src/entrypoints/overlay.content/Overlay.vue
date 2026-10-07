@@ -88,7 +88,8 @@ interface Draft {
   rect: () => Rect
   /** A selected text, drawn line by line. */
   range?: Range
-  label: string
+  /** The popover's header for the target's box now: its size, or that it is not rendered. */
+  label: (rect: Rect) => string
   busy: boolean
   error?: string
   /** A new item: taken when it was marked, what was true at that moment. */
@@ -152,10 +153,12 @@ function rectOf(el: Element): Rect {
   return boxOf(el)
 }
 
+/** A box's size, or "hidden" for a target that is not rendered (a closed menu). */
+const sizeOf = (r: Rect) =>
+  r.width === 0 || r.height === 0 ? 'hidden' : `${Math.round(r.width)}×${Math.round(r.height)}`
+
 const describe = (el: Element, r: Rect, component?: string | null) =>
-  [tagOf(el), component, `${Math.round(r.width)}×${Math.round(r.height)}`]
-    .filter(Boolean)
-    .join(' · ')
+  [tagOf(el), component, sizeOf(r)].filter(Boolean).join(' · ')
 
 // The innermost component of elements looked up while hovering, for the label. A WeakMap is
 // not reactive: `componentsSeen` changes whenever an entry is added.
@@ -206,6 +209,11 @@ const draftRect = computed(() => {
   void frame.value
   return draftText.value?.rect ?? draft.value?.rect() ?? null
 })
+const draftLabel = computed(() =>
+  draftRect.value ? (draft.value?.label(draftRect.value) ?? '') : '',
+)
+/** The target being commented on is rendered: it gets a marking (a closed menu has none). */
+const draftShown = computed(() => !!draftRect.value && sizeOf(draftRect.value) !== 'hidden')
 const chipLine = computed(() => {
   void frame.value
   const anchor = chip.value?.anchor
@@ -486,7 +494,7 @@ function select(el: Element | null) {
     rect: () => boxOf(el),
     target,
     live: el,
-    label: describe(el, boxOf(el), componentOf(el)),
+    label: (r) => describe(el, r, componentOf(el)),
     ...asked,
   })
   // The popover names the component once it is known.
@@ -494,7 +502,7 @@ function select(el: Element | null) {
     const component = origin?.chain.at(-1)?.name
     const current = draft.value
     if (component && current?.key === key) {
-      draft.value = { ...current, label: describe(el, current.rect(), component) }
+      draft.value = { ...current, label: (r) => describe(el, r, component) }
     }
   })
 }
@@ -521,20 +529,22 @@ function selectArea(rect: Rect) {
     },
     target,
     live: container,
-    label: labelOf(target, container, rect),
+    label: labelOf(target, container),
     ...marking(target, [container, ...elements]),
   })
 }
 
-/** Short description of an item's target for the popover header. */
-function labelOf(target: Target, el: Element, rect: Rect): string {
+/** Short description of an item's target for the popover header, for its box now. */
+function labelOf(target: Target, el: Element): (rect: Rect) => string {
   switch (target.kind) {
     case 'element':
-      return describe(el, rect)
-    case 'text':
-      return `"${truncate(target.selected, 24)}"`
+      return (r) => describe(el, r)
+    case 'text': {
+      const quoted = `"${truncate(target.selected, 24)}"`
+      return (r) => (sizeOf(r) === 'hidden' ? `${quoted} · hidden` : quoted)
+    }
     case 'area':
-      return `area · ${Math.round(rect.width)}×${Math.round(rect.height)}`
+      return (r) => `area · ${sizeOf(r)}`
   }
 }
 
@@ -549,7 +559,7 @@ function openEdit(id: string): boolean {
     el,
     rect,
     range,
-    label: labelOf(item.target, el, rect()),
+    label: labelOf(item.target, el),
     edit: { id, number: item.number, comment: item.comment, status: item.status },
   })
   return true
@@ -650,7 +660,7 @@ function commentOnSelection() {
     range: read,
     target,
     live: read,
-    label: labelOf(target, el, rect()),
+    label: labelOf(target, el),
     ...marking(target, [el]),
   })
 }
@@ -979,7 +989,7 @@ onBeforeUnmount(() => {
     </button>
     <TextHighlight v-if="draftText" :boxes="draftText.lines" :status="editStatus" />
     <HoverBox
-      v-else-if="draftRect"
+      v-else-if="draftRect && draftShown"
       :rect="draftRect"
       :tone="draft?.kind === 'area' ? 'area' : 'selected'"
       :status="editStatus"
@@ -996,7 +1006,7 @@ onBeforeUnmount(() => {
       v-if="draft && draftRect"
       :key="draft.key"
       :rect="draftRect"
-      :label="draft.label"
+      :label="draftLabel"
       :initial="draft.edit?.comment"
       :number="draft.edit?.number"
       :status="draft.edit?.status"

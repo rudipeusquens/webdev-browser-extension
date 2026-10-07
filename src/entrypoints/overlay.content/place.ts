@@ -1,4 +1,5 @@
-// Where the comment popover goes: next to its target, always fully inside the viewport.
+// Where the comment popover goes: next to its target, always fully inside the viewport; in the
+// middle when the target is not rendered.
 
 import type { Rect } from '@/lib/collection/model'
 
@@ -13,6 +14,13 @@ const GAP = 8
 const clamp = (value: number, min: number, max: number) => Math.max(min, Math.min(value, max))
 
 export function placeNear(target: Rect, size: Size, viewport: Size): { x: number; y: number } {
+  // A target that is not rendered (a closed menu) has no place to be next to.
+  if (target.width === 0 || target.height === 0) {
+    return {
+      x: Math.max(MARGIN, Math.round((viewport.width - size.width) / 2)),
+      y: Math.max(MARGIN, Math.round((viewport.height - size.height) / 3)),
+    }
+  }
   const x = clamp(target.x, MARGIN, viewport.width - size.width - MARGIN)
   const below = target.y + target.height + GAP
   const above = target.y - GAP - size.height
