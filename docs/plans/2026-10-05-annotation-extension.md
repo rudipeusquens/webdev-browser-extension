@@ -4287,6 +4287,11 @@ module before it is fixed.
 **Acceptance:** security review findings resolved; smoke checklist passes in a real Chrome;
 `pnpm build && pnpm zip` produce an installable package.
 
+**Done (2026-10-07)** in milestones 7a, 7b and 7c: the review's findings are fixed, each with a
+test that failed first (7b); `pnpm zip` produces the package and checks it against the build,
+also in CI (7c); the README and `docs/smoke-test.md` are written (7c). The smoke test's run in
+a real Chrome and in Brave is the owner's, before the first release.
+
 **Spec follow-ups (apply in the milestone 1 PR):** spec section 12 names the live-test variable
 `OPENROUTER_API_KEY_TEST`; section 8 uses `_execute_action` instead of an `activate` command;
 section 14 moves the tree under `src/`; milestone 4 adds the pin visibility toggle and the

@@ -780,8 +780,9 @@ deliberate bug hunt.
    never a recording of a real person.
 5. **CI:** unit and E2E run headless inside the existing `ci` job (one required check).
 6. **Before every PR:** an independent review agent hunting for bugs; a security review for
-   overlay, bridge, messaging and voice code; the manual smoke checklist
-   (`docs/smoke-test.md`) in a real Chrome.
+   overlay, bridge, messaging and voice code; the sections of the manual smoke test
+   (`docs/smoke-test.md`) that the change touches, named in the PR and run by the owner in a
+   real Chrome. Before a release, all of it, in Chrome and in Brave.
 
 ## 13. Verification spikes (first steps of the implementation)
 

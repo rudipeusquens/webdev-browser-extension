@@ -9,7 +9,7 @@ A Chrome extension (desktop) for web development work. On any page you can highl
 or add comments; the extension bundles everything into a format you can hand to an AI agent
 that has access to the code.
 
-**Status:** milestones 1–7b of `docs/plans/2026-10-05-annotation-extension.md` are done
+**Status:** milestones 1–7 of `docs/plans/2026-10-05-annotation-extension.md` are done
 (scaffold, test harness, spikes; element marking end to end; text and area marking; across
 pages, re-anchoring, remembered sites, code origin; voice input; review workflow: one
 collection per site, statuses, Copy again, filter, undo and redo; review polish: pins as the
@@ -19,8 +19,9 @@ popover, the Pin chip with its selection, undo of a dictation; security review: 
 div, a stricter comment guard, delimited prompt strings, no invisible characters, clicks only
 on an unobscured overlay, no page-visible start signal, panel-only senders, storage budgets,
 OpenRouter-only connections, a denylist job that installs nothing, a pre-push check, a bundle
-check, the MCP server through pnpm). Next: the rest of milestone 7 (smoke checklist, README,
-`pnpm zip`). The spec
+check, the MCP server through pnpm; release readiness: the package from `pnpm zip` checked
+against the build, the README, the manual smoke test). Next: the owner's smoke test before the
+first release; later candidates are in the plan's known limits and deferred items. The spec
 is `docs/specs/2026-10-05-annotation-extension.md` — read both before working on a feature.
 
 ## This repository is public
