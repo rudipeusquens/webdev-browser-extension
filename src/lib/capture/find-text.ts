@@ -31,12 +31,18 @@ function flatten(pieces: Piece[]): { text: string; at: (Position | null)[] } {
       at.push(null)
       space = true
     }
-    for (let j = 0; j < piece.text.length; j++) {
-      const char = collapse(piece.text.charAt(j))
+    // By code point: a character outside the BMP is cleaned as a whole, as when it was stored.
+    for (let j = 0; j < piece.text.length;) {
+      const point = String.fromCodePoint(piece.text.codePointAt(j) ?? 0)
+      const offset = j
+      j += point.length
+      const char = collapse(point)
       if (char === '') continue
       if (char === ' ' && space) continue
-      chars.push(char)
-      at.push(piece.node ? { node: piece.node, offset: (piece.start ?? 0) + j } : null)
+      for (let k = 0; k < char.length; k++) {
+        chars.push(char.charAt(k))
+        at.push(piece.node ? { node: piece.node, offset: (piece.start ?? 0) + offset + k } : null)
+      }
       space = char === ' '
     }
   })

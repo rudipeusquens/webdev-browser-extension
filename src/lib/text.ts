@@ -1,13 +1,16 @@
 // Cleaning of page-derived strings before they are stored or written to the prompt.
 
-// C0 and C1 controls except tab and line breaks (collapsed below), plus bidirectional
-// formatting characters, which can make text read differently than it is stored.
-// eslint-disable-next-line no-control-regex
-const INVISIBLE = /[\u0000-\u0008\u000B\u000C\u000E-\u001F\u007F-\u009F؜‎‏‪-‮⁦-⁩]/g
+// Characters that show nothing a reader notices, but that a model reads: controls, format
+// characters (zero widths, bidirectional controls that make text read differently than it is
+// stored, Unicode tags that spell ASCII invisibly, the soft hyphen), private use (icon fonts),
+// variation selectors and Hangul fillers. Tabs and line breaks become a space instead.
+const INVISIBLE =
+  /[\p{Cc}\p{Cf}\p{Co}\u{FE00}-\u{FE0F}\u{E0100}-\u{E01EF}\u115F\u1160\u3164\uFFA0]/gu
+const BREAKS = /[\t\n\v\f\r\u0085]/
 
 /** Removes invisible characters and collapses whitespace, including line breaks, to one space. */
 export function collapse(s: string): string {
-  return s.replace(INVISIBLE, '').replace(/\s+/g, ' ')
+  return s.replace(INVISIBLE, (c) => (BREAKS.test(c) ? ' ' : '')).replace(/\s+/g, ' ')
 }
 
 /** Shortens `s` to at most `max` code points, the last one being `…`. */

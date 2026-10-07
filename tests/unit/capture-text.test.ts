@@ -133,6 +133,14 @@ describe('snapshotRange', () => {
     }
   })
 
+  it('leaves out text the page made invisible without hiding its box', () => {
+    document.body.innerHTML =
+      '<p>Shown <span style="opacity: 0">FADED</span> <span style="font-size: 0">TINY</span> ' +
+      '<span style="opacity: 0"><b>DEEP</b></span> <span style="font-size: 0"><b style="font-size: 12px">big</b></span> end</p>'
+    const target = snapshotRange(between('Shown', 'end'))?.target
+    expect(target?.selected).toBe('Shown big end')
+  })
+
   it('takes context only from the block that holds the selection', () => {
     document.body.innerHTML = '<p>Neighbour paragraph</p><p>Start of this one ends here.</p>'
     const target = snapshotRange(over('this one'))?.target
