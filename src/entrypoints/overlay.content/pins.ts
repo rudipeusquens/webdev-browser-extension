@@ -65,15 +65,21 @@ function place(item: Annotation, anchor: LiveAnchor | undefined, doc: Document) 
       const dx = target.rect.x - target.container.box.x
       const dy = target.rect.y - target.container.box.y
       const { width, height } = target.rect
-      return {
-        el,
-        rect: () => {
-          const box = boxOf(el)
-          return { x: box.x + dx, y: box.y + dy, width, height }
-        },
-      }
+      return { el, rect: () => areaIn(boxOf(el), dx, dy, width, height) }
     }
   }
+}
+
+/** A box that is not rendered (`display: none`, a closed menu): no size at all. */
+export const notRendered = (r: Rect) => r.width === 0 && r.height === 0
+
+/**
+ * An area `dx`, `dy` inside the container's box `box`; without a box while the container is
+ * not rendered, as an element's own target would be.
+ */
+export function areaIn(box: Rect, dx: number, dy: number, width: number, height: number): Rect {
+  if (notRendered(box)) return { x: 0, y: 0, width: 0, height: 0 }
+  return { x: box.x + dx, y: box.y + dy, width, height }
 }
 
 /**

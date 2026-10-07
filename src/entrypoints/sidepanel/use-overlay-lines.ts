@@ -14,9 +14,11 @@ export interface Pointed {
   hovered: string | null
   /** The item whose popover is open. */
   open: string | null
+  /** Whether a popover is open, also a new pin's. */
+  popover: boolean
 }
 
-const NOTHING: Pointed = { hovered: null, open: null }
+const NOTHING: Pointed = { hovered: null, open: null, popover: false }
 
 /**
  * Keeps the lines; returns what the overlay of the shown tab points at (spec section 8): its
@@ -59,7 +61,7 @@ export function useOverlayLines(
       // Only the overlay the panel shows marks entries; the others are remembered for later.
       port.onMessage.addListener((message: unknown) => {
         if (lines.get(tab)?.port !== port || !isPinsPointed(message)) return
-        const now = { hovered: message.hovered, open: message.open }
+        const now = { hovered: message.hovered, open: message.open, popover: message.popover }
         lastPointed.set(tab, now)
         if (tab === shownTab) pointed.value = now
       })
@@ -84,8 +86,8 @@ export function useOverlayLines(
       }
       // Back on a tab: its open popover is still open; the pointer is elsewhere now.
       if (shownTab !== next?.tab) {
-        const open = next ? (lastPointed.get(next.tab)?.open ?? null) : null
-        pointed.value = { hovered: null, open }
+        const last = next ? lastPointed.get(next.tab) : undefined
+        pointed.value = { hovered: null, open: last?.open ?? null, popover: last?.popover ?? false }
       }
       shownTab = next?.tab
       if (next) lineTo(next.tab, next.overlay)

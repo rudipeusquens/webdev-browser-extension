@@ -140,6 +140,18 @@ describe('placeItems: areas', () => {
     expect(found.get('a')?.rect()).toEqual({ x: 120, y: 90, width: 300, height: 100 })
   })
 
+  it('has no box while its container is not rendered', () => {
+    boxes.set($('main'), { x: 0, y: 0, width: 0, height: 0 })
+    const item = area(
+      'a',
+      'main',
+      { x: 120, y: 640, width: 300, height: 100 },
+      { x: 100, y: 600, width: 800, height: 400 },
+    )
+    const found = placeItems([item], new Map(), document)
+    expect(found.get('a')?.rect()).toEqual({ x: 0, y: 0, width: 0, height: 0 })
+  })
+
   it('prefers the container marked in this session', () => {
     const marked = $('#para')
     const item = area(

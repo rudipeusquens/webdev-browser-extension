@@ -502,7 +502,7 @@ while a pin's popover is open, its entry stays marked.
     missing on the page's last visit. Hover highlights the target on the page (the highlight
     goes when the panel closes). Click goes to the pin: on the current page it scrolls to the
     target and opens its popover; on another page of the site (on the web) it opens that page
-    in the tab, waits for the overlay and does the same there. Both, and Go to, wait while the open
+    in the tab, waits for the overlay and does the same there. Both, and Go to, are refused while the open
     popover holds unsaved text (above). After a switch to another site, the list stays empty until
     that site's pins are read. Actions: **Copy** (open: that pin
     as the prompt; it becomes done and is what Copy again copies), **Reopen** (done),

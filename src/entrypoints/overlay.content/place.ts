@@ -15,7 +15,7 @@ const clamp = (value: number, min: number, max: number) => Math.max(min, Math.mi
 
 export function placeNear(target: Rect, size: Size, viewport: Size): { x: number; y: number } {
   // A target that is not rendered (a closed menu) has no place to be next to.
-  if (target.width === 0 || target.height === 0) {
+  if (target.width === 0 && target.height === 0) {
     return {
       x: Math.max(MARGIN, Math.round((viewport.width - size.width) / 2)),
       y: Math.max(MARGIN, Math.round((viewport.height - size.height) / 3)),

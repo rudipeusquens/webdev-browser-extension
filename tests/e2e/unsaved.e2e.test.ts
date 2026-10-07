@@ -85,13 +85,14 @@ describe('unsaved text in the popover', () => {
     await sleep(200)
     expect((await field()).text).toBe('Unsaved words')
 
-    // Esc throws the text away: then the entry opens its pin, and the refusal goes.
+    // Esc throws the text away, and the refusal goes with the popover; then the entry opens
+    // its pin.
     await session.page.keyboard.press('Escape')
     await waitInOverlay(session, POPOVER, false)
+    await panel.waitForSelector('[data-testid="panel-error"]', { hidden: true, timeout: 3000 })
     await entry?.click()
     await waitInOverlay(session, POPOVER)
     expect((await field()).text).toBe('Second')
-    await panel.waitForSelector('[data-testid="panel-error"]', { hidden: true })
     await session.page.keyboard.press('Escape')
     await waitInOverlay(session, POPOVER, false)
   })

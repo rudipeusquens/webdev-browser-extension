@@ -35,9 +35,12 @@ describe('placeNear', () => {
       x: 356,
       y: 213,
     })
+  })
+
+  it('stays next to a rendered target without height, such as a wrapper of floats', () => {
     expect(placeNear({ x: 40, y: 600, width: 120, height: 0 }, size, viewport)).toEqual({
-      x: 356,
-      y: 213,
+      x: 40,
+      y: 608,
     })
   })
 

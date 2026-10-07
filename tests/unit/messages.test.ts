@@ -208,14 +208,19 @@ describe('the toolbar toggle', () => {
 })
 
 describe('pins:pointed', () => {
-  it('names a hovered and an open item, or none', () => {
-    expect(isPinsPointed({ type: 'pins:pointed', hovered: 'a1', open: null })).toBe(true)
-    expect(isPinsPointed({ type: 'pins:pointed', hovered: null, open: 'b-2' })).toBe(true)
+  it('names a hovered and an open item, or none, and whether a popover is open', () => {
+    const none = { type: 'pins:pointed', hovered: null, open: null, popover: false }
+    expect(isPinsPointed({ ...none, hovered: 'a1' })).toBe(true)
+    expect(isPinsPointed({ ...none, open: 'b-2', popover: true })).toBe(true)
+    // A new pin's popover has no item yet.
+    expect(isPinsPointed({ ...none, popover: true })).toBe(true)
     for (const bad of [
-      { type: 'pins:pointed', hovered: 'a b', open: null },
+      { ...none, hovered: 'a b' },
       { type: 'pins:pointed', hovered: 'a1' },
-      { type: 'pins:pointed', hovered: null, open: null, text: 'x' },
-      { type: 'pins:hover', hovered: null, open: null },
+      { type: 'pins:pointed', hovered: null, open: null },
+      { ...none, popover: 'yes' },
+      { ...none, text: 'x' },
+      { ...none, type: 'pins:hover' },
       null,
     ]) {
       expect(isPinsPointed(bad)).toBe(false)

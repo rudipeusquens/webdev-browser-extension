@@ -40,12 +40,14 @@ import { type Origins, readOrigins, sourcesOf, within, withOrigins } from './ori
 import { pageShortcut } from './keys'
 import { forwardsWheel, isEditable, pickAt, TargetPath, wheelTarget } from './picker'
 import {
+  areaIn,
   boxOf,
   clippersOf,
   inBounds,
   isLiveRange,
   type LiveAnchor,
   linesOf,
+  notRendered,
   outlineBox,
   pinPositions,
   placeItems,
@@ -107,7 +109,8 @@ interface Draft {
   edit?: { id: string; number: number; comment: string; status: Status }
 }
 
-// This overlay, for the panel: a second toolbar click starts a new one on the same tab.
+// This overlay, for the panel: a new injection (after an update, or where this one did not
+// answer) starts a new one on the same tab.
 const instance = newId()
 const mode = ref<Mode>('browse')
 const path = shallowRef<TargetPath | null>(null)
@@ -157,7 +160,7 @@ function rectOf(el: Element): Rect {
 
 /** A box's size, or "hidden" for a target that is not rendered (a closed menu). */
 const sizeOf = (r: Rect) =>
-  r.width === 0 || r.height === 0 ? 'hidden' : `${Math.round(r.width)}×${Math.round(r.height)}`
+  notRendered(r) ? 'hidden' : `${Math.round(r.width)}×${Math.round(r.height)}`
 
 const describe = (el: Element, r: Rect, component?: string | null) =>
   [tagOf(el), component, sizeOf(r)].filter(Boolean).join(' · ')
@@ -215,7 +218,7 @@ const draftLabel = computed(() =>
   draftRect.value ? (draft.value?.label(draftRect.value) ?? '') : '',
 )
 /** The target being commented on is rendered: it gets a marking (a closed menu has none). */
-const draftShown = computed(() => !!draftRect.value && sizeOf(draftRect.value) !== 'hidden')
+const draftShown = computed(() => !!draftRect.value && !notRendered(draftRect.value))
 // The scroll containers and clipping boxes around the chip's selection: looked up once per
 // selection, measured on every frame.
 const chipClippers = computed(() => {
@@ -228,6 +231,8 @@ const chipLine = computed(() => {
   if (!anchor || mode.value !== 'browse' || draft.value) return null
   const r = anchor.getBoundingClientRect()
   const line = { x: r.x, y: r.y, width: r.width, height: r.height }
+  // The page hid the selection's end (a menu closed): it would sit in the corner.
+  if (notRendered(line)) return null
   // From the first character to the last: a long selection keeps its chip at the edge while
   // any of it is in view.
   const s = chip.value?.start?.getBoundingClientRect() ?? r
@@ -546,10 +551,7 @@ function selectArea(rect: Rect) {
   openDraft({
     kind: 'area',
     el: container,
-    rect: () => {
-      const box = boxOf(container)
-      return { x: box.x + dx, y: box.y + dy, width: rect.width, height: rect.height }
-    },
+    rect: () => areaIn(boxOf(container), dx, dy, rect.width, rect.height),
     target,
     live: container,
     label: labelOf(target, container),
@@ -564,7 +566,7 @@ function labelOf(target: Target, el: Element): (rect: Rect) => string {
       return (r) => describe(el, r)
     case 'text': {
       const quoted = `"${truncate(target.selected, 24)}"`
-      return (r) => (sizeOf(r) === 'hidden' ? `${quoted} · hidden` : quoted)
+      return (r) => (notRendered(r) ? `${quoted} · hidden` : quoted)
     }
     case 'area':
       return (r) => `area · ${sizeOf(r)}`
@@ -905,7 +907,12 @@ const panels = new Set<Browser.runtime.Port>()
 
 /** What the pins point at, by id only: the panel marks the entries (spec section 8). */
 function pointedNow(): PinsPointed {
-  return { type: 'pins:pointed', hovered: hoveredPin.value, open: draft.value?.edit?.id ?? null }
+  return {
+    type: 'pins:pointed',
+    hovered: hoveredPin.value,
+    open: draft.value?.edit?.id ?? null,
+    popover: draft.value !== null,
+  }
 }
 
 function tellPanels(message: PinsPointed) {
@@ -918,7 +925,9 @@ function tellPanels(message: PinsPointed) {
   }
 }
 
-watch([hoveredPin, () => draft.value?.edit?.id ?? null], () => tellPanels(pointedNow()))
+watch([hoveredPin, () => draft.value?.edit?.id ?? null, () => draft.value !== null], () =>
+  tellPanels(pointedNow()),
+)
 
 const onConnect: Parameters<typeof browser.runtime.onConnect.addListener>[0] = (port) => {
   if (port.name !== 'panel' || port.sender?.id !== browser.runtime.id) return
@@ -932,7 +941,7 @@ const onConnect: Parameters<typeof browser.runtime.onConnect.addListener>[0] = (
     setMode('browse')
   })
   const now = pointedNow()
-  if (now.hovered || now.open) tellPanels(now)
+  if (now.hovered || now.open || now.popover) tellPanels(now)
 }
 
 const RELEASES = ['pointerup', 'mouseup', 'keyup'] as const

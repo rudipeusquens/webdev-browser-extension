@@ -3893,14 +3893,18 @@ milestone 7.
   the session (live anchors).
 - **A hidden target's popover** (opened from the panel) sits in the middle of the viewport, a
   third from the top, and its header says "hidden" instead of a size; no marking is drawn in
-  the corner. It moves next to the target once that is rendered.
-- **The Pin chip** shows only while the end of its selection is visible in the viewport and in
-  the boxes that clip it; it comes back when the selection is scrolled back. A release over a
-  pin offers the chip too; the delayed check is dropped when the mode changes or a popover
-  opens.
-- **Dictation:** the text goes in as an edit of the field (`insertText`), so `Ctrl+Z` takes it
-  out again; the guard is told in advance, as for a typed edit. No space after an opening
-  bracket or quote. A refused request (unknown model) offers **Open settings**. A dictation
+  the corner. It moves next to the target once that is rendered. Hidden means no box at all
+  (`display: none`), also for an area whose container is not rendered; a rendered box without
+  height keeps its size.
+- **The Pin chip** shows only while some of its selection (from its first shown character to
+  its last) is visible in the viewport and in the boxes that clip it, and while its end is
+  rendered; it comes back with the selection. A release over a pin offers the chip too.
+- **Dictation:** `Ctrl+Z` takes the last dictated text out again and `Ctrl+Shift+Z` puts it
+  back, while nothing else changed the field; the popover does it itself. (Planned first as an
+  edit of the field with `insertText`, so the browser's undo would know it: dropped during the
+  milestone, since the page's listeners read the input events of edits and would read what was
+  dictated.) No space after an opening bracket or quote; guillemets open only after white
+  space. A refused request (unknown model) offers **Open settings**. A dictation
   ended by another one says "Another dictation started, this one ended." (also when it only
   held a recording to retry).
 - **After a site switch** the panel's list is empty until the new site's pins are read, never
@@ -3980,13 +3984,14 @@ unsaved.
 - Test: `tests/unit/{overlay-transcript,comment-guard,comment-popover,voice-protocol}.test.ts`,
   `tests/e2e/voice.e2e.test.ts`
 
-**Interfaces:** `insertTranscript` also returns `from`, `to` and `inserted`;
-`CommentGuard.expect(edit)` announces the overlay's own edit.
+**Interfaces:** none new (the planned `insertTranscript` extras and `CommentGuard.expect` went
+with the `insertText` approach, see the decision above).
 
 - [ ] **Step 1: Write the failing tests:** no space after `(`, `[`, `{`, an opening quote;
-      `expect()` lets exactly that edit through; Open settings for a refused request; the
-      taken text. E2E: dictate, `Ctrl+Z` brings the text before the dictation back; a page
-      that edits the field meanwhile is still caught.
+      `Ctrl+Z` and `Ctrl+Shift+Z` switch between the texts before and after the dictation;
+      Open settings for a refused request; the taken text. E2E: dictate, `Ctrl+Z` brings the
+      text before the dictation back, and the page's own input listener never sees the
+      dictated text.
 - [ ] **Step 2–4;** **Step 5: commit** "Let Ctrl+Z undo a dictated text, and fix its
       messages".
 

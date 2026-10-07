@@ -51,8 +51,11 @@ describe('insertTranscript', () => {
     expect(insertTranscript('"', 1, 1, 'wow').value).toBe('"wow')
     expect(insertTranscript('Sie sagte „', 11, 11, 'gut').value).toBe('Sie sagte „gut')
     expect(insertTranscript("it's '", 6, 6, 'odd').value).toBe("it's 'odd")
-    // A quote after a word closes it.
+    // A quote after a word closes it, guillemets too (German »…«, French «…»).
     expect(insertTranscript('a "word"', 8, 8, 'next').value).toBe('a "word" next')
+    expect(insertTranscript('»gut«', 5, 5, 'und').value).toBe('»gut« und')
+    expect(insertTranscript('le «mot»', 8, 8, 'et').value).toBe('le «mot» et')
+    expect(insertTranscript('Er sagte «', 10, 10, 'ja').value).toBe('Er sagte «ja')
   })
 
   it('replaces a selection', () => {

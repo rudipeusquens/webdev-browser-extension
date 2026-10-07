@@ -261,6 +261,15 @@ describe('marking text', () => {
     await waitInOverlay(session, CHIP)
   })
 
+  it('hides the chip while its selection is not rendered', async () => {
+    await dragSelect(session.page, 'h3', 'Email')
+    await waitInOverlay(session, CHIP)
+    await session.page.$eval('.prefs', (el) => ((el as HTMLElement).style.display = 'none'))
+    await waitInOverlay(session, CHIP, false)
+    await session.page.$eval('.prefs', (el) => ((el as HTMLElement).style.display = ''))
+    await waitInOverlay(session, CHIP)
+  })
+
   it('offers the chip for a selection released over a pin', async () => {
     await dragSelect(session.page, '#intro', 'contact you')
     await comment('Friendlier wording')
@@ -271,6 +280,19 @@ describe('marking text', () => {
     await session.page.mouse.move(pin.x, pin.y, { steps: 8 })
     await session.page.mouse.up()
     await waitInOverlay(session, CHIP)
+  })
+
+  it('brings no chip back after a pin was clicked with text selected', async () => {
+    await dragSelect(session.page, '#intro', 'contact you')
+    await comment('Friendlier wording')
+    await dragSelect(session.page, 'h3', 'Email')
+    await waitInOverlay(session, CHIP)
+    await clickInOverlay(session, '[data-testid="overlay-pin"]')
+    await waitInOverlay(session, POPOVER)
+    await sleep(200)
+    await session.page.keyboard.press('Escape')
+    await waitInOverlay(session, POPOVER, false)
+    await expectNoChip()
   })
 
   it('brings no chip back for a selection that was pinned', async () => {

@@ -326,6 +326,14 @@ function goTo(pageKey: string) {
 }
 
 const { pointed } = useOverlayLines(tabId, status)
+// A refusal for the popover's unsaved text holds only while that popover is open (on the tab
+// the panel shows).
+watch(
+  () => pointed.value.popover,
+  (open) => {
+    if (!open && panelError.value === UNSAVED_PIN) panelError.value = ''
+  },
+)
 
 /** How long a jump to an item of another page waits for that page's overlay. */
 const JUMP_WAIT = 30_000

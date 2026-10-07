@@ -531,22 +531,44 @@ describe('side panel', () => {
     it('marks the entry of the pin hovered or open on the page, and scrolls to it', async () => {
       overlayReply = active
       await render(twoPages())
-      ports[0]?.receive({ type: 'pins:pointed', hovered: 'a1', open: null })
+      ports[0]?.receive({ type: 'pins:pointed', hovered: 'a1', open: null, popover: false })
       await flushPromises()
       expect(pointed()).toEqual([['First on A', 'hovered']])
       expect(scrolled.at(-1)).toContain('First on A')
-      ports[0]?.receive({ type: 'pins:pointed', hovered: null, open: 'b1' })
+      ports[0]?.receive({ type: 'pins:pointed', hovered: null, open: 'b1', popover: true })
       await flushPromises()
       expect(pointed()).toEqual([['On B <b>not bold</b>', 'open']])
-      ports[0]?.receive({ type: 'pins:pointed', hovered: 'a1', open: 'b1' })
+      ports[0]?.receive({ type: 'pins:pointed', hovered: 'a1', open: 'b1', popover: true })
       await flushPromises()
       expect(pointed()).toEqual([
         ['On B <b>not bold</b>', 'open'],
         ['First on A', 'hovered'],
       ])
-      ports[0]?.receive({ type: 'pins:pointed', hovered: '<b>', open: null, more: 1 })
+      ports[0]?.receive({
+        type: 'pins:pointed',
+        hovered: '<b>',
+        open: null,
+        popover: false,
+        more: 1,
+      })
       await flushPromises()
       expect(pointed()).toHaveLength(2)
+    })
+
+    it('drops the refusal of an entry once the popover on the page closes', async () => {
+      overlayReply = active
+      await render(twoPages())
+      ports[0]?.receive({ type: 'pins:pointed', hovered: null, open: null, popover: true })
+      vi.mocked(fakeBrowser.tabs.sendMessage).mockImplementation((async (_: number, m: unknown) =>
+        (m as { type: string }).type === 'overlay:reveal'
+          ? { ok: false, error: UNSAVED_PIN }
+          : active) as never)
+      entry('On B')?.querySelector<HTMLElement>('button')?.click()
+      await flushPromises()
+      expect(byTestId('panel-error').textContent).toContain('Save or cancel the open pin first.')
+      ports[0]?.receive({ type: 'pins:pointed', hovered: null, open: null, popover: false })
+      await flushPromises()
+      expect(document.querySelector('[data-testid="panel-error"]')).toBeNull()
     })
 
     it('ignores the pins of tabs it does not show, and forgets the mark on another tab', async () => {
@@ -559,10 +581,10 @@ describe('side panel', () => {
       )
       await flushPromises()
       const other = ports.find((p) => (p as { tab?: number }).tab === 2)
-      other?.receive({ type: 'pins:pointed', hovered: 'a1', open: null })
+      other?.receive({ type: 'pins:pointed', hovered: 'a1', open: null, popover: false })
       await flushPromises()
       expect(pointed()).toEqual([])
-      ports[0]?.receive({ type: 'pins:pointed', hovered: 'a1', open: null })
+      ports[0]?.receive({ type: 'pins:pointed', hovered: 'a1', open: null, popover: false })
       await flushPromises()
       expect(pointed()).toHaveLength(1)
       vi.mocked(fakeBrowser.tabs.query).mockResolvedValue([{ id: 2 }] as never)
@@ -575,7 +597,7 @@ describe('side panel', () => {
     it('keeps the mark of an open popover when it comes back to its tab', async () => {
       overlayReply = active
       await render(twoPages())
-      ports[0]?.receive({ type: 'pins:pointed', hovered: 'b1', open: 'b1' })
+      ports[0]?.receive({ type: 'pins:pointed', hovered: 'b1', open: 'b1', popover: true })
       await flushPromises()
       expect(pointed()).toEqual([['On B <b>not bold</b>', 'open']])
       vi.mocked(fakeBrowser.tabs.query).mockResolvedValue([{ id: 2 }] as never)

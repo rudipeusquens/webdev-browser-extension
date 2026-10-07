@@ -156,16 +156,23 @@ export type PanelAway = { type: 'panel:away' }
  * Overlay → side panel, on the line the panel keeps to it: the pin under the pointer and the
  * item whose popover is open, by id only (spec section 8).
  */
-export type PinsPointed = { type: 'pins:pointed'; hovered: string | null; open: string | null }
+export type PinsPointed = {
+  type: 'pins:pointed'
+  hovered: string | null
+  open: string | null
+  /** Whether a popover is open, also a new pin's: the panel drops its refusal once it closes. */
+  popover: boolean
+}
 
 const isIdOrNull = (x: unknown) => x === null || isAnnotationId(x)
 
 export function isPinsPointed(x: unknown): x is PinsPointed {
   return (
-    hasKeys(x, ['type', 'hovered', 'open']) &&
+    hasKeys(x, ['type', 'hovered', 'open', 'popover']) &&
     x.type === 'pins:pointed' &&
     isIdOrNull(x.hovered) &&
-    isIdOrNull(x.open)
+    isIdOrNull(x.open) &&
+    typeof x.popover === 'boolean'
   )
 }
 
@@ -178,7 +185,7 @@ export interface OverlayStatus {
   mode: Mode
   /** Whether the pins are shown. */
   pins: boolean
-  /** Random id of this overlay: a second toolbar click starts a new one on the same tab. */
+  /** Random id of this overlay: a new injection starts a new one on the same tab. */
   instance: string
 }
 
