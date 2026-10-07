@@ -732,6 +732,25 @@ describe('side panel', () => {
       expect(writeText).toHaveBeenCalledWith(formatCollection(onOther()))
     })
 
+    it("shows nothing of the last site while the next one's pins are read", async () => {
+      await fakeBrowser.storage.local.set({ [collectionKey(OTHER)]: onOther() })
+      overlayReply = active
+      await render(twoPages())
+      expect(body()).toContain('First on A')
+      const read = fakeBrowser.storage.local.get.bind(fakeBrowser.storage.local)
+      vi.spyOn(fakeBrowser.storage.local, 'get').mockImplementation(((keys: unknown) =>
+        keys === collectionKey(OTHER)
+          ? new Promise(() => undefined)
+          : read(keys as never)) as never)
+      overlayReply = { ...active, host: 'localhost:5173', pageKey: `${OTHER}/`, instance: 'two' }
+      await fakeBrowser.tabs.onActivated.trigger({ tabId: 1, windowId: 1 })
+      await flushPromises()
+      expect(byTestId('title-site').textContent?.trim()).toBe('localhost:5173')
+      expect(body()).not.toContain('First on A')
+      expect(body()).not.toContain('No feedback yet')
+      expect(document.querySelector('[data-testid="item"]')).toBeNull()
+    })
+
     it('names the site in the title row, with its full origin as tooltip', async () => {
       overlayReply = active
       await render(twoPages())

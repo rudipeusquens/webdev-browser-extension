@@ -62,7 +62,7 @@ const site = computed(() => {
     return null
   }
 })
-const { collection: stored } = useSiteCollection(site)
+const { collection: stored, loading } = useSiteCollection(site)
 /** What the panel lists: the active site's collection, empty without one. */
 const collection = computed(() => stored.value ?? emptyCollection(site.value ?? 'file://'))
 usePanelToggle(windowId)
@@ -573,8 +573,13 @@ function setMode(next: unknown) {
       @forget="(origin) => (forgetting = origin)"
     />
     <section v-else data-testid="list-area" class="flex-1 overflow-y-auto">
+      <!-- A new site's pins are being read: neither the last site's list nor an empty state. -->
+      <template v-if="site && loading" />
       <!-- Empty states sit in the middle of the list area. -->
-      <div v-if="!site || !shown.length" class="flex min-h-full items-center justify-center p-6">
+      <div
+        v-else-if="!site || !shown.length"
+        class="flex min-h-full items-center justify-center p-6"
+      >
         <div data-testid="empty-state" class="max-w-72 space-y-3 text-center text-muted-foreground">
           <template v-if="!site">
             <p data-testid="tab-status">
