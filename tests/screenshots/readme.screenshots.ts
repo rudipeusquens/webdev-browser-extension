@@ -14,11 +14,13 @@ import type { Page } from 'puppeteer'
 import { afterAll, beforeAll, expect, it } from 'vitest'
 import { clickAction, contentRealm, launch, type Session } from '../e2e/harness'
 import {
+  centerOf,
   clickInOverlay,
   dragSelect,
   markElement,
   overlayMounted,
   sleep,
+  storedCollection,
   waitForItems,
   waitInOverlay,
 } from '../e2e/overlay-helpers'
@@ -80,7 +82,18 @@ let panel: Page
 
 beforeAll(async () => {
   server = await serveDemo()
-  session = await launch()
+  // Access to the demo's origin when it is installed: Chrome's prompt for Always enable here
+  // cannot be automated.
+  session = await launch({ hostPermissions: ['http://localhost/*'] })
+  // Copy as prompt writes to the clipboard, and Settings shows the microphone allowed. Every
+  // permission not named here is denied to the extension.
+  await session.browser
+    .defaultBrowserContext()
+    .overridePermissions(`chrome-extension://${session.extensionId}`, [
+      'clipboard-read',
+      'clipboard-sanitized-write',
+      'microphone',
+    ])
   await session.page.setViewport({ ...VIEW, deviceScaleFactor: SCALE })
   await session.page.emulateMediaFeatures([{ name: 'prefers-color-scheme', value: 'light' }])
   await session.page.goto(`http://localhost:${PORT}/settings`)
@@ -187,10 +200,120 @@ it('takes the README screenshots', async () => {
       },
     }),
   )
+  await page.keyboard.press('Escape')
+  await waitInOverlay(session, '[data-testid="overlay-popover"]', false)
+
+  // Element mode before the click: the outline, and the chip with the tag, component and size.
+  await page.keyboard.press('e')
+  await waitInOverlay(session, '[data-testid="overlay-glass"]')
+  const email = await centerOf(page, 'input[name="email"]')
+  await page.mouse.move(email.x, email.y, { steps: 4 })
+  await waitInOverlay(session, '[data-testid="overlay-hover-label"]')
+  await sleep(300)
+  const label = await overlayBox('[data-testid="overlay-hover-label"]')
+  const input = await page.$eval('input[name="email"]', (el) => el.getBoundingClientRect().toJSON())
+  await writeFile(
+    join(OUT, 'element.png'),
+    await page.screenshot({ type: 'png', clip: around([label, input], 12) }),
+  )
+  await page.keyboard.press('Escape')
+  await waitInOverlay(session, '[data-testid="overlay-glass"]', false)
+
+  // The review loop: copied pins are done (green), one deleted (red), a new one open (blue),
+  // and the filter that shows all three.
+  await panel.click('[data-testid="copy-prompt"]')
+  await panel.waitForSelector('::-p-text(Copied 3 pins)')
+  await panel.click('[data-testid="filter-all"]')
+  const deletes = await panel.$$('[data-testid="item-delete"]')
+  await deletes[1]?.click()
+  await waitForStatus(panel, 'deleted', 1)
+  await markElement(session, 'nav a[href="#products"]')
+  await comment('Call this "Catalog", as everywhere else.')
+  await waitForItems(panel, 4)
+  await page.keyboard.press('Escape')
+  await panel.click('[data-testid="filter-with-deleted"]')
+  await page.mouse.move(VIEW.width - 4, VIEW.height - 4)
+  await panel.mouse.move(PANEL_WIDTH - 4, VIEW.height - 4)
+  await sleep(500)
+  await writeFile(
+    join(OUT, 'review.png'),
+    await sideBySide(
+      await page.screenshot({ type: 'png' }),
+      await panel.screenshot({ type: 'png' }),
+    ),
+  )
+
+  // Settings: the site remembered, a made-up key saved, the microphone allowed.
+  await panel.hover('[data-testid="panel-title"]')
+  await panel.hover('[data-testid="site-pill"]')
+  await (await panel.waitForSelector('[data-testid="remember-site"]'))?.click()
+  await panel.waitForSelector('[data-testid="site-auto"]', { timeout: 10_000 }).catch(() => null)
+  await panel.click('[data-testid="open-settings"]')
+  await panel.waitForSelector('[data-testid="voice-key-input"]')
+  // Shown masked as sk-or-v1-…0042; no key pattern of the secret scanners matches it.
+  await panel.type('[data-testid="voice-key-input"]', 'sk-or-v1-readme-demo-key-0042')
+  await panel.click('[data-testid="voice-key-save"]')
+  await panel.waitForSelector('[data-testid="voice-key-masked"]')
+  await panel.waitForSelector('[data-testid="voice-mic"] ::-p-text(Allowed)')
+  await panel.setViewport({ width: PANEL_WIDTH, height: 1600, deviceScaleFactor: SCALE })
+  await panel.mouse.move(PANEL_WIDTH - 4, 4)
+  await sleep(500)
+  // Two columns: General, Voice and Sites; the keyboard shortcuts.
+  const keys = await panel.$eval('[data-testid="shortcut-list"]', (el) => {
+    const r = el.getBoundingClientRect()
+    return { top: r.top, bottom: r.bottom }
+  })
+  const column = (y: number, height: number) =>
+    panel.screenshot({ type: 'png', clip: { x: 0, y, width: PANEL_WIDTH, height } })
+  await writeFile(
+    join(OUT, 'settings.png'),
+    await sideBySide(
+      await column(0, keys.top - 16),
+      await column(keys.top + 12, keys.bottom - keys.top + 12),
+    ),
+  )
 })
 
-/** The page and the panel next to each other, as in a browser window with the side panel. */
-async function sideBySide(pageShot: Uint8Array, panelShot: Uint8Array): Promise<Uint8Array> {
+/** The box of an element inside the overlay's shadow root. */
+async function overlayBox(selector: string): Promise<Box> {
+  const realm = await contentRealm(session)
+  const box = await realm.evaluate(
+    (sel) =>
+      globalThis.__webdevOverlay?.shadow?.querySelector(sel)?.getBoundingClientRect().toJSON(),
+    selector,
+  )
+  if (!box) throw new Error(`${selector} has no box`)
+  return box as Box
+}
+
+interface Box {
+  x: number
+  y: number
+  width: number
+  height: number
+}
+
+/** A clip around `boxes` with `pad` pixels on every side, inside the viewport. */
+function around(boxes: Box[], pad: number): Box {
+  const x = Math.max(0, Math.min(...boxes.map((b) => b.x)) - pad)
+  const y = Math.max(0, Math.min(...boxes.map((b) => b.y)) - pad)
+  const right = Math.min(VIEW.width, Math.max(...boxes.map((b) => b.x + b.width)) + pad)
+  const bottom = Math.min(VIEW.height, Math.max(...boxes.map((b) => b.y + b.height)) + pad)
+  return { x, y, width: right - x, height: bottom - y }
+}
+
+/** Waits until `count` stored items of the demo site have `status`. */
+async function waitForStatus(extensionPage: Page, status: string, count: number) {
+  for (let i = 0; i < 50; i++) {
+    const items = (await storedCollection(extensionPage))?.items ?? []
+    if (items.filter((item) => item.status === status).length === count) return
+    await sleep(100)
+  }
+  throw new Error(`no ${count} ${status} items`)
+}
+
+/** Shots next to each other in one window, as the page and its side panel in a browser. */
+async function sideBySide(...shots: Uint8Array[]): Promise<Uint8Array> {
   const frame = await session.browser.newPage()
   try {
     const img = (png: Uint8Array) => `data:image/png;base64,${Buffer.from(png).toString('base64')}`
@@ -200,11 +323,17 @@ async function sideBySide(pageShot: Uint8Array, panelShot: Uint8Array): Promise<
   body { margin: 0; background: #f4f4f5; }
   .window { display: inline-flex; margin: 24px; border: 1px solid #d4d4d8; border-radius: 12px;
     overflow: hidden; box-shadow: 0 8px 24px rgb(0 0 0 / 0.08); background: #fff; }
-  .window img { display: block; height: ${VIEW.height}px; }
+  .window img { display: block; align-self: flex-start; }
   .window img + img { border-left: 1px solid #d4d4d8; }
 </style>
-<div class="window"><img src="${img(pageShot)}"><img src="${img(panelShot)}"></div>`)
-    await frame.evaluate(() => Promise.all([...document.images].map((i) => i.decode())))
+<div class="window">${shots.map((shot) => `<img src="${img(shot)}">`).join('')}</div>`)
+    // Each shot at its size in CSS pixels.
+    await frame.evaluate(async (scale) => {
+      for (const image of document.images) {
+        await image.decode()
+        image.style.width = `${image.naturalWidth / scale}px`
+      }
+    }, SCALE)
     const window = await frame.$('.window')
     if (!window) throw new Error('no window')
     const shot = await window.screenshot({ type: 'png', omitBackground: true })
