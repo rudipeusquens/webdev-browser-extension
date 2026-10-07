@@ -3720,7 +3720,10 @@ implementation follows in the same pull request. Steps are test-first.
   blue.
 - **Wheel in element and area mode:** over the document the browser scrolls by itself; inside
   a scroll container under the pointer, the glass scrolls the nearest one that can still move
-  that way, at once and by the full distance. No option: slower scrolling was a bug.
+  that way, at once and by the full distance. A body that is the scroll container itself (the
+  root's overflow is not visible) counts as one; a container at its end that keeps the wheel
+  (`overscroll-behavior`) scrolls nothing, as without the glass. No option: slower scrolling
+  was a bug.
 
 **Known limits:** a page the extension has no access to cannot be started from the panel and
 its site cannot be named (Chrome); the panel's switches are the same for every site.
