@@ -39,17 +39,16 @@ jobs:
       - run: pnpm compile
       - run: pnpm build
       - run: pnpm manifest:check
+      # What ships: no source maps, eval, dev-server code or unknown hosts.
+      - run: pnpm bundle:check
       # Explicit, idempotent: with a warm pnpm store cache, puppeteer's postinstall is skipped
       # and the fresh runner would have no Chrome for Testing.
       - run: pnpm exec puppeteer browsers install chrome
       - run: pnpm test:e2e
       - run: pnpm test
       - run: pnpm secrets:check
+      # The pattern rules; the denylist runs in the privacy job, which runs no third-party code.
       - name: privacy check (tree + history)
-        env:
-          # Optional repository secret, one term per line (docs/public-repo-policy.md).
-          # Not available to PRs from forks; the pattern rules still run there.
-          PRIVACY_DENYLIST: ${{ secrets.PRIVACY_DENYLIST }}
         run: pnpm privacy:check
       - name: gitleaks (full history)
         # The CLI (MIT) with a verified checksum instead of gitleaks-action,
@@ -77,3 +76,26 @@ jobs:
             exit 1
           fi
           jq -e 'any(.[]; .RuleID == "openrouter-api-key")' "$RUNNER_TEMP/selftest.json"
+
+  privacy:
+    # The denylist secret only reaches this job: every package the ci job installs runs in
+    # its runner and could read a secret given to that job. Here nothing but the checkout, Node
+    # and the privacy check, which uses Node's own modules only (scripts/repo-config.test.mjs).
+    # The ruleset requires this check by name as well.
+    name: privacy
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version-file: .nvmrc
+      - name: privacy check with the denylist (tree + history)
+        env:
+          # Optional repository secret, one term per line (docs/public-repo-policy.md).
+          # Not available to PRs from forks; the pattern rules still run there.
+          PRIVACY_DENYLIST: ${{ secrets.PRIVACY_DENYLIST }}
+        run: node scripts/privacy-check.mjs --all

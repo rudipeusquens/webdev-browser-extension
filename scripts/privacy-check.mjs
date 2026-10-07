@@ -8,6 +8,9 @@
 //   node scripts/privacy-check.mjs --identity     author/committer of the next commit
 //   node scripts/privacy-check.mjs --message <f>  commit message (commit-msg hook)
 //   node scripts/privacy-check.mjs --all          every tracked file + the whole history (CI)
+//   node scripts/privacy-check.mjs --push         the commits and refs a push sends (pre-push
+//                                                 hook, refs on stdin): also commits that
+//                                                 skipped pre-commit (rebase, cherry-pick, am)
 //
 // Denylist terms come from `.private/denylist.txt` (local, gitignored) and the
 // PRIVACY_DENYLIST env var (a repository secret in CI); one term per line.
@@ -49,7 +52,9 @@ const FORBIDDEN_PATHS = [
   { re: /(^|\/)\.private\//, why: '.private/ is local-only material' },
   { re: /(^|\/)\.env(\.(?!example$)[^/]*)?$/, why: 'env files hold credentials' },
   { re: /\.(pem|p12|pfx)$/i, why: 'signing keys never leave the machine' },
-  { re: /\.crx$/i, why: 'packed extensions are build output' },
+  { re: /\.(crx|zip)$/i, why: 'packed extensions are build output' },
+  { re: /(^|\/)\.(output|wxt)\//, why: 'build output and generated files stay local' },
+  { re: /(^|\/)\.superpowers\//, why: 'agent workspaces stay local' },
   { re: /\.har$/i, why: 'HAR captures contain real URLs, cookies and headers' },
   { re: /(^|\/)id_(rsa|ecdsa|ed25519)(\.pub)?$/, why: 'SSH keys never belong in a repo' },
 ]
@@ -120,8 +125,8 @@ export function scanText(text, { denylist = [], patterns = true } = {}) {
   return findings
 }
 
-// Denylist scan over the added lines of `git log -p` output, so a term that
-// was committed and later deleted is still found — the history is public too.
+// Every rule over the added lines and the paths of `git log -p` output, so what was committed
+// and later deleted is still found — the history is public too.
 export function scanDiff(diff, denylist) {
   const findings = []
   let commit = ''
@@ -135,11 +140,21 @@ export function scanDiff(diff, denylist) {
       commit = line.slice(8, 15)
     } else if (header && line.startsWith('+++ ')) {
       file = line.replace(/^\+\+\+ (b\/)?/, '')
+      if (file === '/dev/null') continue
+      const forbidden = checkPath(file)
+      if (forbidden) findings.push({ location: `commit ${commit} ${file}`, ...forbidden })
+      for (const hit of denylistHits(file, denylist)) {
+        findings.push({ location: `commit ${commit} (a path)`, ...hit })
+      }
     } else if (line.startsWith('@@')) {
       lineNo = Number(/\+(\d+)/.exec(line)?.[1] ?? 0)
     } else if (line.startsWith('+')) {
-      for (const hit of denylistHits(line.slice(1), denylist)) {
-        findings.push({ location: `commit ${commit} ${file}:${lineNo}`, ...hit })
+      for (const f of scanText(line.slice(1), { denylist })) {
+        findings.push({
+          location: `commit ${commit} ${file}:${lineNo}`,
+          rule: f.rule,
+          detail: f.detail,
+        })
       }
       lineNo++
     } else if (!line.startsWith('-')) {
@@ -147,6 +162,25 @@ export function scanDiff(diff, denylist) {
     }
   }
   return findings
+}
+
+/**
+ * What a push sends, from the lines git gives the pre-push hook ("<local ref> <local sha>
+ * <remote ref> <remote sha>"): the revisions of the commits each ref adds — since the remote's
+ * commit, or everything no remote has for a new ref; none for a deletion.
+ */
+export function pushedRanges(text) {
+  const zero = /^0+$/
+  return text
+    .split('\n')
+    .filter((line) => line.trim())
+    .map((line) => {
+      const [localRef, localSha, remoteRef, remoteSha] = line.trim().split(/\s+/)
+      const refs = [localRef, remoteRef]
+      if (zero.test(localSha)) return { refs, revs: [] }
+      if (zero.test(remoteSha)) return { refs, revs: [localSha, '--not', '--remotes'] }
+      return { refs, revs: [`${remoteSha}..${localSha}`] }
+    })
 }
 
 export function checkPath(path) {
@@ -211,16 +245,16 @@ function scanFile(root, file, denylist) {
   return findings
 }
 
-function scanHistory(denylist) {
-  try {
-    git('rev-parse', '--verify', '--quiet', 'HEAD')
-  } catch {
-    return [] // no commits yet
-  }
+/**
+ * Identities, names, messages, added lines and paths of the commits `revs` selects (`git log`
+ * revisions); a merge counts with what it changed against its first parent.
+ */
+function scanCommits(revs, denylist) {
+  if (revs.length === 0) return []
   const findings = []
-  const log = git('log', '--format=%x00%H%x1f%ae%x1f%ce%x1f%B', 'HEAD')
+  const log = git('log', '--format=%x00%H%x1f%ae%x1f%ce%x1f%an%x1f%cn%x1f%B', ...revs)
   for (const entry of log.split('\0').slice(1)) {
-    const [sha, authorEmail, committerEmail, body] = entry.split('\x1f')
+    const [sha, authorEmail, committerEmail, authorName, committerName, body] = entry.split('\x1f')
     const at = `commit ${sha.slice(0, 7)}`
     for (const [role, email] of [
       ['author', authorEmail],
@@ -229,23 +263,35 @@ function scanHistory(denylist) {
       const f = checkIdentity(`<${email}>`, role)
       if (f) findings.push({ location: at, ...f })
     }
+    for (const name of [authorName, committerName]) {
+      for (const hit of denylistHits(name, denylist))
+        findings.push({ location: `${at} (name)`, ...hit })
+    }
     for (const f of scanText(body, { denylist })) {
       findings.push({ location: `${at} (message):${f.line}`, rule: f.rule, detail: f.detail })
     }
   }
-  if (denylist.length) {
-    const diff = git(
-      'log',
-      '-p',
-      '--no-color',
-      '--no-ext-diff',
-      '-U0',
-      '--format=%x00commit %H',
-      'HEAD',
-    )
-    findings.push(...scanDiff(diff, denylist))
-  }
+  const diff = git(
+    'log',
+    '-p',
+    '--diff-merges=first-parent',
+    '--no-color',
+    '--no-ext-diff',
+    '-U0',
+    '--format=%x00commit %H',
+    ...revs,
+  )
+  findings.push(...scanDiff(diff, denylist))
   return findings
+}
+
+function scanHistory(denylist) {
+  try {
+    git('rev-parse', '--verify', '--quiet', 'HEAD')
+  } catch {
+    return [] // no commits yet
+  }
+  return scanCommits(['HEAD'], denylist)
 }
 
 const IDENTITY_HELP = `
@@ -293,9 +339,21 @@ function main(argv) {
       rule: f.rule,
       detail: f.detail,
     }))
+  } else if (argv[0] === '--push') {
+    help = `${FINDINGS_HELP}\n${IDENTITY_HELP}`
+    for (const { refs, revs } of pushedRanges(readFileSync(0, 'utf8'))) {
+      for (const ref of refs) {
+        for (const f of scanText(ref, { denylist })) findings.push({ location: `ref ${ref}`, ...f })
+      }
+      findings.push(...scanCommits(revs, denylist))
+    }
   } else if (argv[0] === '--all') {
     const files = git('ls-files', '-z').split('\0').filter(Boolean)
     findings = files.flatMap((file) => scanFile(root, file, denylist))
+    for (const file of files) {
+      for (const hit of denylistHits(file, denylist))
+        findings.push({ location: '(a path)', ...hit })
+    }
     findings.push(...scanHistory(denylist))
     if (!denylist.length) {
       console.log('privacy-check: no denylist configured — pattern rules only')

@@ -12,3 +12,7 @@ allowBuilds:
   puppeteer: true
   # Vue 2/3 switch script; Vue 3 needs nothing (same as the basicVue template).
   vue-demi: false
+
+# Refuse a version published with weaker trust evidence than earlier versions of the same
+# package (no provenance where there was some): the mark of a release from a stolen token.
+trustPolicy: no-downgrade
