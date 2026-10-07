@@ -19,6 +19,7 @@ const TYPES: Record<string, string> = {
   '.html': 'text/html; charset=utf-8',
   '.js': 'text/javascript',
   '.css': 'text/css',
+  '.svg': 'image/svg+xml',
 }
 
 /** Serves tests/fixtures/sites; `<site>/headers.json` adds response headers (e.g. a CSP). */

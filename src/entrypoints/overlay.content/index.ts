@@ -54,7 +54,10 @@ export default defineContentScript({
       // Every injection mounts. A repeated injection (where the last overlay did not answer)
       // starts a new context; WXT then invalidates the previous one, which removes its UI.
       const ui = await createShadowRootUi<VueApp>(ctx, {
-        name: 'webdev-overlay',
+        // A built-in element: a custom element name could be defined by the page first, which
+        // then constructs the host and, through ElementInternals, reaches the closed shadow
+        // root. A div runs no page code and has no internals.
+        name: 'div',
         position: 'overlay',
         zIndex: 2147483647,
         anchor: 'body',

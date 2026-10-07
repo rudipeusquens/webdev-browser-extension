@@ -7,6 +7,7 @@ import {
   startFixtureServer,
   startOverlayAgain,
 } from './harness'
+import { overlayHosts } from './overlay-helpers'
 
 describe('activating twice on the same tab', () => {
   let server: Awaited<ReturnType<typeof startFixtureServer>>
@@ -28,9 +29,7 @@ describe('activating twice on the same tab', () => {
     await startOverlayAgain(session)
     // Give a second injection time to mount (or to remove the first one).
     await new Promise((done) => setTimeout(done, 1000))
-    const hosts = await session.page.evaluate(
-      () => document.querySelectorAll('webdev-overlay').length,
-    )
+    const hosts = await overlayHosts(session)
     expect(hosts).toBe(1)
     const realm = await contentRealm(session)
     const mounted = await realm.evaluate(
@@ -48,9 +47,7 @@ describe('activating twice on the same tab', () => {
     })
     await clickAction(session)
     await new Promise((done) => setTimeout(done, 1000))
-    const hosts = await session.page.evaluate(
-      () => document.querySelectorAll('webdev-overlay').length,
-    )
+    const hosts = await overlayHosts(session)
     expect(hosts).toBe(1)
   })
 })

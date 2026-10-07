@@ -103,6 +103,15 @@ function restore(el: HTMLTextAreaElement) {
   warning.value = 'This page tried to change your comment. Your text was restored.'
 }
 
+function onBeforeInput(e: Event) {
+  const el = e.target as HTMLTextAreaElement
+  guard.beforeInput(e as InputEvent, {
+    value: el.value,
+    start: el.selectionStart,
+    end: el.selectionEnd,
+  })
+}
+
 function onInput(e: Event) {
   const el = e.target as HTMLTextAreaElement
   if (guard.input(e as InputEvent, el.value)) text.value = el.value
@@ -128,7 +137,7 @@ function setText(el: HTMLTextAreaElement, value: string, caret: number) {
 
 function undoDictation(e: KeyboardEvent): boolean {
   const el = field.value
-  if (!dictated || !el || e.target !== el) return false
+  if (!e.isTrusted || !dictated || !el || e.target !== el) return false
   const key = panelKey(e, mac)
   if (key === 'undo' && el.value === dictated.after) setText(el, dictated.before, dictated.from)
   else if (key === 'redo' && el.value === dictated.before)
@@ -254,8 +263,10 @@ onBeforeUnmount(() => resizes.disconnect())
       placeholder="What should change?"
       :value="text"
       class="field-sizing-content max-h-48 min-h-16 w-full resize-none rounded-md border border-input bg-transparent px-3 py-2 text-sm shadow-xs outline-none placeholder:text-muted-foreground focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50 dark:bg-input/30"
-      @beforeinput="guard.beforeInput($event as InputEvent)"
+      @beforeinput="onBeforeInput"
       @input="onInput"
+      @compositionstart="guard.compositionStart($event)"
+      @compositionend="guard.compositionEnd($event)"
     />
     <p
       v-if="warning"

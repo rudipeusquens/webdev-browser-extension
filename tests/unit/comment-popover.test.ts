@@ -149,11 +149,16 @@ function trusted<T extends Event>(event: T): T {
   Object.defineProperty(event, 'isTrusted', { get: () => true })
   return event
 }
-/** A typed edit as the browser makes it: a trusted beforeinput, then the input. */
+/** A typed edit as the browser makes it, at the caret: a trusted beforeinput, then the input. */
 async function type(field: HTMLTextAreaElement, inputType: string, data: string | null) {
   const init = { bubbles: true, cancelable: true, inputType, data }
   field.dispatchEvent(trusted(new InputEvent('beforeinput', init)))
-  field.value = inputType.startsWith('delete') ? field.value.slice(0, -1) : field.value + data
+  const { value, selectionStart: start, selectionEnd: end } = field
+  const deleting = inputType.startsWith('delete')
+  const from = deleting && start === end ? start - 1 : start
+  field.value = value.slice(0, from) + (deleting ? '' : (data ?? '')) + value.slice(end)
+  const caret = from + (deleting ? 0 : (data ?? '').length)
+  field.setSelectionRange(caret, caret)
   field.dispatchEvent(trusted(new InputEvent('input', init)))
   await nextTick()
 }
@@ -314,6 +319,10 @@ describe('CommentPopover: dictation', () => {
     click(get('overlay-mic').element)
     await receive({ state: 'done', text: 'and that', atLimit: false })
     expect(field().value).toBe('Fix this and that, please')
+    // A page cannot reach the field; still, only the developer's own keys count.
+    field().dispatchEvent(new KeyboardEvent('keydown', { key: 'z', ctrlKey: true, bubbles: true }))
+    await nextTick()
+    expect(field().value).toBe('Fix this and that, please')
     press(field(), { key: 'z', ctrlKey: true })
     await nextTick()
     expect(field().value).toBe('Fix this, please')
@@ -329,7 +338,7 @@ describe('CommentPopover: dictation', () => {
     const undo = new KeyboardEvent('keydown', { key: 'z', ctrlKey: true, cancelable: true })
     field().dispatchEvent(trusted(undo))
     expect(undo.defaultPrevented).toBe(false)
-    expect(field().value).toBe('Fix this and that, please!')
+    expect(field().value).toBe('Fix this and that!, please')
   })
 
   it('cancels a running recording on Esc and keeps the comment open', async () => {

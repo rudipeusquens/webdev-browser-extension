@@ -82,7 +82,7 @@ describe('hostile pages and untrusted events', () => {
     const { x, y } = await centerOf(session.page, 'h1')
     await session.page.evaluate(
       (cx, cy) => {
-        const host = document.querySelector('webdev-overlay')
+        const host = document.querySelector('[data-e2e-host]')
         const init = { bubbles: true, composed: true, clientX: cx, clientY: cy }
         for (const target of [host, document.querySelector('h1'), document.body]) {
           target?.dispatchEvent(new PointerEvent('pointermove', init))
@@ -103,7 +103,7 @@ describe('hostile pages and untrusted events', () => {
     await markElement(session, 'h1')
     await session.page.keyboard.type('Draft')
     await session.page.evaluate(() => {
-      const host = document.querySelector('webdev-overlay')
+      const host = document.querySelector('[data-e2e-host]')
       for (const key of ['Enter', 'Escape']) {
         for (const target of [host, document, window]) {
           target?.dispatchEvent(
@@ -115,6 +115,21 @@ describe('hostile pages and untrusted events', () => {
     await sleep(300)
     await waitInOverlay(session, '[data-testid="overlay-popover"]')
     expect(await storedCollection(panel)).toBeUndefined()
+  })
+
+  it('keeps a page that defines the old host name out of the shadow root', async () => {
+    const panel = await activate('/taken-name/')
+    await markElement(session, '#target')
+    await session.page.keyboard.type('Make it blue.')
+    await session.page.keyboard.press('Enter')
+    const stored = await waitForItems(panel, 1)
+    expect(stored?.items[0]?.comment).toBe('Make it blue.')
+    expect(
+      await session.page.evaluate(() => {
+        const page = window as unknown as { internals?: unknown; stolen: string[] }
+        return { internals: page.internals !== undefined, stolen: page.stolen }
+      }),
+    ).toEqual({ internals: false, stolen: [] })
   })
 
   it('leaves the page’s own inherited --tw-* variables alone', async () => {
@@ -153,6 +168,22 @@ describe('hostile pages and untrusted events', () => {
       await session.page.keyboard.press('Enter')
       const c = await waitForItems(panel, 1)
       expect(c?.items[0]?.comment).toBe('OK')
+    })
+
+    it("keeps the comment when the page types the developer's key over all of it", async () => {
+      const panel = await activate('/meddling/')
+      await session.page.evaluate(() => ((window as Meddling).attack = 'none'))
+      await markElement(session, 'h1')
+      await session.page.keyboard.type('Keep all of this')
+      await session.page.evaluate(() => ((window as Meddling).attack = 'replay'))
+      await session.page.keyboard.type('.')
+      await sleep(100)
+      expect(await overlayText(session, '[data-testid="overlay-warning"]')).toContain(
+        'This page tried to change your comment',
+      )
+      await session.page.keyboard.press('Enter')
+      const c = await waitForItems(panel, 1)
+      expect(c?.items[0]?.comment).toBe('Keep all of this')
     })
 
     it('keeps paste events inside the comment field', async () => {

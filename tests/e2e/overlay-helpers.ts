@@ -18,18 +18,36 @@ declare global {
 
 export const sleep = (ms: number) => new Promise((done) => setTimeout(done, ms))
 
-/** Waits until the overlay is mounted in `s.page`. */
+/** The overlay's host, once `overlayMounted` marked it: a plain div, found this way by tests. */
+export const HOST = '[data-e2e-host]'
+
+/**
+ * Waits until the overlay is mounted in `s.page`, and marks its host for tests in the page's
+ * world (`HOST`).
+ */
 export async function overlayMounted(s: Session): Promise<void> {
   const realm = await contentRealm(s)
   const mounted = await realm.evaluate(async () => {
     for (let i = 0; i < 50; i++) {
-      if (globalThis.__webdevOverlay?.shadow?.querySelector('[data-testid="overlay-root"]'))
+      const shadow = globalThis.__webdevOverlay?.shadow
+      if (shadow?.querySelector('[data-testid="overlay-root"]')) {
+        shadow.host.setAttribute('data-e2e-host', '')
         return true
+      }
       await new Promise((done) => setTimeout(done, 100))
     }
     return false
   })
   if (!mounted) throw new Error('overlay did not mount')
+}
+
+/**
+ * How many overlay hosts `s.page` holds, marked or not: the host is a div that is a manual
+ * popover (top-layer.ts), which the fixtures that count hosts have none of their own. Counted
+ * in the page's world: an isolated world that went with an earlier page would never answer.
+ */
+export function overlayHosts(s: Session): Promise<number> {
+  return s.page.evaluate(() => document.querySelectorAll('div[popover="manual"]').length)
 }
 
 /** Text of the first element matching `selector` inside the overlay, or null. */

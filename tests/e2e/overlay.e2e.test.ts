@@ -36,7 +36,7 @@ describe('overlay on a hostile page', () => {
     expect(styles?.boxShadow).not.toBe('none') // shadow-lg needs @property registrations
     expect(styles?.background).not.toBe('rgba(0, 0, 0, 0)')
     const hostIsClosed = await session.page.evaluate(
-      () => document.querySelector('webdev-overlay')?.shadowRoot === null,
+      () => document.querySelector('[data-e2e-host]')?.shadowRoot === null,
     )
     expect(hostIsClosed).toBe(true)
   })
@@ -51,11 +51,11 @@ describe('overlay on a hostile page', () => {
     })
     expect(center).toBeTruthy()
     const tag = await session.page.evaluate(
-      (x, y) => document.elementFromPoint(x, y)?.localName,
+      (x, y) => document.elementFromPoint(x, y)?.hasAttribute('data-e2e-host'),
       center?.x ?? 0,
       center?.y ?? 0,
     )
-    expect(tag).toBe('webdev-overlay')
+    expect(tag).toBe(true)
   })
 
   it('keeps the popover inside the shadow root, not in the page', async () => {

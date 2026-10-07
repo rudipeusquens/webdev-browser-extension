@@ -94,7 +94,8 @@ describe('activation', () => {
   })
 
   it('says when the overlay cannot start on a page', async () => {
-    await session.page.goto(`${server.origin}/taken-name/`)
+    // A document without HTML elements: the overlay's host cannot get a shadow root there.
+    await session.page.goto(`${server.origin}/no-html/page.svg`)
     const errors: string[] = []
     session.page.on('console', (m) => {
       if (m.type() === 'error') errors.push(m.text())

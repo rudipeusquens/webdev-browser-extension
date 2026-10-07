@@ -356,7 +356,7 @@ describe('an overlay whose extension was reloaded', () => {
     await clickAction(session)
     await overlayMounted(session)
     expect(
-      await session.page.evaluate(() => document.querySelectorAll('webdev-overlay').length),
+      await session.page.evaluate(() => document.querySelectorAll('[data-e2e-host]').length),
     ).toBe(1)
     const worker = await (
       await session.browser.waitForTarget(
@@ -371,7 +371,7 @@ describe('an overlay whose extension was reloaded', () => {
       )
       .catch(() => undefined)
     await session.page.waitForFunction(
-      () => document.querySelectorAll('webdev-overlay').length === 0,
+      () => document.querySelectorAll('[data-e2e-host]').length === 0,
       {
         timeout: 4000,
       },

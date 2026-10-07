@@ -33,11 +33,11 @@ describe('overlay above modal dialogs', () => {
     await sleep(200)
     const { x, y } = await centerOf(session.page, selector)
     const top = await session.page.evaluate(
-      (px, py) => document.elementFromPoint(px, py)?.localName,
+      (px, py) => document.elementFromPoint(px, py)?.hasAttribute('data-e2e-host'),
       x,
       y,
     )
-    expect(top).toBe('webdev-overlay')
+    expect(top).toBe(true)
     await session.page.mouse.move(x, y)
     await session.page.mouse.click(x, y)
     await waitInOverlay(session, '[data-testid="overlay-popover"]')
@@ -45,7 +45,7 @@ describe('overlay above modal dialogs', () => {
 
   const openModal = () => session.page.click('#open')
   const hostParent = () =>
-    session.page.evaluate(() => document.querySelector('webdev-overlay')?.parentElement?.localName)
+    session.page.evaluate(() => document.querySelector('[data-e2e-host]')?.parentElement?.localName)
 
   it('stays usable when a modal opens after activation', async () => {
     await clickAction(session)
@@ -94,7 +94,7 @@ describe('overlay above modal dialogs', () => {
     await clickAction(session)
     await overlayMounted(session)
     await session.page.evaluate(() => {
-      const host = document.querySelector('webdev-overlay') as HTMLElement | null
+      const host = document.querySelector('[data-e2e-host]') as HTMLElement | null
       if (host) host.inert = true
     })
     await expectUsable('h1')
