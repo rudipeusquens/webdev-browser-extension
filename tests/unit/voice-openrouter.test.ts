@@ -253,7 +253,7 @@ describe('voiceErrorText', () => {
     ['offline', 'Could not reach OpenRouter.'],
     ['no-speech', 'No speech detected.'],
     ['interrupted', 'Recording stopped unexpectedly.'],
-    ['taken', 'Recording stopped: another one started.'],
+    ['taken', 'Another dictation started, this one ended.'],
     ['mic-lost', 'The microphone stopped. Retry sends what was recorded.'],
   ] as const)('says %s as the spec does', (error, text) => {
     expect(voiceErrorText(error)).toBe(text)

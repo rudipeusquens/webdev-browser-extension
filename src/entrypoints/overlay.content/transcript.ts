@@ -7,6 +7,11 @@ import { codePoints } from '@/lib/collection/validate'
 
 /** What needs no space before it: whitespace and closing punctuation. */
 const CLOSES = /[\s.,;:!?)\]}…]/
+/**
+ * What needs no space after it: an opening bracket or quote. A straight or curly quote opens
+ * only at the start or after white space; after a word it closes.
+ */
+const OPENS = /(?:[([{„‚«‹¿¡]|(?:^|\s)["'“‘»])$/u
 
 export function insertTranscript(
   value: string,
@@ -19,7 +24,8 @@ export function insertTranscript(
   const to = Math.min(Math.max(end, from), value.length)
   const before = value.slice(0, from)
   const after = value.slice(to)
-  const lead = before && !/\s$/.test(before) && !CLOSES.test(text[0] ?? ' ') ? ' ' : ''
+  const lead =
+    before && !/\s$/.test(before) && !OPENS.test(before) && !CLOSES.test(text[0] ?? ' ') ? ' ' : ''
   const trail = after && !CLOSES.test(after[0] ?? ' ') && !/\s$/.test(text) ? ' ' : ''
   const room = max - codePoints(before) - codePoints(after)
   let piece = text

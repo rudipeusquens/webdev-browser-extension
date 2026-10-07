@@ -308,6 +308,30 @@ describe('CommentPopover: dictation', () => {
     expect(last()).toEqual([false])
   })
 
+  it('takes the dictated text out with Ctrl+Z and back with Ctrl+Shift+Z, until it is edited', async () => {
+    const { get, field, receive, wrapper } = open({ initial: 'Fix this, please' })
+    field().setSelectionRange(8, 8)
+    click(get('overlay-mic').element)
+    await receive({ state: 'done', text: 'and that', atLimit: false })
+    expect(field().value).toBe('Fix this and that, please')
+    press(field(), { key: 'z', ctrlKey: true })
+    await nextTick()
+    expect(field().value).toBe('Fix this, please')
+    expect(field().selectionStart).toBe(8)
+    press(field(), { key: 'Z', ctrlKey: true, shiftKey: true })
+    await nextTick()
+    expect(field().value).toBe('Fix this and that, please')
+    expect(field().selectionStart).toBe(17)
+    click(get('overlay-save').element)
+    expect(wrapper.emitted('save')).toEqual([['Fix this and that, please']])
+    // Typed after it: the field's own undo is the browser's again.
+    await type(field(), 'insertText', '!')
+    const undo = new KeyboardEvent('keydown', { key: 'z', ctrlKey: true, cancelable: true })
+    field().dispatchEvent(trusted(undo))
+    expect(undo.defaultPrevented).toBe(false)
+    expect(field().value).toBe('Fix this and that, please!')
+  })
+
   it('cancels a running recording on Esc and keeps the comment open', async () => {
     const { get, wrapper, receive } = open({ initial: 'Keep me' })
     click(get('overlay-mic').element)
@@ -412,6 +436,15 @@ describe('CommentPopover: dictation', () => {
     expect(get('overlay-voice-message').text()).toContain('Add an OpenRouter API key in settings.')
     await get('overlay-voice-settings').trigger('click')
     expect(sendMessage).not.toHaveBeenCalled()
+    click(get('overlay-voice-settings').element)
+    expect(sendMessage).toHaveBeenCalledWith({ type: 'voice:settings' })
+  })
+
+  it('opens the settings when OpenRouter refuses the request, such as an unknown model', async () => {
+    const { get, receive } = open()
+    click(get('overlay-mic').element)
+    await receive({ state: 'failed', error: 'rejected', detail: 'Unknown model', retry: true })
+    expect(get('overlay-voice-message').text()).toContain('Transcription failed: Unknown model')
     click(get('overlay-voice-settings').element)
     expect(sendMessage).toHaveBeenCalledWith({ type: 'voice:settings' })
   })
