@@ -37,6 +37,15 @@ describe('CI', () => {
     assert.deepEqual(uses, ['actions/checkout', 'actions/setup-node'])
   })
 
+  it('packs the extension and checks the package', () => {
+    assert.match(jobs.get('ci').join('\n'), /^\s+- run: pnpm zip$/m)
+    const zip = JSON.parse(read('package.json')).scripts.zip
+    assert.match(zip, /^wxt zip && /)
+    for (const check of ['check-manifest', 'check-bundle', 'check-zip']) {
+      assert.ok(zip.includes(`node scripts/${check}.mjs`), `${check} in ${zip}`)
+    }
+  })
+
   it('keeps the privacy check free of dependencies', () => {
     const imports = [...read('scripts/privacy-check.mjs').matchAll(/from '([^']+)'/g)].map(
       (m) => m[1],

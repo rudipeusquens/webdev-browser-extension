@@ -1,6 +1,6 @@
 {
   "name": "webdev-browser-extension",
-  "version": "0.0.0",
+  "version": "0.1.0",
   "private": true,
   "description": "Chrome extension that turns highlights and comments on a web page into a prompt for an AI coding agent.",
   "license": "MIT",
@@ -12,7 +12,7 @@
   "scripts": {
     "dev": "wxt",
     "build": "wxt build",
-    "zip": "wxt zip && node scripts/check-manifest.mjs && node scripts/check-bundle.mjs",
+    "zip": "wxt zip && node scripts/check-manifest.mjs && node scripts/check-bundle.mjs && node scripts/check-zip.mjs",
     "compile": "vue-tsc --noEmit",
     "postinstall": "wxt prepare",
     "prepare": "husky",
