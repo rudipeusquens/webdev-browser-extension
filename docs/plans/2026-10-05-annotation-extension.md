@@ -4221,7 +4221,11 @@ test-first wherever there is code, or a fact the docs repeat from the code.
   development. Tests hold it to the code: the keys to the Settings list, the permissions to
   the manifest check, the prompt excerpt to the formatter's golden output. The logo is
   `public/icon/128.png`, no second image. No screenshots (the public-repo policy, and they
-  would age with every change of the UI).
+  would age with every change of the UI). **Changed after the milestone, at the owner's
+  request:** two screenshots of a made-up shop page (`tests/fixtures/sites/demo`), taken by
+  `pnpm screenshots` from the built extension, so they are retaken rather than redrawn when the
+  UI changes; Inter stands in for the system font, so they look alike wherever they are taken.
+  A test checks that the README shows every screenshot and that every image it shows exists.
 - **Smoke checklist** (`docs/smoke-test.md`): what automation cannot do, in a real Chrome and
   in Brave: install from the zip, the toolbar icon and its shortcut, the context menu entry,
   Chrome's prompt for **Always enable here**, the microphone prompt and the operating

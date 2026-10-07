@@ -11,6 +11,8 @@ running app you mark elements, text or areas and type or dictate a comment for e
 for each the page, the component and its source file (Vue 3 and Astro in dev mode), a
 selector, the text and the styles, so the agent finds the place in the code without asking.
 
+![The extension on a made-up shop page: three numbered pins on a button, a text and a row of cards, and the side panel listing their comments with Copy as prompt](docs/images/overview.png)
+
 ## What the agent gets
 
 The first of three items in a prompt (the whole example is in the
@@ -88,6 +90,9 @@ nothing syncs.
    - **Text:** in Browse mode (`Esc`), select the text and click the **Pin** chip below it.
 4. Type the comment and press `Enter` (`Shift+Enter` for a new line), or dictate it. The mark
    gets a numbered pin, and the panel lists it.
+
+   <img src="docs/images/comment.png" width="336" alt="A link marked in element mode, with its comment popover: the tag, the component and the size, a comment field, the mic button and Save">
+
 5. Go on, on this page and others of the same site. Then click **Copy as prompt** in the
    panel and paste into your agent.
 
@@ -224,6 +229,7 @@ pnpm dev        # development build that reloads on changes
 pnpm check      # lint, format, types, unit tests, secret and privacy scans
 pnpm build && pnpm test:e2e   # the built extension in Chrome for Testing
 pnpm zip        # the package, checked against the build
+pnpm screenshots   # after pnpm build: the README's screenshots, from a made-up page
 ```
 
 Before a release, run the manual [smoke test](docs/smoke-test.md) in Chrome and in Brave:

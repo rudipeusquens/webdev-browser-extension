@@ -68,6 +68,8 @@ pnpm test:e2e            # real extension in Chrome for Testing — run `pnpm bu
 pnpm test:live           # local only: dictation against the real OpenRouter API, with
                          # OPENROUTER_API_KEY_TEST from .env — never in CI
 pnpm voice:fixtures      # local only: regenerates the synthetic audio in tests/fixtures/audio
+pnpm screenshots         # local only, after `pnpm build`: retakes the README's screenshots in
+                         # docs/images from the made-up page in tests/fixtures/sites/demo
 pnpm manifest:check      # built manifest has exactly the allowed permissions
 pnpm bundle:check        # the build has no source maps, eval, dev-server code or unknown hosts
 pnpm check               # everything CI runs, except build, E2E and gitleaks
@@ -112,6 +114,8 @@ If Chrome for Testing fails to start because system libraries are missing
   The `shadcn` MCP (`.mcp.json`, no tokens, version pinned) can look up components; a session
   restart loads it
 - **Tests for scripts** live next to them as `*.test.mjs` (`node --test`)
+- **Screenshots** in the README show only the made-up demo page; after a change to the UI, retake
+  them with `pnpm build && pnpm screenshots` and commit `docs/images` with the change
 
 ## Never do
 

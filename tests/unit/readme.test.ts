@@ -1,4 +1,4 @@
-import { readFileSync } from 'node:fs'
+import { existsSync, readdirSync, readFileSync } from 'node:fs'
 import { describe, expect, it } from 'vitest'
 import { shortcutGroups } from '@/lib/shortcuts'
 
@@ -34,6 +34,16 @@ describe('README', () => {
       ),
     )
     expect(rows).toEqual(keys)
+  })
+
+  it('shows images that exist, and every screenshot pnpm screenshots takes', () => {
+    const shown = [...readme.matchAll(/!\[[^\]]*\]\(([^)\s]+)\)|<img [^>]*src="([^"]+)"/g)].flatMap(
+      (m) => m[1] ?? m[2] ?? [],
+    )
+    for (const path of shown) expect(existsSync(path), path).toBe(true)
+    const screenshots = readdirSync('docs/images').map((name) => `docs/images/${name}`)
+    expect(screenshots.length).toBeGreaterThan(0)
+    for (const path of screenshots) expect(shown).toContain(path)
   })
 
   it("shows the prompt as the formatter writes it: an excerpt of the spec's example", () => {

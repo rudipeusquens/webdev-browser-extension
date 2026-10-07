@@ -22,7 +22,12 @@ export default defineConfig(
     languageOptions: { globals: { ...globals.browser } },
   },
   {
-    files: ['scripts/**/*.{js,mjs}', '*.config.{js,mjs,ts}', 'tests/e2e/**/*.ts'],
+    files: [
+      'scripts/**/*.{js,mjs}',
+      '*.config.{js,mjs,ts}',
+      'tests/e2e/**/*.ts',
+      'tests/screenshots/**/*.ts',
+    ],
     languageOptions: { globals: { ...globals.node } },
   },
   // shadcn-vue components use single-word names (Button, Popover).
