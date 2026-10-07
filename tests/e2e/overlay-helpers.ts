@@ -159,9 +159,19 @@ export async function overlayCenter(s: Session, selector: string) {
   return center
 }
 
-/** A real click on an element inside the overlay. */
+/**
+ * A real click on an element inside the overlay, once the popover's buttons act: the browser
+ * has reported nothing of the page over it (up to a second; a covered popover stays covered).
+ */
 export async function clickInOverlay(s: Session, selector: string) {
   const { x, y } = await overlayCenter(s, selector)
+  const realm = await contentRealm(s)
+  await realm.evaluate(async () => {
+    for (let i = 0; i < 10; i++) {
+      if (!globalThis.__webdevOverlay?.shadow?.querySelector('[data-covered]')) return
+      await new Promise((done) => setTimeout(done, 100))
+    }
+  })
   await s.page.mouse.click(x, y)
 }
 

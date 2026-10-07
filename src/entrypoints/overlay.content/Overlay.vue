@@ -1035,7 +1035,12 @@ onBeforeUnmount(() => {
       tone="area"
       testid="overlay-area"
     />
-    <SelectionChip v-if="chipLine" :line="chipLine" @comment="commentOnSelection" />
+    <SelectionChip
+      v-if="chipLine"
+      :line="chipLine"
+      @comment="commentOnSelection"
+      @obscured="props.layer.raise()"
+    />
     <CommentPopover
       v-if="draft && draftRect"
       :key="draft.key"
@@ -1053,6 +1058,7 @@ onBeforeUnmount(() => {
       @remove="changeStatus('annotation:remove')"
       @restore="changeStatus('annotation:restore')"
       @unsaved="unsaved = $event"
+      @obscured="props.layer.raise()"
     />
   </div>
 </template>

@@ -1,6 +1,17 @@
+import type { Page } from 'puppeteer'
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest'
 import { clickAction, launch, type Session, startFixtureServer } from './harness'
-import { centerOf, overlayMounted, sleep, waitInOverlay } from './overlay-helpers'
+import {
+  centerOf,
+  clickInOverlay,
+  markElement,
+  overlayMounted,
+  overlayText,
+  sleep,
+  storedCollection,
+  waitForItems,
+  waitInOverlay,
+} from './overlay-helpers'
 
 // A modal dialog makes everything outside it inert, including top-layer elements shown above
 // it; the overlay has to move into the dialog to stay usable (spec section 13, spike 3).
@@ -127,5 +138,59 @@ describe('overlay above modal dialogs', () => {
       expect(await hostParent()).toBe('body')
       await expectUsable('h1')
     })
+  })
+})
+
+// A page can lay something over the overlay that lets clicks through (clickjacking), or hide
+// the overlay's host popover.
+describe('overlay under a page cover', () => {
+  let server: Awaited<ReturnType<typeof startFixtureServer>>
+  let session: Session
+  let panel: Page
+
+  beforeAll(async () => {
+    server = await startFixtureServer()
+    session = await launch()
+  })
+
+  beforeEach(async () => {
+    await session.page.goto(`${server.origin}/covering/`)
+    panel = await clickAction(session)
+    await panel.evaluate(() => chrome.storage.local.clear())
+    await overlayMounted(session)
+  })
+
+  afterAll(async () => {
+    await session?.browser.close()
+    await server?.close()
+  })
+
+  it('takes no click on the popover while the page covers it, and says why', async () => {
+    await markElement(session, 'h1')
+    await session.page.keyboard.type('Wider')
+    await session.page.evaluate(() => (window as unknown as { cover(): void }).cover())
+    await sleep(500)
+    await clickInOverlay(session, '[data-testid="overlay-save"]')
+    await sleep(500)
+    expect(await storedCollection(panel)).toBeUndefined()
+    expect(await overlayText(session, '[data-testid="overlay-warning"]')).toContain(
+      'Something on this page covers the overlay.',
+    )
+    await session.page.evaluate(() => (window as unknown as { uncover(): void }).uncover())
+    await sleep(500)
+    await clickInOverlay(session, '[data-testid="overlay-save"]')
+    await waitForItems(panel, 1)
+  })
+
+  it('shows its host again when the page hides it', async () => {
+    await session.page.evaluate(() =>
+      (document.querySelector('[data-e2e-host]') as HTMLElement | null)?.hidePopover(),
+    )
+    await sleep(300)
+    expect(
+      await session.page.evaluate(() =>
+        document.querySelector('[data-e2e-host]')?.matches(':popover-open'),
+      ),
+    ).toBe(true)
   })
 })

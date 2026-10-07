@@ -11,6 +11,7 @@ import { CommentGuard } from './comment-guard'
 import { popoverKey } from './keys'
 import { placeNear } from './place'
 import { insertTranscript } from './transcript'
+import { useUnobscured } from './use-unobscured'
 import { useVoice } from './use-voice'
 import VoiceButton from './VoiceButton.vue'
 
@@ -39,6 +40,8 @@ const emit = defineEmits<{
   restore: []
   /** Whether closing now would lose something: a changed comment, or a dictation. */
   unsaved: [unsaved: boolean]
+  /** A click was held back because something of the page lies over the popover. */
+  obscured: []
 }>()
 
 const guard = new CommentGuard(props.initial ?? '')
@@ -207,8 +210,17 @@ function onKeydown(e: KeyboardEvent) {
   else emit('cancel')
 }
 
+const unobscured = useUnobscured(card)
+
+/** A button acts on a trusted click while nothing of the page lies over the popover. */
 function onButton(e: MouseEvent, action: () => void) {
-  if (e.isTrusted) action()
+  if (!e.isTrusted) return
+  if (!unobscured.value) {
+    warning.value = 'Something on this page covers the overlay. Try again in a moment.'
+    emit('obscured')
+    return
+  }
+  action()
 }
 
 function measure() {
@@ -232,6 +244,7 @@ onBeforeUnmount(() => resizes.disconnect())
   <div
     ref="card"
     data-testid="overlay-popover"
+    :data-covered="unobscured ? undefined : ''"
     role="dialog"
     :aria-label="number ? `Edit pin ${number}` : 'New pin'"
     class="fixed z-[2147483647] flex w-72 flex-col gap-2 rounded-lg border bg-popover p-3 text-sm text-popover-foreground shadow-lg"

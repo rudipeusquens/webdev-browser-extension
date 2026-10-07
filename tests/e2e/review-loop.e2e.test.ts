@@ -116,7 +116,8 @@ describe('the review loop', () => {
         }, selector)
       let at = await centerOf('[data-testid="overlay-pin"]')
       await session.page.mouse.click(at?.x ?? 0, at?.y ?? 0)
-      await waitInOverlay(session, '[data-testid="overlay-delete"]')
+      // Its buttons act once the browser reports nothing of the page over the popover.
+      await waitInOverlay(session, '[data-testid="overlay-popover"]:not([data-covered])')
       at = await centerOf('[data-testid="overlay-delete"]')
       await session.page.mouse.click(at?.x ?? 0, at?.y ?? 0)
       await until(async () => (await statuses(one.origin)).at(-1)?.[1] === 'deleted', 'deleted')

@@ -3,12 +3,13 @@ import { MapPinPlusIcon } from '@lucide/vue'
 import { computed, nextTick, onMounted, ref, useTemplateRef } from 'vue'
 import type { Rect } from '@/lib/collection/model'
 import { chipPosition } from './place'
+import { useUnobscured } from './use-unobscured'
 
 const props = defineProps<{
   /** The last line of the selection, in viewport coordinates. */
   line: Rect
 }>()
-const emit = defineEmits<{ comment: [] }>()
+const emit = defineEmits<{ comment: []; obscured: [] }>()
 
 const chip = useTemplateRef<HTMLElement>('chip')
 const size = ref({ width: 96, height: 28 })
@@ -20,8 +21,13 @@ const position = computed(() => {
   return { left: `${x}px`, top: `${y}px` }
 })
 
+const unobscured = useUnobscured(chip)
+
+/** A trusted click while nothing of the page lies over the chip. */
 function onClick(e: MouseEvent) {
-  if (e.isTrusted) emit('comment')
+  if (!e.isTrusted) return
+  if (unobscured.value) emit('comment')
+  else emit('obscured')
 }
 
 onMounted(async () => {
