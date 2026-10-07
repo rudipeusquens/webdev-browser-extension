@@ -1,9 +1,13 @@
 #!/usr/bin/env node
 // What ships is what was checked: `pnpm zip` packs .output/chrome-mv3 after the manifest and
 // bundle checks ran on it, and this check reads the zip back and compares it with that folder,
-// file by file and byte for byte. Plain files only: stored or deflated, not encrypted, no link,
-// no directory entry, no name that leads outside the folder it is unpacked into. Node's own
-// modules only; the zip format is read here.
+// file by file and byte for byte. Plain, readable files only: stored or deflated, not
+// encrypted, no link, no directory, no name that leads outside the folder it is unpacked into
+// or that names another file there. And only the layout WXT's zipper writes, so every unzip
+// tool unpacks what was compared: the files back to back from the first byte, each local header
+// repeating its directory record, then the directory and its end; no extra field and no
+// comment (an extra field can rename a file in some tools). Node's own modules only; the zip
+// format is read here.
 //
 //   node scripts/check-zip.mjs [zip] [dir]
 //   default: the zip WXT names after package.json, .output/<name>-<version>-chrome.zip, and
@@ -21,68 +25,144 @@ const STORED = 0
 const DEFLATED = 8
 // Bit 0: encrypted; bit 6: strong encryption; bit 13: encrypted central directory.
 const ENCRYPTED = 0x0001 | 0x0040 | 0x2000
-const UNIX = 3
+const UTF8_NAME = 0x0800
+// The Unix file type and mode in the high half of the external attributes, the MS-DOS
+// attributes in the low byte. Read whatever system the zip names: a tool may honour either.
 const FILE_TYPE = 0o170000
+const REGULAR = 0o100000
 const LINK = 0o120000
+const OWNER_READS = 0o400
+const DOS_DIRECTORY = 0x10
 
 /**
  * A relative path of plain segments: no `.` or `..`, no empty segment, no backslash, colon or
  * control character, no leading slash and no trailing one (a directory entry).
  */
 const PLAIN = /^(?:(?!\.\.?\/)[^/\\:\p{Cc}]+\/)*(?!\.\.?$)[^/\\:\p{Cc}]+$/u
+const utf8 = new TextDecoder('utf-8', { fatal: true })
 
 /** A zip's files, name → bytes, in the order of its central directory. Throws on the rest. */
 export function readZip(zip) {
   const end = findEnd(zip)
   const count = zip.readUInt16LE(end + 10)
   const size = zip.readUInt32LE(end + 12)
-  let at = zip.readUInt32LE(end + 16)
-  if (zip.readUInt16LE(end + 4) !== 0 || zip.readUInt16LE(end + 8) !== count) {
+  const directory = zip.readUInt32LE(end + 16)
+  if (
+    zip.readUInt16LE(end + 4) !== 0 ||
+    zip.readUInt16LE(end + 6) !== 0 ||
+    zip.readUInt16LE(end + 8) !== count
+  ) {
     throw new Error('split over several disks')
   }
-  if (count === 0xffff || size === 0xffffffff || at === 0xffffffff) throw new Error('zip64')
-  if (at + size > end) throw new Error('central directory out of range')
+  if (count === 0xffff || size === 0xffffffff || directory === 0xffffffff) throw new Error('zip64')
+  if (zip.readUInt16LE(end + 20) !== 0) throw new Error('zip comment')
+  if (directory + size !== end) throw new Error('broken central directory')
   const files = new Map()
+  const folded = new Map()
+  let at = directory
+  // Where the next file must start: right after the one before, the first at byte 0.
+  let next = 0
   for (let i = 0; i < count; i++) {
-    if (zip.readUInt32LE(at) !== CENTRAL) throw new Error('broken central directory')
-    const madeBy = zip.readUInt16LE(at + 4)
+    if (at + 46 > end || zip.readUInt32LE(at) !== CENTRAL) {
+      throw new Error('broken central directory')
+    }
     const flags = zip.readUInt16LE(at + 8)
     const method = zip.readUInt16LE(at + 10)
     const crc = zip.readUInt32LE(at + 16)
     const packed = zip.readUInt32LE(at + 20)
     const length = zip.readUInt32LE(at + 24)
     const nameLength = zip.readUInt16LE(at + 28)
-    const next = at + 46 + nameLength + zip.readUInt16LE(at + 30) + zip.readUInt16LE(at + 32)
+    const extra = zip.readUInt16LE(at + 30)
+    const comment = zip.readUInt16LE(at + 32)
     const external = zip.readUInt32LE(at + 38)
     const local = zip.readUInt32LE(at + 42)
-    const name = zip.toString('utf8', at + 46, at + 46 + nameLength)
-    at = next
+    const rawName = zip.subarray(at + 46, at + 46 + nameLength)
+    at += 46 + nameLength + extra + comment
+    if (at > end) throw new Error('broken central directory')
+    const name = decodeName(rawName, flags)
 
     if (!PLAIN.test(name)) throw new Error(`${JSON.stringify(name)}: not a plain path`)
     if (files.has(name)) throw new Error(`${name}: listed twice`)
+    // A file system that ignores case or Unicode form would unpack both into one file.
+    const key = name.normalize('NFC').toLowerCase()
+    if (folded.has(key)) throw new Error(`${name}: same file as ${folded.get(key)}`)
+    folded.set(key, name)
+    if (extra) throw new Error(`${name}: extra field`)
+    if (comment) throw new Error(`${name}: comment`)
     if (flags & ENCRYPTED) throw new Error(`${name}: encrypted`)
     if (method !== STORED && method !== DEFLATED) {
       throw new Error(`${name}: compression method ${method}`)
     }
-    if (madeBy >> 8 === UNIX && ((external >>> 16) & FILE_TYPE) === LINK) {
-      throw new Error(`${name}: link`)
-    }
-    if (local + 30 > zip.length || zip.readUInt32LE(local) !== LOCAL) {
+    plainFile(name, external)
+
+    if (local !== next) throw new Error(`${name}: not where the files before it end`)
+    if (local + 30 > directory || zip.readUInt32LE(local) !== LOCAL) {
       throw new Error(`${name}: no local header`)
     }
-    // Unzip tools differ in which of the two names they use: they must agree.
+    if (
+      zip.readUInt16LE(local + 6) !== flags ||
+      zip.readUInt16LE(local + 8) !== method ||
+      zip.readUInt32LE(local + 14) !== crc ||
+      zip.readUInt32LE(local + 18) !== packed ||
+      zip.readUInt32LE(local + 22) !== length
+    ) {
+      throw new Error(`${name}: local header differs from the directory`)
+    }
     const localName = zip.readUInt16LE(local + 26)
-    const start = local + 30 + localName + zip.readUInt16LE(local + 28)
-    if (zip.toString('utf8', local + 30, local + 30 + localName) !== name) {
+    if (zip.readUInt16LE(local + 28)) throw new Error(`${name}: extra field`)
+    // Unzip tools differ in which of the two names they use: they must agree.
+    if (!zip.subarray(local + 30, local + 30 + localName).equals(rawName)) {
       throw new Error(`${name}: local header names another file`)
     }
-    if (start + packed > zip.length) throw new Error(`${name}: cut short`)
-    const body = zip.subarray(start, start + packed)
-    const data = method === DEFLATED ? inflateRawSync(body) : body
-    if (data.length !== length || crc32(data) !== crc) throw new Error(`${name}: checksum`)
+    const start = local + 30 + localName
+    next = start + packed
+    if (next > directory) throw new Error(`${name}: cut short`)
+    const data = contents(name, zip.subarray(start, next), method, length)
+    if (data.length !== length) throw new Error(`${name}: does not inflate to its size`)
+    if (crc32(data) !== crc) throw new Error(`${name}: checksum`)
     files.set(name, data)
   }
+  if (at !== end) throw new Error('broken central directory')
+  if (next !== directory) throw new Error('unlisted bytes before the directory')
   return files
+}
+
+/** The name as the flag says it is written: UTF-8, or else ASCII (where CP437 agrees). */
+function decodeName(bytes, flags) {
+  if (!(flags & UTF8_NAME)) {
+    if (bytes.some((byte) => byte > 0x7f)) {
+      throw new Error(`${JSON.stringify(bytes.toString('latin1'))}: name not marked UTF-8`)
+    }
+    return bytes.toString('ascii')
+  }
+  try {
+    return utf8.decode(bytes)
+  } catch {
+    throw new Error(`${JSON.stringify(bytes.toString('latin1'))}: name not UTF-8`)
+  }
+}
+
+/** Throws unless the attributes describe a plain, readable file (or say nothing). */
+function plainFile(name, external) {
+  const mode = external >>> 16
+  const type = mode & FILE_TYPE
+  if (type === LINK) throw new Error(`${name}: link`)
+  if (external & DOS_DIRECTORY) throw new Error(`${name}: directory`)
+  if (type !== 0 && type !== REGULAR) throw new Error(`${name}: not a plain file`)
+  if (type === REGULAR && !(mode & OWNER_READS)) throw new Error(`${name}: not readable`)
+}
+
+/** The stored bytes, or the inflated ones: never more than the directory says. */
+function contents(name, body, method, length) {
+  if (method === STORED) return body
+  try {
+    return inflateRawSync(body, { maxOutputLength: Math.max(length, 1) })
+  } catch (error) {
+    if (error.code === 'ERR_BUFFER_TOO_LARGE') {
+      throw new Error(`${name}: does not inflate to its size`, { cause: error })
+    }
+    throw new Error(`${name}: does not inflate (${error.message})`, { cause: error })
+  }
 }
 
 /** The end of central directory record: the last one, after which only its comment follows. */
@@ -130,9 +210,10 @@ if (import.meta.url === pathToFileURL(process.argv[1] ?? '').href) {
   const { name, version } = JSON.parse(readFileSync('package.json', 'utf8'))
   const path = process.argv[2] ?? `.output/${name}-${version}-chrome.zip`
   const dir = process.argv[3] ?? '.output/chrome-mv3'
-  const errors = existsSync(path)
-    ? checkZip(readFileSync(path), dir)
-    : [`${path} not found: run pnpm zip`]
+  const missing = [path, dir].find((file) => !existsSync(file))
+  const errors = missing
+    ? [`${missing} not found: run pnpm zip`]
+    : checkZip(readFileSync(path), dir)
   for (const error of errors) console.error(`zip: ${error}`)
   process.exitCode = errors.length ? 1 : 0
 }
