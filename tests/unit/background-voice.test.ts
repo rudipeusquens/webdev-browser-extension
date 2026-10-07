@@ -9,6 +9,7 @@ import {
   fakePort,
   fakePorts,
   overlaySender,
+  panelSender,
   recorderSender,
 } from './helpers/fake-ports'
 import { fakeSites } from './helpers/fake-sites'
@@ -301,14 +302,47 @@ describe('background: dictation', () => {
     expect(ports.exists).toBe(false)
   })
 
+  it('dictates for the panel as for a popover: Rec copies what the recorder sends', async () => {
+    const panel = fakePort('voice', panelSender())
+    ports.connect(panel)
+    panel.receive({ type: 'start' })
+    await loaded()
+    const recorder = ports.recorder as FakePort
+    expect(recorder.posted[0]).toMatchObject({ type: 'start', request: { key: KEY } })
+    recorder.receive({ state: 'recording', limit: 120_000 })
+    panel.receive({ type: 'stop' })
+    expect(recorder.posted.at(-1)).toEqual({ type: 'stop' })
+    recorder.receive({ state: 'done', text: 'Hello', atLimit: false })
+    expect(panel.posted).toEqual([
+      { state: 'recording', limit: 120_000 },
+      { state: 'done', text: 'Hello', atLimit: false },
+    ])
+    await flush()
+    expect(ports.exists).toBe(false)
+  })
+
+  it("ends a popover's dictation when the panel starts one, and the other way round", async () => {
+    const first = await started(5)
+    first.recorder.receive({ state: 'recording', limit: 120_000 })
+    const panel = fakePort('voice', panelSender())
+    ports.connect(panel)
+    panel.receive({ type: 'start' })
+    await loaded()
+    expect(first.overlay.posted.at(-1)).toEqual({ state: 'failed', error: 'taken', retry: false })
+    const second = await started(6)
+    expect(panel.posted.at(-1)).toEqual({ state: 'failed', error: 'taken', retry: false })
+    expect(second.recorder.posted[0]).toMatchObject({ type: 'start' })
+  })
+
   it.each([
     ['a subframe', fakePort('voice', overlaySender(5, 3))],
+    ['another page of the extension', fakePort('voice', panelSender('/mic-permission.html'))],
     [
-      'the panel',
+      "another extension's panel",
       fakePort('voice', { id: fakeBrowser.runtime.id, url: 'chrome-extension://x/sidepanel.html' }),
     ],
     ['another extension', fakePort('voice', { ...overlaySender(), id: 'another-extension' })],
-  ])('refuses a popover port from %s', async (_, port) => {
+  ])('refuses a dictation port from %s', async (_, port) => {
     ports.connect(port)
     port.receive({ type: 'start' })
     await flush()

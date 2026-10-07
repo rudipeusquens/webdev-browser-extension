@@ -73,6 +73,12 @@ export const overlaySender = (tabId = 5, frameId = 0): Browser.runtime.MessageSe
   frameId,
 })
 
+/** The side panel (or another page of the extension at `path`), as the sender of a port. */
+export const panelSender = (path = '/sidepanel.html'): Browser.runtime.MessageSender => ({
+  id: fakeBrowser.runtime.id,
+  url: fakeBrowser.runtime.getURL(path as '/sidepanel.html'),
+})
+
 export const recorderSender = (path = '/offscreen.html'): Browser.runtime.MessageSender => ({
   id: fakeBrowser.runtime.id,
   url: fakeBrowser.runtime.getURL(path as '/offscreen.html'),
