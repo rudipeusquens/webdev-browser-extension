@@ -44,7 +44,7 @@ Hard rules. The full policy, including what goes where, is `docs/public-repo-pol
   `eslint-config-prettier` so they don't fight
 - **TypeScript** pinned to `~6.0`: typescript-eslint 8 does not support TypeScript 7 yet
 - **Secret scanning:** secretlint (hook + CI), gitleaks (CI, full history)
-- **Personal-data guard:** `scripts/privacy-check.mjs` (hook + CI, full history)
+- **Personal-data guard:** `scripts/privacy-check.mjs` (hooks + CI, full history)
 
 ## Commands
 
@@ -60,6 +60,7 @@ pnpm test:live           # local only: dictation against the real OpenRouter API
                          # OPENROUTER_API_KEY_TEST from .env — never in CI
 pnpm voice:fixtures      # local only: regenerates the synthetic audio in tests/fixtures/audio
 pnpm manifest:check      # built manifest has exactly the allowed permissions
+pnpm bundle:check        # the build has no source maps, eval, dev-server code or unknown hosts
 pnpm check               # everything CI runs, except build, E2E and gitleaks
 ```
 
@@ -74,10 +75,15 @@ If Chrome for Testing fails to start because system libraries are missing
 - **pre-commit:** commit identity must be a noreply address; secretlint and `privacy-check` on
   staged files; `eslint --fix` + `prettier --write` on staged files
 - **commit-msg:** `privacy-check` on the message
-- **CI** (`.github/workflows/ci.yml`, check name `ci`, required for merging): install → lint →
-  format:check → compile → build → manifest:check → E2E in Chrome for Testing → unit tests →
-  secretlint over all tracked files → `privacy-check` over the tree and the full history →
-  gitleaks over the full history
+- **pre-push:** `privacy-check --push` on everything the push sends (also commits made by a
+  rebase, cherry-pick or `git am`, which run no pre-commit hook), and the ref names
+- **CI** (`.github/workflows/ci.yml`, checks `ci` and `privacy`, required for merging): `ci`
+  runs install → lint → format:check → compile → build → manifest:check → bundle:check → E2E
+  in Chrome for Testing → unit tests → secretlint over all tracked files → `privacy-check`
+  over the tree and the full history → gitleaks over the full history; `privacy` runs the
+  privacy check with the denylist secret in a job that installs nothing
+- **MCP servers** (`.mcp.json`) start through `pnpm dlx` with an exact version, so the age gate
+  and the build allowlist apply
 - `main` changes only through pull requests; the owner approves and merges
 
 ## Conventions

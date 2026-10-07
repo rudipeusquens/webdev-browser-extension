@@ -43,14 +43,16 @@ The pre-commit hook refuses any other address and explains how to fix it.
 
 Defense in depth — each layer catches what the one before missed:
 
-| Layer        | Checks                                                                                                                                  | When                 |
-| ------------ | --------------------------------------------------------------------------------------------------------------------------------------- | -------------------- |
-| `.gitignore` | keeps `.private/`, `.env*`, `*.pem`, `*.crx`, `*.zip`, `*.har`, logs out of `git add`                                                   | always               |
-| pre-commit   | commit identity, secretlint and `privacy-check` on staged files, ESLint + Prettier                                                      | every commit         |
-| commit-msg   | `privacy-check` on the commit message                                                                                                   | every commit         |
-| CI (`ci`)    | lint, format, tests, secretlint over all files, `privacy-check` over all files **and the full history**, gitleaks over the full history | every PR, every push |
-| GitHub       | secret scanning with push protection (repository settings)                                                                              | every push           |
-| Review       | PR checklist, approval by the owner                                                                                                     | every PR             |
+| Layer          | Checks                                                                                                                                                                                                                   | When                 |
+| -------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | -------------------- |
+| `.gitignore`   | keeps `.private/`, `.env*`, `*.pem`, `*.crx`, `*.zip`, `*.har`, logs, build output and agent workspaces (`.superpowers/`) out of `git add`                                                                               | always               |
+| pre-commit     | commit identity, secretlint and `privacy-check` on staged files, ESLint + Prettier                                                                                                                                       | every commit         |
+| commit-msg     | `privacy-check` on the commit message                                                                                                                                                                                    | every commit         |
+| pre-push       | `privacy-check --push`: identities, names, messages, added lines, paths and ref names of everything the push sends, also commits a rebase, cherry-pick or `git am` made without pre-commit                               | every push           |
+| CI (`ci`)      | lint, format, tests, a check of the built bundle, secretlint over all files, `privacy-check` (patterns) over all files **and the full history** (added lines, paths, identities, merges), gitleaks over the full history | every PR, every push |
+| CI (`privacy`) | `privacy-check` with the denylist, in a job that installs nothing: no third-party package runs where the secret is                                                                                                       | every PR, every push |
+| GitHub         | secret scanning with push protection (repository settings)                                                                                                                                                               | every push           |
+| Review         | PR checklist, approval by the owner                                                                                                                                                                                      | every PR             |
 
 Hooks are never bypassed (`git commit --no-verify`) and checks are never weakened to get a
 commit through. If a check is wrong, fix the check in its own PR.
@@ -77,8 +79,9 @@ that is itself never public:
 
 - **Locally:** `.private/denylist.txt`
 - **In CI:** the repository secret `PRIVACY_DENYLIST` (**Settings → Secrets and variables →
-  Actions**), same content. GitHub does not pass secrets to PRs from forks; there the pattern
-  rules still run.
+  Actions**), same content, given only to the `privacy` job: it runs the checkout, Node and the
+  script, which uses Node's own modules only, so no dependency can read the secret. GitHub does
+  not pass secrets to PRs from forks; there the pattern rules still run.
 
 Format: one term per line, matched case-insensitively as a substring, at least three
 characters, `#` starts a comment. Good entries: the full name with a space, postal address,
