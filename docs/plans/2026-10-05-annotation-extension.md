@@ -4044,19 +4044,32 @@ build has no remote code, eval or source maps; nothing sensitive in the history.
   between trusted `compositionstart` and `compositionend`.
 - **The guard checks where an edit lands:** an insert keeps the text before and after the
   selection it was announced for; a deletion removes one range that touches that selection.
-  A page's select-all plus a replay of the developer's keystroke is restored.
+  A page's select-all plus a replay of the developer's keystroke is restored. The guard also
+  keeps the selection the developer made (taken during their own selection gestures, else
+  computed from the edits it accepted), puts it back before each key and announces each edit
+  for it: a selection the page moves first (`selectAll`, `Selection.modify()`) does not decide
+  where the developer's key lands. An input method writes where it started, a drag removes
+  only the selection, a drop removes nothing, undo and redo return only to a text the
+  developer had, and dictation goes in at the developer's selection.
 - **Invisible characters never reach the prompt:** format characters (zero-width, Unicode
   tags, bidi controls, soft hyphen), variation selectors and filler characters are removed
-  from captured text and from comments; text hidden with `opacity: 0` or `font-size: 0` is
-  not read.
+  from captured text and from comments; one zero-width (non-)joiner or presentation selector
+  attached to a character stays in captured text (Persian and Indic words, emoji sequences),
+  and stored text items are found again by their text cleaned the same way; text hidden with
+  `opacity: 0` or `font-size: 0` is not read.
 - **Page strings in the prompt are always delimited:** component names and file paths as code
   spans (names must be identifiers, paths must end in a source extension, else dropped), the
   title quoted, style values in a code span, the URL heading in angle brackets. The preamble
   says that only the blockquoted lines are the developer's words.
 - **A covered overlay takes no clicks:** Save, Delete, Restore, the mic, Retry, Grant and the
-  Pin chip act only while the browser reports them unobscured (Intersection Observer v2);
-  otherwise the popover says "Something on this page covers the overlay." and the host is
-  raised again. A page hiding the host's popover re-shows it.
+  Pin chip act only once the browser has reported them unobscured for half a second
+  (Intersection Observer v2: a cover taken away as the pointer is pressed does not count);
+  otherwise the popover says "Something on this page covers the overlay." until they are seen
+  again. The host is raised again as soon as something covers it, at most once a second (a
+  web component's popover opened later covers it, too). A page hiding the host's popover
+  re-shows it. The overlay's theme is declared inside its shadow root, with the defaults of
+  Tailwind's registered variables and a left-to-right direction: what a page sets on the host
+  does not reach it.
 - **No page-visible start signal:** the overlay uses its own content-script context without
   WXT's `postMessage` and document event (which revealed the extension id and let a page
   remove the overlay); a newer overlay stops the older one through the content-script
@@ -4068,7 +4081,7 @@ build has no remote code, eval or source maps; nothing sensitive in the history.
   only; a page's URL is stored as its page key (no credentials, no fragment); the context
   menu entry follows the stored option in one queue; the panel talks to the top frame only
   and checks the overlay's site against the tab's URL; `externally_connectable` is declared
-  empty; an anchor report reads only its own site.
+  empty.
 - **Storage cannot be lost or filled:** a stored collection that no longer validates is kept
   (copied aside once) and its valid pins are used, never overwritten by an empty one;
   `unlimitedStorage` (no install warning) plus a per-site budget for pins with a clear
@@ -4083,7 +4096,12 @@ build has no remote code, eval or source maps; nothing sensitive in the history.
   every pattern, paths, author names and merges.
 
 **Known limits:** a page can still read the focused comment field through the selection
-(an extension-origin editor iframe would close that; candidate for later); a page can still
+(an extension-origin editor iframe would close that; candidate for later); a page that moves
+the field's selection during the developer's own selection gesture (a held press in the field,
+an arrow key) still chooses where the next edit lands, spelling suggestions are not checked
+against the selection, and Select All from the context menu is undone by the next key (the
+same iframe would close these); Go to opens a page without its fragment, so a hash-routed app
+opens on its default route; a page can still
 observe its own pinned ranges through `CSS.highlights`; a page can freeze itself while the
 developer points at a 1000-level-deep tree (selector search). Left for later as well: each
 "not found" report reads every site's collection (performance; done right it needs the

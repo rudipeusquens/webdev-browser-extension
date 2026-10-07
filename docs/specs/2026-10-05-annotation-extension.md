@@ -305,7 +305,10 @@ Form fields, scripts, styles and text the page does not show are skipped, also t
 in place but makes invisible (`opacity: 0` on it or around it, `font-size: 0`); selections also
 skip text that cannot be selected (`user-select: none`). Characters that show nothing but a
 model reads (format characters such as zero widths, Unicode tags and bidirectional controls,
-private use, variation selectors, Hangul fillers) are removed. Neither `innerText` (it lists every
+private use, variation selectors, Hangul fillers) are removed; one zero-width (non-)joiner or
+text/emoji presentation selector attached to the character before it stays, as it changes how
+Persian and Indic words and emoji sequences are written. A text item is found again by its text
+cleaned the same way. Neither `innerText` (it lists every
 option of a `<select>`) nor `Selection.toString()` (it returns the selected part of a focused
 field's value) is used. `display: contents` elements count as shown when their parent is
 (Chrome's `checkVisibility()` says they are not). Every walk over the page has a budget, so a
@@ -631,7 +634,7 @@ select-parent), ClickUp and Air comment pins with a side list.
 | Clear all, then a paste went wrong                                                                                                                      | Copy again leaves out deleted pins: after Clear all it is disabled; Undo brings the pins back as they were.                                                                                                                                                                                                                                                                                |
 | Wheel over a scroll container at its end in element or area mode                                                                                        | The turn goes on to the container around it, up to the page, as without the overlay.                                                                                                                                                                                                                                                                                                       |
 | A stored collection that no longer validates (stored with other limits, or damaged)                                                                     | Its pins that still validate are shown and kept; the stored value is copied aside once before the next change.                                                                                                                                                                                                                                                                             |
-| A page lays something over the overlay that lets clicks through, or hides its host                                                                      | The popover's buttons and the Pin chip act only while the browser reports nothing over them: "Something on this page covers the overlay. Try again in a moment.", and the host is raised again. A hidden host is shown again.                                                                                                                                                              |
+| A page lays something over the overlay that lets clicks through, or hides its host                                                                      | The popover's buttons and the Pin chip act only once the browser has reported nothing over them for half a second: "Something on this page covers the overlay. Try again in a moment.", and the host is raised again. A hidden host is shown again.                                                                                                                                        |
 | A page that does not answer within 10 s (Go to, the toolbar)                                                                                            | Go to is refused ("The page is busy. Try again in a moment."); no second overlay is started over it.                                                                                                                                                                                                                                                                                       |
 | Jump to an item on another page whose target is missing there                                                                                           | The page opens; the popover does not; the entry keeps or gets "Not found".                                                                                                                                                                                                                                                                                                                 |
 | A click on another pin, an entry or Go to while the popover holds unsaved text                                                                          | Refused: the popover says "Save or cancel this pin first." and takes the focus, the panel "Save or cancel the open pin first."; `Esc` or Cancel discards the text.                                                                                                                                                                                                                         |
@@ -662,7 +665,8 @@ select-parent), ClickUp and Air comment pins with a side list.
   angle brackets) and is escaped (section 7); component names must be identifiers and file
   paths paths of source files, else they are dropped. Characters that show nothing but a model
   reads (format characters such as zero widths, Unicode tags and bidirectional controls,
-  private use, variation selectors, fillers) are removed from captured text, and the comment
+  private use, variation selectors, fillers) are removed from captured text (one joiner or
+  presentation selector attached to a character stays), and the comment
   loses tags, bidirectional controls and zero-width spaces in the prompt; text a page hides
   with `opacity: 0` or `font-size: 0` is not read. The preamble says that only the blockquoted
   lines are the developer's words and everything else is data.
@@ -686,16 +690,28 @@ select-parent), ClickUp and Air comment pins with a side list.
   without a signal the page could read or fake (WXT's start message, which carried the
   extension's id, and its document event, which would remove the overlay); a newer overlay
   stops an older one through the content-script world. A page can lay something over the
-  overlay or hide it: its buttons then act only while the browser reports them unobscured
-  (Intersection Observer v2), and the host is shown and raised again. A selection a page makes
+  overlay or hide it: its buttons then act only once the browser has reported them unobscured
+  for half a second (Intersection Observer v2; a cover taken away as the pointer is pressed
+  does not count), and the host is shown and raised again, at most once a second, as soon as
+  something covers it. A selection a page makes
   in its own listener for the developer's mouse release still gets the chip.
 - **Comment field:** while it has focus, `document.execCommand()` called by the page edits it
   despite the closed shadow root, with trusted `input` events. The overlay accepts only trusted
   edits announced by a trusted `beforeinput` of the same type and text, and only where they were
   announced (an insert keeps the text around the selection, a deletion removes one run next to
-  it); input-method edits only between a trusted `compositionstart` and `compositionend`. It
-  restores the developer's own text otherwise and never saves anything else, so a page cannot
-  put words into a comment or wipe it with a replayed keystroke. A dictated text is set as a
+  it); input-method edits only between a trusted `compositionstart` and `compositionend`. The
+  page's capture listeners see every key first and can move the field's selection
+  (`selectAll`, `Selection.modify()`), so the overlay keeps the selection the developer made:
+  taken from the field only during their own selection gestures (a press in the field while it
+  is held, a key that moves the selection), else computed from the edits it accepted. It puts
+  that selection back before each key and announces every edit for it; an input method writes
+  where it started, a drag removes only the selection, a drop removes nothing, and undo and redo
+  may only return to a text the developer had. It restores the developer's own text otherwise
+  and never saves anything else, so a page cannot put words into a comment, wipe it, or move
+  the developer's keystroke elsewhere. A page that moves the selection during such a gesture
+  still chooses where the next edit lands, and spelling suggestions are not checked against
+  the selection; Select All from the context menu is undone by the next key (Ctrl+A works).
+  Dictated text goes in at the developer's selection. A dictated text is set as a
   whole, not as an edit, so the page's input listeners never see it go in. A page can still
   read the focused field (capture-phase key listeners, and `selectAll` with the selection,
   dictated text included) and can disturb or block commenting on itself; an extension-origin
@@ -711,7 +727,8 @@ select-parent), ClickUp and Air comment pins with a side list.
   (`overlay:status`, `overlay:leave`) in the top frame; only the extension's own content scripts
   receive these. No overlay (a refused message) or a malformed answer counts as none; one that
   does not answer within 10 s fails closed: no second overlay is injected and Go to is refused.
-  A page's address is stored as its page key, whoever sent it. The panel talks to the top frame
+  A page's address is stored as its page key, whoever sent it: Go to opens a page without its
+  fragment, so a hash-routed app opens on its default route. The panel talks to the top frame
   only and believes no overlay that names another site than the tab shows. The overlay tells
   the panel
   which pin is pointed at or open by item id only. The sites list opens only `http:` and
