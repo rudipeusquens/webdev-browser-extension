@@ -92,6 +92,8 @@ If Chrome for Testing fails to start because system libraries are missing
   `privacy` runs the privacy check with the denylist secret in a job that installs nothing
 - **MCP servers** (`.mcp.json`) start through `pnpm dlx` with an exact version, so the age gate
   and the build allowlist apply
+- **Smoke test** (`docs/smoke-test.md`): manual, in a real Chrome and in Brave, run by the owner
+  before a release; a pull request names the sections its change touches
 - `main` changes only through pull requests; the owner approves and merges
 
 ## Conventions

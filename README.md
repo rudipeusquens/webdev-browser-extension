@@ -225,6 +225,9 @@ pnpm build && pnpm test:e2e   # the built extension in Chrome for Testing
 pnpm zip        # the package, checked against the build
 ```
 
+Before a release, run the manual [smoke test](docs/smoke-test.md) in Chrome and in Brave:
+the browser's own prompts, real keys and menus, the microphone and OpenRouter.
+
 The [spec](docs/specs/2026-10-05-annotation-extension.md) says what the extension does and
 why, the [plan](docs/plans/2026-10-05-annotation-extension.md) how it was built. Conventions
 for contributors and AI agents: [`AGENTS.md`](AGENTS.md).
