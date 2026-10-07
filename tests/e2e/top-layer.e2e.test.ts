@@ -5,6 +5,7 @@ import {
   centerOf,
   clickInOverlay,
   markElement,
+  overlayCenter,
   overlayMounted,
   overlayText,
   sleep,
@@ -177,8 +178,36 @@ describe('overlay under a page cover', () => {
       'Something on this page covers the overlay.',
     )
     await session.page.evaluate(() => (window as unknown as { uncover(): void }).uncover())
-    await sleep(500)
+    await waitInOverlay(session, '[data-testid="overlay-popover"]:not([data-covered])')
+    // Seen again: the warning no longer applies.
+    expect(await overlayText(session, '[data-testid="overlay-warning"]')).toBeNull()
     await clickInOverlay(session, '[data-testid="overlay-save"]')
+    await waitForItems(panel, 1)
+  })
+
+  it('takes no click when the page takes its cover away as the pointer is pressed', async () => {
+    await markElement(session, 'h1')
+    await session.page.keyboard.type('Wider')
+    await session.page.evaluate(() =>
+      (window as unknown as { coverUntilPress(): void }).coverUntilPress(),
+    )
+    await sleep(500)
+    const { x, y } = await overlayCenter(session, '[data-testid="overlay-save"]')
+    // As long as a click takes: the browser reports the overlay seen before it ends.
+    await session.page.mouse.click(x, y, { delay: 150 })
+    await sleep(500)
+    expect(await storedCollection(panel)).toBeUndefined()
+  })
+
+  it("acts on the first click while a web component's tooltip is open elsewhere", async () => {
+    await markElement(session, 'h1')
+    await session.page.keyboard.type('Wider')
+    await sleep(700)
+    await session.page.evaluate(() => (window as unknown as { tooltip(): void }).tooltip())
+    // Its backdrop covers the whole page: the overlay puts itself on top again.
+    await sleep(1500)
+    const { x, y } = await overlayCenter(session, '[data-testid="overlay-save"]')
+    await session.page.mouse.click(x, y)
     await waitForItems(panel, 1)
   })
 

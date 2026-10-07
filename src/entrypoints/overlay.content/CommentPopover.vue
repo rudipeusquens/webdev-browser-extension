@@ -230,13 +230,18 @@ function onKeydown(e: KeyboardEvent) {
   else emit('cancel')
 }
 
-const unobscured = useUnobscured(card)
+// Covered: the overlay puts itself on top again, at most once a second (top-layer.ts).
+const unobscured = useUnobscured(card, () => emit('obscured'))
+const COVERED = 'Something on this page covers the overlay. Try again in a moment.'
+watch(unobscured, (now) => {
+  if (now && warning.value === COVERED) warning.value = ''
+})
 
-/** A button acts on a trusted click while nothing of the page lies over the popover. */
+/** A button acts on a trusted click once the popover was seen with nothing over it. */
 function onButton(e: MouseEvent, action: () => void) {
   if (!e.isTrusted) return
   if (!unobscured.value) {
-    warning.value = 'Something on this page covers the overlay. Try again in a moment.'
+    warning.value = COVERED
     emit('obscured')
     return
   }

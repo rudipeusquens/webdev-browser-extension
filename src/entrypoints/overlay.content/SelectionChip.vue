@@ -21,9 +21,9 @@ const position = computed(() => {
   return { left: `${x}px`, top: `${y}px` }
 })
 
-const unobscured = useUnobscured(chip)
+const unobscured = useUnobscured(chip, () => emit('obscured'))
 
-/** A trusted click while nothing of the page lies over the chip. */
+/** A trusted click once the chip was seen with nothing of the page over it. */
 function onClick(e: MouseEvent) {
   if (!e.isTrusted) return
   if (unobscured.value) emit('comment')
@@ -42,6 +42,7 @@ onMounted(async () => {
     ref="chip"
     type="button"
     data-testid="overlay-chip"
+    :data-covered="unobscured ? undefined : ''"
     class="fixed z-[2147483647] flex items-center gap-1.5 rounded-full border bg-popover px-3 py-1 text-xs font-medium text-popover-foreground shadow-md hover:bg-accent"
     :style="position"
     title="Pin this text"
