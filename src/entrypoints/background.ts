@@ -124,33 +124,54 @@ export default defineBackground(() => {
    * restarts and updates; written again, it is never doubled, and one an older version left
    * goes.
    */
-  function setMenuEntry(on: boolean) {
-    // Read, so Chrome does not log an unchecked error.
-    const checked = () => browser.runtime.lastError
-    try {
-      // Callbacks: contextMenus returns promises only from Chrome 123 on.
-      browser.contextMenus.removeAll(() => {
-        checked()
-        if (!on) return
-        browser.contextMenus.create(
-          {
-            id: MENU_ENTRY,
-            title: 'Annotate this page',
-            contexts: ['page', 'frame', 'selection', 'link', 'editable', 'image', 'video', 'audio'],
-            documentUrlPatterns: ['http://*/*', 'https://*/*', 'file:///*'],
-          },
-          checked,
-        )
-      })
-    } catch {
-      // No entry then; the icon and the shortcut still work.
-    }
+  function setMenuEntry(on: boolean): Promise<void> {
+    return new Promise((done) => {
+      // Read, so Chrome does not log an unchecked error.
+      const checked = () => {
+        void browser.runtime.lastError
+        done()
+      }
+      try {
+        // Callbacks: contextMenus returns promises only from Chrome 123 on.
+        browser.contextMenus.removeAll(() => {
+          if (!on) return checked()
+          void browser.runtime.lastError
+          browser.contextMenus.create(
+            {
+              id: MENU_ENTRY,
+              title: 'Annotate this page',
+              contexts: [
+                'page',
+                'frame',
+                'selection',
+                'link',
+                'editable',
+                'image',
+                'video',
+                'audio',
+              ],
+              documentUrlPatterns: ['http://*/*', 'https://*/*', 'file:///*'],
+            },
+            checked,
+          )
+        })
+      } catch {
+        // No entry then; the icon and the shortcut still work.
+        done()
+      }
+    })
   }
 
-  const syncMenuEntry = () =>
-    loadSettings()
+  // One update of the entry at a time, each with the option as stored when it runs: turned
+  // on and off at once, the entry ends as the option does.
+  let menuQueue: Promise<void> = Promise.resolve()
+  const syncMenuEntry = () => {
+    menuQueue = menuQueue
+      .then(() => loadSettings())
       .then(({ contextMenu }) => setMenuEntry(contextMenu))
       .catch(() => undefined)
+    return menuQueue
+  }
 
   browser.tabs.onUpdated.addListener((tabId, info) => {
     if (info.status !== 'loading') return
@@ -190,7 +211,9 @@ export default defineBackground(() => {
       return { ok: false, error: 'This page cannot be opened from here.' }
     }
     // Not over a popover's unsaved text: the overlay keeps it and says so.
-    if (!(await overlayLetsGo(tabId))) return { ok: false, error: UNSAVED_PIN }
+    const leave = await overlayLetsGo(tabId)
+    if (leave === 'unsaved') return { ok: false, error: UNSAVED_PIN }
+    if (leave === 'busy') return { ok: false, error: 'The page is busy. Try again in a moment.' }
     return goTo(tabId, page.url, await sites.isRemembered(origin))
   }
 
@@ -216,7 +239,8 @@ export default defineBackground(() => {
         return recordAnchors(message).then(() => ({ ok: true }) satisfies Reply)
       case 'site:remember':
       case 'site:forget':
-        if (sender.tab) return { ok: false, error: 'Sites are set in the panel.' } satisfies Reply
+        if (!isPanelSender(sender))
+          return { ok: false, error: 'Sites are set in the panel.' } satisfies Reply
         return message.type === 'site:remember'
           ? sites.remember(message.origin)
           : sites.forget(message.origin)
@@ -238,7 +262,7 @@ export default defineBackground(() => {
           return { ok: false, error: 'Settings are set in the panel.' } satisfies Reply
         }
         return sites.setOption(message.key, message.value).then((reply) => {
-          if (message.key === 'contextMenu') setMenuEntry(message.value)
+          if (message.key === 'contextMenu') void syncMenuEntry()
           return reply
         })
       case 'tab:start':
@@ -247,7 +271,7 @@ export default defineBackground(() => {
         }
         return startFromPanel(message.tabId)
       case 'tab:go':
-        if (sender.tab)
+        if (!isPanelSender(sender))
           return { ok: false, error: 'Pages are opened from the panel.' } satisfies Reply
         return openPage(message.tabId, message.pageKey)
       case 'annotation:add': {

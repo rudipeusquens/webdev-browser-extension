@@ -140,7 +140,7 @@ describe('element mode', () => {
       .selector
     const underPointer = await session.page.evaluate(
       (sel, px, py) => {
-        const host = document.querySelector('webdev-overlay')
+        const host = document.querySelector('[data-e2e-host]')
         const under = document.elementsFromPoint(px, py).find((el) => el !== host)
         return document.querySelector(sel) === under
       },

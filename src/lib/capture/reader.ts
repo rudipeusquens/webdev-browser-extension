@@ -50,6 +50,7 @@ export const elementOf = (node: Node): Element | null =>
 export class TextReader {
   private readonly styles = new Map<Element, CSSStyleDeclaration>()
   private readonly shown = new Map<Element, boolean>()
+  private readonly faded = new Map<Element, boolean>()
   private visited = 0
 
   constructor(
@@ -66,6 +67,26 @@ export class TextReader {
     return style
   }
 
+  /**
+   * Whether `el` or an element around it is fully transparent: its text keeps its box but
+   * nobody sees it. Asked up the tree once per element.
+   */
+  private isFaded(el: Element): boolean {
+    const path: Element[] = []
+    let found: boolean | undefined
+    for (let at: Element | null = el; at && path.length < MAX_DEPTH; at = parentOf(at)) {
+      found = this.faded.get(at)
+      if (found !== undefined) break
+      path.push(at)
+      if (this.style(at).opacity === '0') {
+        found = true
+        break
+      }
+    }
+    for (const each of path) this.faded.set(each, found ?? false)
+    return found ?? false
+  }
+
   /** Whether the text directly inside `el` counts. */
   private shows(el: Element): boolean {
     let shown = this.shown.get(el)
@@ -76,6 +97,9 @@ export class TextReader {
         isRendered(el, (box) => this.style(box)) &&
         style.visibility !== 'hidden' &&
         style.visibility !== 'collapse' &&
+        // Text a page hides while keeping its box: transparent, or without a size.
+        style.fontSize !== '0px' &&
+        !this.isFaded(el) &&
         !(this.selectable && style.userSelect === 'none')
       this.shown.set(el, shown)
     }

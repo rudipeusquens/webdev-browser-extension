@@ -1,4 +1,4 @@
-import type { Page } from 'puppeteer'
+import type { KeyInput, Page } from 'puppeteer'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 import { clickAction, launch, type Session, startFixtureServer } from './harness'
 import {
@@ -82,7 +82,7 @@ describe('hostile pages and untrusted events', () => {
     const { x, y } = await centerOf(session.page, 'h1')
     await session.page.evaluate(
       (cx, cy) => {
-        const host = document.querySelector('webdev-overlay')
+        const host = document.querySelector('[data-e2e-host]')
         const init = { bubbles: true, composed: true, clientX: cx, clientY: cy }
         for (const target of [host, document.querySelector('h1'), document.body]) {
           target?.dispatchEvent(new PointerEvent('pointermove', init))
@@ -103,7 +103,7 @@ describe('hostile pages and untrusted events', () => {
     await markElement(session, 'h1')
     await session.page.keyboard.type('Draft')
     await session.page.evaluate(() => {
-      const host = document.querySelector('webdev-overlay')
+      const host = document.querySelector('[data-e2e-host]')
       for (const key of ['Enter', 'Escape']) {
         for (const target of [host, document, window]) {
           target?.dispatchEvent(
@@ -115,6 +115,21 @@ describe('hostile pages and untrusted events', () => {
     await sleep(300)
     await waitInOverlay(session, '[data-testid="overlay-popover"]')
     expect(await storedCollection(panel)).toBeUndefined()
+  })
+
+  it('keeps a page that defines the old host name out of the shadow root', async () => {
+    const panel = await activate('/taken-name/')
+    await markElement(session, '#target')
+    await session.page.keyboard.type('Make it blue.')
+    await session.page.keyboard.press('Enter')
+    const stored = await waitForItems(panel, 1)
+    expect(stored?.items[0]?.comment).toBe('Make it blue.')
+    expect(
+      await session.page.evaluate(() => {
+        const page = window as unknown as { internals?: unknown; stolen: string[] }
+        return { internals: page.internals !== undefined, stolen: page.stolen }
+      }),
+    ).toEqual({ internals: false, stolen: [] })
   })
 
   it('leaves the page’s own inherited --tw-* variables alone', async () => {
@@ -153,6 +168,82 @@ describe('hostile pages and untrusted events', () => {
       await session.page.keyboard.press('Enter')
       const c = await waitForItems(panel, 1)
       expect(c?.items[0]?.comment).toBe('OK')
+    })
+
+    it("keeps the comment when the page types the developer's key over all of it", async () => {
+      const panel = await activate('/meddling/')
+      await session.page.evaluate(() => ((window as Meddling).attack = 'none'))
+      await markElement(session, 'h1')
+      await session.page.keyboard.type('Keep all of this')
+      await session.page.evaluate(() => ((window as Meddling).attack = 'replay'))
+      await session.page.keyboard.type('.')
+      await sleep(100)
+      expect(await overlayText(session, '[data-testid="overlay-warning"]')).toContain(
+        'This page tried to change your comment',
+      )
+      await session.page.keyboard.press('Enter')
+      const c = await waitForItems(panel, 1)
+      expect(c?.items[0]?.comment).toBe('Keep all of this')
+    })
+
+    /** Types `text` into a new pin's field, then turns on `attack`. */
+    async function typeThenAttack(text: string, attack: string) {
+      const panel = await activate('/meddling/')
+      await session.page.evaluate(() => ((window as Meddling).attack = 'none'))
+      await markElement(session, 'h1')
+      await session.page.keyboard.type(text)
+      await session.page.evaluate((a) => ((window as Meddling).attack = a), attack)
+      return panel
+    }
+
+    async function saved(panel: Page) {
+      await session.page.evaluate(() => ((window as Meddling).attack = 'none'))
+      await session.page.keyboard.press('Enter')
+      return (await waitForItems(panel, 1))?.items[0]?.comment
+    }
+
+    it("keeps the developer's Backspace where they left the caret", async () => {
+      const panel = await typeThenAttack('Please do not delete the tests', 'steer')
+      await session.page.keyboard.press('Backspace')
+      expect(await saved(panel)).toBe('Please do not delete the test')
+    })
+
+    it('keeps a keystroke where the caret was when the page selects everything first', async () => {
+      const panel = await typeThenAttack('Keep all of this', 'select-key')
+      await session.page.keyboard.type('.')
+      expect(await saved(panel)).toBe('Keep all of this.')
+    })
+
+    it('keeps a keystroke where the caret was when the page selects everything on its beforeinput', async () => {
+      const panel = await typeThenAttack('Keep all of this', 'select-beforeinput')
+      await session.page.keyboard.type('.')
+      expect(await saved(panel)).toBe('Keep all of this.')
+    })
+
+    it("keeps an input method's text where the caret was when the page selects everything", async () => {
+      const panel = await typeThenAttack('Keep all of this', 'select-composition')
+      const cdp = await session.page.createCDPSession()
+      await cdp.send('Input.imeSetComposition', { text: 'に', selectionStart: 1, selectionEnd: 1 })
+      await cdp.send('Input.insertText', { text: 'に' })
+      await cdp.detach()
+      expect(await saved(panel)).toBe('Keep all of thisに')
+    })
+
+    it("does not bring a restored page edit back with the browser's undo and redo", async () => {
+      const panel = await typeThenAttack('mine', 'none')
+      await session.page.evaluate(() => (window as unknown as { inject(): void }).inject())
+      await sleep(100)
+      for (const keys of [
+        ['Control', 'z'],
+        ['Control', 'Shift', 'z'],
+      ]) {
+        for (const key of keys) await session.page.keyboard.down(key as KeyInput)
+        for (const key of keys.reverse()) await session.page.keyboard.up(key as KeyInput)
+      }
+      await session.page.keyboard.type(' ok')
+      const comment = await saved(panel)
+      expect(comment).not.toContain('INJECTED')
+      expect(comment).toMatch(/ ok$/)
     })
 
     it('keeps paste events inside the comment field', async () => {

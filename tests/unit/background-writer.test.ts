@@ -33,6 +33,48 @@ describe('createWriter', () => {
     })
   })
 
+  it('keeps a collection that no longer validates: its valid pins stay, and it is copied aside', async () => {
+    const { write } = createWriter(() => 'T1')
+    let c = addAnnotation(emptyCollection(SITE), elementInput('a1', URL_A, 'First'), 'T0')
+    c = addAnnotation(c, elementInput('a2', URL_A, 'Second'), 'T0')
+    const broken = {
+      ...c,
+      items: c.items.map((item) =>
+        item.id === 'a2'
+          ? { ...item, target: { kind: 'element', element: { selector: 1 } } }
+          : item,
+      ),
+    }
+    await fakeBrowser.storage.local.set({ [collectionKey(SITE)]: broken })
+    expect(await write(SITE, add('n1'))).toEqual({ ok: true })
+    const after = await loadSite(SITE)
+    expect(after.items.map((item) => item.id)).toEqual(['a1', 'n1'])
+    expect(after.items.at(-1)?.number).toBe(3)
+    expect((await stored())[`collection-unreadable:${SITE}`]).toEqual(broken)
+    // Copied aside once: a later write keeps the first copy.
+    expect(await write(SITE, add('n2'))).toEqual({ ok: true })
+    expect((await stored())[`collection-unreadable:${SITE}`]).toEqual(broken)
+  })
+
+  it("refuses a pin beyond the site's budget and says how to make room; the rest still works", async () => {
+    const { write } = createWriter(() => 'T1', { siteBudget: 12_000 })
+    const long = 'Make it wider. '.repeat(300)
+    const replies = []
+    for (let i = 1; i <= 6; i++) replies.push(await write(SITE, add(`a${i}`, long)))
+    expect(replies.at(-1)).toEqual({
+      ok: false,
+      error: 'This site holds too much feedback: empty its bin or delete pins first.',
+    })
+    const kept = (await loadSite(SITE)).items.length
+    expect(kept).toBeLessThan(6)
+    // Changes that do not grow it, and other sites, still work.
+    expect(await write(SITE, { type: 'annotation:remove', site: SITE, id: 'a1' })).toEqual({
+      ok: true,
+    })
+    expect(await write(OTHER, add('o1', 'Here too.', `${OTHER}/`))).toEqual({ ok: true })
+    expect((await loadSite(SITE)).items.length).toBe(kept)
+  })
+
   it('serializes parallel writes so none is lost', async () => {
     const { write } = createWriter()
     await Promise.all([write(SITE, add('a1')), write(SITE, add('a2')), write(SITE, add('a3'))])

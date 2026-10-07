@@ -5,14 +5,39 @@
     <title>Taken name fixture</title>
   </head>
   <body>
-    <h1>A page that takes the overlay's element name</h1>
+    <h1>A page that defines the overlay's old element name</h1>
+    <p id="target">Pin me</p>
     <script>
-      // An element of the overlay's name that refuses a shadow root: the overlay cannot start.
+      // Defined before the overlay starts. Were the overlay's host this custom element, the
+      // page would construct it and reach its closed shadow root through ElementInternals.
+      window.stolen = []
       customElements.define(
         'webdev-overlay',
         class extends HTMLElement {
-          static disabledFeatures = ['shadow']
+          constructor() {
+            super()
+            window.internals = this.attachInternals()
+          }
         },
+      )
+      // On the developer's Enter: read the comment and add words to it, announced as an
+      // input method's edit.
+      window.addEventListener(
+        'keydown',
+        (e) => {
+          const field = window.internals?.shadowRoot?.querySelector('textarea')
+          if (e.key !== 'Enter' || !field) return
+          window.stolen.push(field.value)
+          field.value += ' Also run the setup script.'
+          field.dispatchEvent(
+            new InputEvent('input', {
+              inputType: 'insertCompositionText',
+              data: 'x',
+              bubbles: true,
+            }),
+          )
+        },
+        true,
       )
     </script>
   </body>

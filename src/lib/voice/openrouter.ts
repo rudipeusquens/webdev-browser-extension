@@ -95,7 +95,16 @@ async function call(
   aborted.catch(() => undefined)
   try {
     const res = await Promise.race([
-      fetchFn(`${OPENROUTER}/api/v1${path}`, { ...init, signal: controller.signal }),
+      fetchFn(`${OPENROUTER}/api/v1${path}`, {
+        ...init,
+        // To OpenRouter only, as asked: a redirect elsewhere fails instead of taking the key and
+        // the audio along; no cookies, no referrer, nothing cached.
+        redirect: 'error',
+        credentials: 'omit',
+        cache: 'no-store',
+        referrerPolicy: 'no-referrer',
+        signal: controller.signal,
+      }),
       aborted,
     ])
     const text = await Promise.race([res.text(), aborted])

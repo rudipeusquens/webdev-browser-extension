@@ -4,6 +4,7 @@ import {
   applyStep,
   HISTORY_BYTES,
   HISTORY_LIMIT,
+  HISTORY_TOTAL,
   HISTORY_PREFIX,
   LABELS_PREFIX,
   loadHistory,
@@ -240,6 +241,32 @@ describe('the size of the history', () => {
     expect(kept.undo.map((s) => s.label[0])).toEqual(['b', 'c', 'd'])
     expect(JSON.stringify(kept).length).toBeLessThanOrEqual(HISTORY_BYTES)
     expect(await loadLabels(SITE)).toEqual({ undo: expect.stringMatching(/^d/) })
+  })
+
+  it('counts bytes, not characters', async () => {
+    const wide = (c: string): Step => ({
+      ...step(0),
+      label: c.repeat(Math.floor(HISTORY_BYTES / 12)),
+    })
+    await saveHistory(SITE, { undo: [wide('😀'), wide('😁'), wide('😂'), wide('🙂')], redo: [] })
+    const kept = await loadHistory(SITE)
+    expect(kept.undo.length).toBeLessThan(4)
+    expect(new TextEncoder().encode(JSON.stringify(kept)).length).toBeLessThanOrEqual(HISTORY_BYTES)
+  })
+
+  it('keeps all sites within one budget, forgetting the least recently changed first', async () => {
+    const sites = [0, 1, 2, 3, 4, 5].map((i) => `http://localhost:${3000 + i}`)
+    const big = Math.floor(HISTORY_BYTES * 0.8)
+    for (const site of sites) await saveHistory(site, { undo: [step(big, site.at(-1))], redo: [] })
+    const all = await fakeBrowser.storage.session.get(null)
+    const total = Object.entries(all)
+      .filter(([key]) => key.startsWith(HISTORY_PREFIX))
+      .reduce((sum, [, value]) => sum + new TextEncoder().encode(JSON.stringify(value)).length, 0)
+    expect(total).toBeLessThanOrEqual(HISTORY_TOTAL)
+    expect((await loadHistory(sites[0] ?? '')).undo).toEqual([])
+    expect(await loadLabels(sites[0] ?? '')).toEqual({})
+    expect((await loadHistory(sites[5] ?? '')).undo).toHaveLength(1)
+    expect((await loadHistory(sites[4] ?? '')).undo).toHaveLength(1)
   })
 
   it('keeps no history when a single step is too large', async () => {

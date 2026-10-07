@@ -2,6 +2,7 @@ import type { Page } from 'puppeteer'
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest'
 import { clickAction, contentRealm, launch, type Session, startFixtureServer } from './harness'
 import {
+  clickInOverlay,
   markElement,
   overlayMounted,
   sleep,
@@ -242,15 +243,8 @@ describe('pins and editing', () => {
     await waitForPins([{ number: '1', color: 'bg-blue-600' }])
     const pin = await pinCenter()
     await session.page.mouse.click(pin?.x ?? 0, pin?.y ?? 0)
-    await waitInOverlay(session, '[data-testid="overlay-delete"]')
-    const realm = await contentRealm(session)
-    const at = await realm.evaluate(() => {
-      const r = globalThis.__webdevOverlay?.shadow
-        ?.querySelector('[data-testid="overlay-delete"]')
-        ?.getBoundingClientRect()
-      return r && { x: r.x + r.width / 2, y: r.y + r.height / 2 }
-    })
-    await session.page.mouse.click(at?.x ?? 0, at?.y ?? 0)
+    // Once the popover was seen for a moment: a click before that is held back.
+    await clickInOverlay(session, '[data-testid="overlay-delete"]')
     await waitInOverlay(session, '[data-testid="overlay-popover"]', false)
     await waitForPins([])
     const c = await storedCollection(panel)

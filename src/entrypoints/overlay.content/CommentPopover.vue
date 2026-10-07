@@ -11,6 +11,8 @@ import { CommentGuard } from './comment-guard'
 import { popoverKey } from './keys'
 import { placeNear } from './place'
 import { insertTranscript } from './transcript'
+import { fieldState, putBack, useFieldSelection } from './use-field-selection'
+import { useUnobscured } from './use-unobscured'
 import { useVoice } from './use-voice'
 import VoiceButton from './VoiceButton.vue'
 
@@ -39,9 +41,13 @@ const emit = defineEmits<{
   restore: []
   /** Whether closing now would lose something: a changed comment, or a dictation. */
   unsaved: [unsaved: boolean]
+  /** A click was held back because something of the page lies over the popover. */
+  obscured: []
 }>()
 
 const guard = new CommentGuard(props.initial ?? '')
+const mac = isMacPlatform(currentPlatform())
+const selection = useFieldSelection(guard, mac)
 const text = ref(guard.verified)
 const warning = ref('')
 const card = useTemplateRef<HTMLElement>('card')
@@ -83,10 +89,16 @@ const unsaved = computed(() => {
   return text.value.trim() !== (props.initial ?? '').trim() || voice.busy.value || held
 })
 watch(unsaved, (now) => emit('unsaved', now), { immediate: true })
-watch(
-  () => props.nudge,
-  () => field.value?.focus({ preventScroll: true }),
-)
+/** Focuses the field with the selection the user left in it. */
+function focusField() {
+  const el = field.value
+  if (!el) return
+  el.focus({ preventScroll: true })
+  // A page's focus listener may have moved it.
+  putBack(el, guard.selection)
+}
+
+watch(() => props.nudge, focusField)
 const position = computed(() => {
   void props.frame
   const { x, y } = placeNear(props.rect, size.value, {
@@ -99,8 +111,29 @@ const position = computed(() => {
 /** Puts the user's own text back after the page edited the field. */
 function restore(el: HTMLTextAreaElement) {
   el.value = guard.verified
+  putBack(el, guard.selection)
   text.value = guard.verified
   warning.value = 'This page tried to change your comment. Your text was restored.'
+}
+
+// The edit is announced for the selection the user made; put back if the page moved it.
+function onBeforeInput(e: Event) {
+  const el = e.target as HTMLTextAreaElement
+  const edit = e as InputEvent
+  // A selection set while an input method writes would end what it writes.
+  if (!edit.isComposing) selection.settle(el)
+  const moved = guard.beforeInput(edit, fieldState(el))
+  if (!edit.isComposing) putBack(el, moved)
+}
+
+function onCompositionStart(e: CompositionEvent) {
+  const el = e.target as HTMLTextAreaElement
+  selection.settle(el)
+  putBack(el, guard.compositionStart(e, fieldState(el)))
+}
+
+function onFieldPointer(e: PointerEvent) {
+  selection.pointerdown(e, e.target as HTMLTextAreaElement)
 }
 
 function onInput(e: Event) {
@@ -116,19 +149,18 @@ function onInput(e: Event) {
  * dictated. So the browser's own undo does not know it.
  */
 let dictated: { before: string; after: string; from: number; caret: number } | null = null
-const mac = isMacPlatform(currentPlatform())
 
 /** Sets the field to `value` as the overlay's own edit, with the caret at `caret`. */
 function setText(el: HTMLTextAreaElement, value: string, caret: number) {
   el.value = value
-  guard.accept(value)
+  guard.accept(value, caret)
   text.value = value
   el.setSelectionRange(caret, caret)
 }
 
 function undoDictation(e: KeyboardEvent): boolean {
   const el = field.value
-  if (!dictated || !el || e.target !== el) return false
+  if (!e.isTrusted || !dictated || !el || e.target !== el) return false
   const key = panelKey(e, mac)
   if (key === 'undo' && el.value === dictated.after) setText(el, dictated.before, dictated.from)
   else if (key === 'redo' && el.value === dictated.before)
@@ -138,18 +170,17 @@ function undoDictation(e: KeyboardEvent): boolean {
   return true
 }
 
-/** The dictated text goes in at the caret; the field keeps what was typed meanwhile. */
+/**
+ * The dictated text goes in at the caret the user left, wherever a page moved the field's;
+ * the field keeps what was typed meanwhile.
+ */
 voice.onText((transcript, atLimit) => {
   const el = field.value
   if (!el) return
   const before = guard.verified
-  const from = Math.min(el.selectionStart, before.length)
-  const { value, caret, cut } = insertTranscript(
-    before,
-    el.selectionStart,
-    el.selectionEnd,
-    transcript,
-  )
+  const at = guard.selection ?? { start: el.selectionStart, end: el.selectionEnd }
+  const from = Math.min(at.start, before.length)
+  const { value, caret, cut } = insertTranscript(before, at.start, at.end, transcript)
   el.focus({ preventScroll: true })
   setText(el, value, caret)
   dictated = value === before ? null : { before, after: value, from, caret }
@@ -171,7 +202,7 @@ function dictate() {
 /** Retry goes away once clicked: the focus goes to the field, not to the page. */
 function retry() {
   voice.retry()
-  field.value?.focus({ preventScroll: true })
+  focusField()
 }
 
 // Sent inside the trusted click: the background may open the panel only within it.
@@ -186,6 +217,7 @@ function save() {
 }
 
 function onKeydown(e: KeyboardEvent) {
+  if (field.value && e.target === field.value) selection.keydown(e, field.value)
   if (undoDictation(e)) return
   const action = popoverKey(e)
   // Enter saves from the field; on a focused button it presses that button.
@@ -198,8 +230,22 @@ function onKeydown(e: KeyboardEvent) {
   else emit('cancel')
 }
 
+// Covered: the overlay puts itself on top again, at most once a second (top-layer.ts).
+const unobscured = useUnobscured(card, () => emit('obscured'))
+const COVERED = 'Something on this page covers the overlay. Try again in a moment.'
+watch(unobscured, (now) => {
+  if (now && warning.value === COVERED) warning.value = ''
+})
+
+/** A button acts on a trusted click once the popover was seen with nothing over it. */
 function onButton(e: MouseEvent, action: () => void) {
-  if (e.isTrusted) action()
+  if (!e.isTrusted) return
+  if (!unobscured.value) {
+    warning.value = COVERED
+    emit('obscured')
+    return
+  }
+  action()
 }
 
 function measure() {
@@ -213,16 +259,24 @@ onMounted(async () => {
   await nextTick()
   measure()
   if (card.value) resizes.observe(card.value)
-  field.value?.focus({ preventScroll: true })
+  const el = field.value
+  if (!el) return
+  el.focus({ preventScroll: true })
+  // The caret at the end, set after the focus: a page's focus listener may have moved it.
+  selection.set(el, el.value.length)
 })
 
-onBeforeUnmount(() => resizes.disconnect())
+onBeforeUnmount(() => {
+  resizes.disconnect()
+  selection.stop()
+})
 </script>
 
 <template>
   <div
     ref="card"
     data-testid="overlay-popover"
+    :data-covered="unobscured ? undefined : ''"
     role="dialog"
     :aria-label="number ? `Edit pin ${number}` : 'New pin'"
     class="fixed z-[2147483647] flex w-72 flex-col gap-2 rounded-lg border bg-popover p-3 text-sm text-popover-foreground shadow-lg"
@@ -254,8 +308,11 @@ onBeforeUnmount(() => resizes.disconnect())
       placeholder="What should change?"
       :value="text"
       class="field-sizing-content max-h-48 min-h-16 w-full resize-none rounded-md border border-input bg-transparent px-3 py-2 text-sm shadow-xs outline-none placeholder:text-muted-foreground focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50 dark:bg-input/30"
-      @beforeinput="guard.beforeInput($event as InputEvent)"
+      @pointerdown="onFieldPointer"
+      @beforeinput="onBeforeInput"
       @input="onInput"
+      @compositionstart="onCompositionStart"
+      @compositionend="guard.compositionEnd($event)"
     />
     <p
       v-if="warning"

@@ -59,6 +59,19 @@ describe('findText', () => {
     expect(range?.toString().replace(/\s+/g, ' ')).toBe('your Email notifcations')
   })
 
+  it('finds text written with joiners', () => {
+    document.body.innerHTML = '<p>Persian: می\u200Cخواهم. Emoji: 👩\u200D💻 at work.</p>'
+    expect(findText($('p'), text('می\u200Cخواهم'))?.toString()).toBe('می\u200Cخواهم')
+    expect(findText($('p'), text('👩\u200D💻 at work'))?.toString()).toBe('👩\u200D💻 at work')
+  })
+
+  // Pins stored before invisible characters were removed on capture still hold them.
+  it('finds a selection stored with invisible characters the page text still has', () => {
+    document.body.innerHTML = '<p>Pick a well\u00ADknown name\u200B here.</p>'
+    const stored = text('well\u00ADknown name\u200B', 'Pick a ', ' here.')
+    expect(findText($('p'), stored)?.toString()).toBe('well\u00ADknown name')
+  })
+
   it('is null when the text is not there anymore', () => {
     document.body.innerHTML = '<p>Choose how often we reach out.</p>'
     expect(findText($('p'), text('contact you'))).toBeNull()

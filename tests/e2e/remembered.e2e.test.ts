@@ -1,7 +1,14 @@
 import type { Page } from 'puppeteer'
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest'
 import { clickAction, contentRealm, launch, type Session, startFixtureServer } from './harness'
-import { markElement, overlayMounted, sleep, waitForItems, waitInOverlay } from './overlay-helpers'
+import {
+  markElement,
+  overlayHosts,
+  overlayMounted,
+  sleep,
+  waitForItems,
+  waitInOverlay,
+} from './overlay-helpers'
 
 type ExtensionPage = {
   chrome: {
@@ -38,8 +45,7 @@ describe('remembered sites', () => {
     await server?.close()
   })
 
-  const overlayHosts = () =>
-    session.page.evaluate(() => document.querySelectorAll('webdev-overlay').length)
+  const hosts = () => overlayHosts(session)
 
   /** Rests the pointer on the site pill until its action `id` shows. */
   async function pillAction(id: string) {
@@ -77,7 +83,7 @@ describe('remembered sites', () => {
 
     await session.page.reload()
     await overlayMounted(session)
-    expect(await overlayHosts()).toBe(1)
+    expect(await hosts()).toBe(1)
     for (let i = 0; i < 20 && (await pinCount()) !== 1; i++) await sleep(100)
     expect(await pinCount()).toBe(1)
 
@@ -85,7 +91,7 @@ describe('remembered sites', () => {
     await pillAction('remember-site')
     await session.page.reload()
     await sleep(1500)
-    expect(await overlayHosts()).toBe(0)
+    expect(await hosts()).toBe(0)
   })
 
   it('lists the site in the settings and forgets it there', async () => {
@@ -100,7 +106,7 @@ describe('remembered sites', () => {
     await panel.click('[data-testid="close-settings"]')
     await session.page.reload()
     await sleep(1500)
-    expect(await overlayHosts()).toBe(0)
+    expect(await hosts()).toBe(0)
   })
 
   it('loads the overlay only on the remembered origin', async () => {
@@ -109,9 +115,9 @@ describe('remembered sites', () => {
     const other = server.origin.replace('localhost', '127.0.0.1')
     await session.page.goto(`${other}/plain/`)
     await sleep(1500)
-    expect(await overlayHosts()).toBe(0)
+    expect(await hosts()).toBe(0)
     await session.page.goto(`${server.origin}/plain/text.html`)
     await overlayMounted(session)
-    expect(await overlayHosts()).toBe(1)
+    expect(await hosts()).toBe(1)
   })
 })

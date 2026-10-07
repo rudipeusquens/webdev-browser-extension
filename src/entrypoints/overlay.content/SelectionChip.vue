@@ -3,12 +3,13 @@ import { MapPinPlusIcon } from '@lucide/vue'
 import { computed, nextTick, onMounted, ref, useTemplateRef } from 'vue'
 import type { Rect } from '@/lib/collection/model'
 import { chipPosition } from './place'
+import { useUnobscured } from './use-unobscured'
 
 const props = defineProps<{
   /** The last line of the selection, in viewport coordinates. */
   line: Rect
 }>()
-const emit = defineEmits<{ comment: [] }>()
+const emit = defineEmits<{ comment: []; obscured: [] }>()
 
 const chip = useTemplateRef<HTMLElement>('chip')
 const size = ref({ width: 96, height: 28 })
@@ -20,8 +21,13 @@ const position = computed(() => {
   return { left: `${x}px`, top: `${y}px` }
 })
 
+const unobscured = useUnobscured(chip, () => emit('obscured'))
+
+/** A trusted click once the chip was seen with nothing of the page over it. */
 function onClick(e: MouseEvent) {
-  if (e.isTrusted) emit('comment')
+  if (!e.isTrusted) return
+  if (unobscured.value) emit('comment')
+  else emit('obscured')
 }
 
 onMounted(async () => {
@@ -36,6 +42,7 @@ onMounted(async () => {
     ref="chip"
     type="button"
     data-testid="overlay-chip"
+    :data-covered="unobscured ? undefined : ''"
     class="fixed z-[2147483647] flex items-center gap-1.5 rounded-full border bg-popover px-3 py-1 text-xs font-medium text-popover-foreground shadow-md hover:bg-accent"
     :style="position"
     title="Pin this text"

@@ -39,6 +39,16 @@ describe('blockquote', () => {
     expect(blockquote('a\n\nb')).toBe('> a\n>\n> b')
   })
 
+  it('leaves out characters a reader cannot see, and keeps emoji whole', () => {
+    const tag = String.fromCodePoint(0xe0041)
+    expect(blockquote(`Make it blue.${tag}${tag}\u200B\u202Eevil\u2066`)).toBe(
+      '> Make it blue.evil',
+    )
+    expect(blockquote('Team 👨\u200D👩\u200D👧 and ✔\uFE0F')).toBe(
+      '> Team 👨\u200D👩\u200D👧 and ✔\uFE0F',
+    )
+  })
+
   it('normalizes Windows line breaks and trims trailing blank lines', () => {
     expect(blockquote('a\r\nb\n\n')).toBe('> a\n> b')
   })

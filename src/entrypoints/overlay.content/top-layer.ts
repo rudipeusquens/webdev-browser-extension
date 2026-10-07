@@ -11,8 +11,17 @@ import { shadowRootOf } from '@/lib/capture/dom'
 export interface Layer {
   /** Prefer `container` as the host's parent (null: back to normal); it must be connected. */
   contain(container: Element | null): void
+  /**
+   * Stacks the host above what the page opened later, at most once a second: something of the
+   * page lies over it that its toggle listener did not see (a popover inside a shadow root).
+   */
+  raise(): void
   stop(): void
 }
+
+/** How often `raise` may re-stack the host: a page that re-stacks its own cover each time
+ * would otherwise keep both busy. */
+const RAISE_EVERY = 1000
 
 const isOpenModal = (d: HTMLDialogElement) => d.isConnected && d.open && d.matches(':modal')
 
@@ -41,6 +50,7 @@ export function keepOnTop(host: HTMLElement, shadow: ShadowRoot): Layer {
   const observedRoots = new WeakSet<Node>()
   let container: Element | null = null
   let stopped = false
+  let raisedAt = -Infinity
 
   function topModal(): HTMLDialogElement | undefined {
     for (let i = modals.length - 1; i >= 0; i--) {
@@ -104,8 +114,15 @@ export function keepOnTop(host: HTMLElement, shadow: ShadowRoot): Layer {
   }
 
   function onToggle(event: Event) {
+    const state = (event as ToggleEvent).newState
+    // The page hid the host's popover: show it again. A re-stack of our own shows it at once,
+    // so its toggle reports it open.
+    if (event.target === host) {
+      if (state === 'closed') place(false)
+      return
+    }
     // A page popover opened above the host.
-    if (event.target !== host && (event as ToggleEvent).newState === 'open') place(true)
+    if (state === 'open') place(true)
   }
 
   // showModal() moves focus into the dialog; focus events cross shadow boundaries, attribute
@@ -138,6 +155,12 @@ export function keepOnTop(host: HTMLElement, shadow: ShadowRoot): Layer {
     contain(next) {
       container = next
       place(false)
+    },
+    raise() {
+      const now = performance.now()
+      if (now - raisedAt < RAISE_EVERY) return
+      raisedAt = now
+      place(true)
     },
     stop() {
       stopped = true

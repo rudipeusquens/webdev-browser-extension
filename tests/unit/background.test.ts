@@ -145,10 +145,37 @@ describe('background', () => {
     expect(inject).not.toHaveBeenCalled()
   })
 
+  it('starts no overlay while one may still answer: late, or not at all on a busy page', async () => {
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] })
+    try {
+      const inject = vi.spyOn(fakeBrowser.scripting, 'executeScript').mockResolvedValue([] as never)
+      const running = {
+        instance: 'one',
+        host: 'a',
+        pageKey: 'http://a/',
+        mode: 'browse',
+        pins: true,
+      }
+      vi.spyOn(fakeBrowser.tabs, 'sendMessage').mockImplementation(
+        (() => new Promise((done) => setTimeout(() => done(running), 1500))) as never,
+      )
+      await fakeBrowser.action.onClicked.trigger(tab)
+      await vi.advanceTimersByTimeAsync(2000)
+      vi.mocked(fakeBrowser.tabs.sendMessage).mockImplementation(
+        (() => new Promise(() => undefined)) as never,
+      )
+      const started = send({ type: 'tab:start', tabId: 5 }, panelSender)
+      await vi.advanceTimersByTimeAsync(10_000)
+      expect(await started).toEqual({ ok: true })
+      expect(inject).not.toHaveBeenCalled()
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
   it.each([
     ['nothing answers', () => Promise.reject(new Error('Receiving end does not exist.'))],
     ['the answer is malformed', () => Promise.resolve({ instance: 'one' })],
-    ['the overlay takes too long', () => new Promise(() => undefined)],
   ])('starts the overlay when %s', async (_, answer) => {
     vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] })
     try {
@@ -493,7 +520,7 @@ describe('background: items not found', () => {
 
 describe('background: remembered sites', () => {
   const A = 'http://localhost:3000'
-  const panel = { id: fakeBrowser.runtime.id }
+  const panel = panelSender
   let fake: ReturnType<typeof fakeSites>
 
   beforeEach(() => {
@@ -513,11 +540,22 @@ describe('background: remembered sites', () => {
     expect((await loadSettings()).rememberedOrigins).toEqual([])
   })
 
-  it('refuses site changes from a page', async () => {
+  it('refuses site changes from a page and from other pages of the extension', async () => {
     expect(await send({ type: 'site:remember', origin: A }, { ...panel, tab })).toMatchObject({
       ok: false,
     })
+    const offscreen = {
+      id: fakeBrowser.runtime.id,
+      url: fakeBrowser.runtime.getURL('/offscreen.html?n=1'),
+    }
+    expect(await send({ type: 'site:remember', origin: A }, offscreen)).toMatchObject({ ok: false })
     expect((await loadSettings()).rememberedOrigins).toEqual([])
+    await send({ type: 'site:remember', origin: A }, panel)
+    expect(await send({ type: 'site:forget', origin: A }, offscreen)).toMatchObject({ ok: false })
+    expect(
+      await send({ type: 'site:forget', origin: A }, { id: fakeBrowser.runtime.id }),
+    ).toMatchObject({ ok: false })
+    expect((await loadSettings()).rememberedOrigins).toEqual([A])
   })
 
   it('sets an option for the panel only, and keeps the remembered sites', async () => {
@@ -589,7 +627,7 @@ describe('background: remembered sites', () => {
 })
 
 describe('background: go to a page of the collection', () => {
-  const panel = { id: fakeBrowser.runtime.id }
+  const panel = panelSender
   const page = 'http://localhost:3000/settings'
 
   beforeEach(async () => {
@@ -632,11 +670,36 @@ describe('background: go to a page of the collection', () => {
     await vi.waitFor(() => expect(fakeBrowser.tabs.update).toHaveBeenCalledWith(9, { url: page }))
   })
 
+  it('waits for an overlay that answers late, and refuses Go to when it never does', async () => {
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] })
+    try {
+      let answer: (reply: unknown) => void = () => undefined
+      vi.spyOn(fakeBrowser.tabs, 'sendMessage').mockImplementation(
+        (() => new Promise((done) => (answer = done))) as never,
+      )
+      const late = send({ type: 'tab:go', tabId: 9, pageKey: page }, panel)
+      await vi.advanceTimersByTimeAsync(1500)
+      answer({ ok: false, error: 'unsaved' })
+      expect(await late).toEqual({ ok: false, error: 'Save or cancel the open pin first.' })
+      const never = send({ type: 'tab:go', tabId: 9, pageKey: page }, panel)
+      await vi.advanceTimersByTimeAsync(10_000)
+      expect(await never).toEqual({ ok: false, error: 'The page is busy. Try again in a moment.' })
+      expect(fakeBrowser.tabs.update).not.toHaveBeenCalled()
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
   it('refuses pages outside the collection, file pages and requests from a tab', async () => {
     for (const [pageKey, sender] of [
       ['http://localhost:3000/other', panel],
       ['file:///srv/app/index.html', panel],
       [page, { ...panel, tab }],
+      [
+        page,
+        { id: fakeBrowser.runtime.id, url: fakeBrowser.runtime.getURL('/offscreen.html?n=1') },
+      ],
+      [page, { id: fakeBrowser.runtime.id }],
     ] as const) {
       expect(await send({ type: 'tab:go', tabId: 9, pageKey }, sender)).toMatchObject({ ok: false })
     }
@@ -718,6 +781,24 @@ describe('background: the page context menu', () => {
     await vi.waitFor(() => expect([...menus.entries.keys()]).toEqual(['annotate']))
     expect(await set(false)).toEqual({ ok: true })
     await vi.waitFor(() => expect([...menus.entries.keys()]).toEqual([]))
+    expect(menus.duplicates).toEqual([])
+  })
+
+  it('ends with the stored option when it is turned on and off at once', async () => {
+    fakeBrowser.reset()
+    fakeSites()
+    menus = fakeContextMenus({ later: true })
+    fakePorts()
+    background.main()
+    const set = (value: boolean) =>
+      send({ type: 'settings:set', key: 'contextMenu', value }, panelSender)
+    await Promise.all([set(true), set(false)])
+    await new Promise((done) => setTimeout(done, 50))
+    expect((await loadSettings()).contextMenu).toBe(false)
+    expect([...menus.entries.keys()]).toEqual([])
+    await Promise.all([set(false), set(true)])
+    await new Promise((done) => setTimeout(done, 50))
+    expect([...menus.entries.keys()]).toEqual(['annotate'])
     expect(menus.duplicates).toEqual([])
   })
 

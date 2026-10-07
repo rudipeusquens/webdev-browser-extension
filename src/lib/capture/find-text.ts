@@ -3,7 +3,7 @@
 // and by the context around it when the text occurs more than once.
 
 import type { TextTarget } from '../collection/model'
-import { collapse } from '../text'
+import { cleanPoint, collapse } from '../text'
 import { documentOf } from './dom'
 import { type Piece, readForward, TextReader } from './reader'
 
@@ -31,12 +31,18 @@ function flatten(pieces: Piece[]): { text: string; at: (Position | null)[] } {
       at.push(null)
       space = true
     }
-    for (let j = 0; j < piece.text.length; j++) {
-      const char = collapse(piece.text.charAt(j))
+    // By code point: a character outside the BMP is cleaned as a whole, as when it was stored.
+    for (let j = 0; j < piece.text.length;) {
+      const point = String.fromCodePoint(piece.text.codePointAt(j) ?? 0)
+      const offset = j
+      j += point.length
+      const char = cleanPoint(point, chars.at(-1) ?? '').replace(/\s/g, ' ')
       if (char === '') continue
       if (char === ' ' && space) continue
-      chars.push(char)
-      at.push(piece.node ? { node: piece.node, offset: (piece.start ?? 0) + j } : null)
+      for (let k = 0; k < char.length; k++) {
+        chars.push(char.charAt(k))
+        at.push(piece.node ? { node: piece.node, offset: (piece.start ?? 0) + offset + k } : null)
+      }
       space = char === ' '
     }
   })
@@ -65,7 +71,8 @@ const withoutEllipsis = (s: string, atStart: boolean) =>
  */
 export function findText(container: Element, target: TextTarget): Range | null {
   const view = documentOf(container).defaultView
-  const needle = withoutEllipsis(target.selected, false).trim()
+  // Pins stored before capture removed invisible characters may still hold some.
+  const needle = collapse(withoutEllipsis(target.selected, false)).trim()
   if (!view || !needle) return null
   const read = readForward(
     new TextReader(view, true),
@@ -76,8 +83,8 @@ export function findText(container: Element, target: TextTarget): Range | null {
     SEARCH_LIMIT,
   )
   const { text, at } = flatten(read.pieces)
-  const before = withoutEllipsis(target.before, true)
-  const after = withoutEllipsis(target.after, false)
+  const before = collapse(withoutEllipsis(target.before, true))
+  const after = collapse(withoutEllipsis(target.after, false))
 
   let best = -1
   let bestScore = -1

@@ -19,6 +19,7 @@ const TYPES: Record<string, string> = {
   '.html': 'text/html; charset=utf-8',
   '.js': 'text/javascript',
   '.css': 'text/css',
+  '.svg': 'image/svg+xml',
 }
 
 /** Serves tests/fixtures/sites; `<site>/headers.json` adds response headers (e.g. a CSP). */
@@ -113,8 +114,8 @@ async function scripts(dir: string): Promise<string[]> {
 
 /**
  * A copy of the build for a test; the shipped build stays as it is. With `openrouter`, every
- * `https://openrouter.ai` in its scripts points at the fake instead, and the copy fails when
- * there is none: a test must never reach the real API.
+ * `https://openrouter.ai` in its scripts and its CSP points at the fake instead, and the copy
+ * fails when there is none: a test must never reach the real API.
  */
 async function buildCopy(options: LaunchOptions): Promise<string> {
   const dir = await mkdtemp(join(tmpdir(), 'webdev-extension-'))
@@ -135,6 +136,11 @@ async function buildCopy(options: LaunchOptions): Promise<string> {
       rewritten++
     }
     if (rewritten === 0) throw new Error(`no ${OPENROUTER} in the build to point at the fake`)
+    // The extension's pages connect to OpenRouter only (content_security_policy): to the fake.
+    const path = join(dir, 'manifest.json')
+    const manifest = await readFile(path, 'utf8')
+    if (!manifest.includes(OPENROUTER)) throw new Error(`no ${OPENROUTER} in the manifest's CSP`)
+    await writeFile(path, manifest.split(OPENROUTER).join(options.openrouter))
   }
   return dir
 }

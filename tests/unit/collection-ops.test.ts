@@ -25,6 +25,16 @@ const build = (...inputs: NewAnnotation[]): Collection =>
   inputs.reduce((c, input) => addAnnotation(c, input, T1), emptyCollection(SITE))
 
 describe('addAnnotation', () => {
+  it('stores the page under its key, without credentials or fragment, whatever it was sent', () => {
+    const c = addAnnotation(
+      emptyCollection('http://localhost:3000'),
+      elementInput('a1', 'http://user:secret@localhost:3000/x?q=1#token=abc'),
+      'T',
+    )
+    expect(Object.keys(c.pages)).toEqual(['http://localhost:3000/x?q=1'])
+    expect(c.pages['http://localhost:3000/x?q=1']?.url).toBe('http://localhost:3000/x?q=1')
+  })
+
   it('numbers items in order and records the page', () => {
     const c = build(elementInput('a1', A), elementInput('a2', A), elementInput('b1', B))
     expect(c.items.map((i) => i.number)).toEqual([1, 2, 3])

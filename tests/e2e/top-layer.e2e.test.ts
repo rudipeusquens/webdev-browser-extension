@@ -1,6 +1,18 @@
+import type { Page } from 'puppeteer'
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest'
-import { clickAction, launch, type Session, startFixtureServer } from './harness'
-import { centerOf, overlayMounted, sleep, waitInOverlay } from './overlay-helpers'
+import { clickAction, contentRealm, launch, type Session, startFixtureServer } from './harness'
+import {
+  centerOf,
+  clickInOverlay,
+  markElement,
+  overlayCenter,
+  overlayMounted,
+  overlayText,
+  sleep,
+  storedCollection,
+  waitForItems,
+  waitInOverlay,
+} from './overlay-helpers'
 
 // A modal dialog makes everything outside it inert, including top-layer elements shown above
 // it; the overlay has to move into the dialog to stay usable (spec section 13, spike 3).
@@ -33,11 +45,11 @@ describe('overlay above modal dialogs', () => {
     await sleep(200)
     const { x, y } = await centerOf(session.page, selector)
     const top = await session.page.evaluate(
-      (px, py) => document.elementFromPoint(px, py)?.localName,
+      (px, py) => document.elementFromPoint(px, py)?.hasAttribute('data-e2e-host'),
       x,
       y,
     )
-    expect(top).toBe('webdev-overlay')
+    expect(top).toBe(true)
     await session.page.mouse.move(x, y)
     await session.page.mouse.click(x, y)
     await waitInOverlay(session, '[data-testid="overlay-popover"]')
@@ -45,7 +57,7 @@ describe('overlay above modal dialogs', () => {
 
   const openModal = () => session.page.click('#open')
   const hostParent = () =>
-    session.page.evaluate(() => document.querySelector('webdev-overlay')?.parentElement?.localName)
+    session.page.evaluate(() => document.querySelector('[data-e2e-host]')?.parentElement?.localName)
 
   it('stays usable when a modal opens after activation', async () => {
     await clickAction(session)
@@ -94,7 +106,7 @@ describe('overlay above modal dialogs', () => {
     await clickAction(session)
     await overlayMounted(session)
     await session.page.evaluate(() => {
-      const host = document.querySelector('webdev-overlay') as HTMLElement | null
+      const host = document.querySelector('[data-e2e-host]') as HTMLElement | null
       if (host) host.inert = true
     })
     await expectUsable('h1')
@@ -127,5 +139,137 @@ describe('overlay above modal dialogs', () => {
       expect(await hostParent()).toBe('body')
       await expectUsable('h1')
     })
+  })
+})
+
+// A page can lay something over the overlay that lets clicks through (clickjacking), or hide
+// the overlay's host popover.
+describe('overlay under a page cover', () => {
+  let server: Awaited<ReturnType<typeof startFixtureServer>>
+  let session: Session
+  let panel: Page
+
+  beforeAll(async () => {
+    server = await startFixtureServer()
+    session = await launch()
+  })
+
+  beforeEach(async () => {
+    await session.page.goto(`${server.origin}/covering/`)
+    panel = await clickAction(session)
+    await panel.evaluate(() => chrome.storage.local.clear())
+    await overlayMounted(session)
+  })
+
+  afterAll(async () => {
+    await session?.browser.close()
+    await server?.close()
+  })
+
+  it('takes no click on the popover while the page covers it, and says why', async () => {
+    await markElement(session, 'h1')
+    await session.page.keyboard.type('Wider')
+    await session.page.evaluate(() => (window as unknown as { cover(): void }).cover())
+    await sleep(500)
+    await clickInOverlay(session, '[data-testid="overlay-save"]')
+    await sleep(500)
+    expect(await storedCollection(panel)).toBeUndefined()
+    expect(await overlayText(session, '[data-testid="overlay-warning"]')).toContain(
+      'Something on this page covers the overlay.',
+    )
+    await session.page.evaluate(() => (window as unknown as { uncover(): void }).uncover())
+    await waitInOverlay(session, '[data-testid="overlay-popover"]:not([data-covered])')
+    // Seen again: the warning no longer applies.
+    expect(await overlayText(session, '[data-testid="overlay-warning"]')).toBeNull()
+    await clickInOverlay(session, '[data-testid="overlay-save"]')
+    await waitForItems(panel, 1)
+  })
+
+  it('takes no click when the page takes its cover away as the pointer is pressed', async () => {
+    await markElement(session, 'h1')
+    await session.page.keyboard.type('Wider')
+    await session.page.evaluate(() =>
+      (window as unknown as { coverUntilPress(): void }).coverUntilPress(),
+    )
+    await sleep(500)
+    const { x, y } = await overlayCenter(session, '[data-testid="overlay-save"]')
+    // As long as a click takes: the browser reports the overlay seen before it ends.
+    await session.page.mouse.click(x, y, { delay: 150 })
+    await sleep(500)
+    expect(await storedCollection(panel)).toBeUndefined()
+  })
+
+  it("acts on the first click while a web component's tooltip is open elsewhere", async () => {
+    await markElement(session, 'h1')
+    await session.page.keyboard.type('Wider')
+    await sleep(700)
+    await session.page.evaluate(() => (window as unknown as { tooltip(): void }).tooltip())
+    // Its backdrop covers the whole page: the overlay puts itself on top again.
+    await sleep(1500)
+    const { x, y } = await overlayCenter(session, '[data-testid="overlay-save"]')
+    await session.page.mouse.click(x, y)
+    await waitForItems(panel, 1)
+  })
+
+  // Custom properties and `direction` are what `all: initial` on the host leaves inheritable.
+  it('keeps its look when the page sets what the overlay inherits on its host', async () => {
+    await markElement(session, 'h1')
+    await session.page.keyboard.type('Wider')
+    const realm = await contentRealm(session)
+    const look = () =>
+      realm.evaluate(() => {
+        const shadow = globalThis.__webdevOverlay?.shadow
+        const parts = ['overlay-popover', 'overlay-comment', 'overlay-mic', 'overlay-save']
+        return parts.map((id) => {
+          const el = shadow?.querySelector(`[data-testid="${id}"]`)
+          if (!el) return null
+          const s = getComputedStyle(el)
+          const r = el.getBoundingClientRect()
+          return {
+            id,
+            box: [r.x, r.y, r.width, r.height].map(Math.round),
+            css: [
+              s.backgroundColor,
+              s.color,
+              s.borderTopColor,
+              s.boxShadow,
+              s.fontSize,
+              s.direction,
+            ],
+          }
+        })
+      })
+    const names = await realm.evaluate(() => {
+      const css = [...(globalThis.__webdevOverlay?.shadow?.querySelectorAll('style') ?? [])]
+        .map((style) => style.textContent)
+        .join('')
+      return [...new Set(css.match(/--[\w-]+/g))]
+    })
+    const before = await look()
+    await session.page.evaluate((names) => {
+      const host = document.querySelector('[data-e2e-host]') as HTMLElement
+      for (const name of names) host.style.setProperty(name, 'transparent', 'important')
+      host.style.setProperty('direction', 'rtl', 'important')
+      host.style.setProperty('zoom', '0.5', 'important')
+      // Without the registrations in the head, Tailwind's variables would inherit.
+      for (const style of document.head.querySelectorAll('style')) {
+        if (style.textContent?.includes('@property')) style.remove()
+      }
+    }, names)
+    await sleep(200)
+    expect(names.length).toBeGreaterThan(50)
+    expect(await look()).toEqual(before)
+  })
+
+  it('shows its host again when the page hides it', async () => {
+    await session.page.evaluate(() =>
+      (document.querySelector('[data-e2e-host]') as HTMLElement | null)?.hidePopover(),
+    )
+    await sleep(300)
+    expect(
+      await session.page.evaluate(() =>
+        document.querySelector('[data-e2e-host]')?.matches(':popover-open'),
+      ),
+    ).toBe(true)
   })
 })

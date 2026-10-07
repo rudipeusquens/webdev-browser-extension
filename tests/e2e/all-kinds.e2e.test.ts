@@ -87,7 +87,7 @@ describe('all three marking types', () => {
     )
     expect(clipboard).toContain('# UI feedback: 3 items on 1 page')
     expect(clipboard).toContain('### 1. Element\n\n> Make it wider\n')
-    expect(clipboard).toMatch(/- Styles: display: inline-block; width: [^;]+; height: 21px;/)
+    expect(clipboard).toMatch(/- Styles: `display: inline-block; width: [^;]+; height: 21px;/)
     expect(clipboard).toContain(
       '### 2. Text\n\n> Use the brand name\n\n- Selected: "Example shop"\n',
     )

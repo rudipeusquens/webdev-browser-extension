@@ -4013,6 +4013,182 @@ with the `insertText` approach, see the decision above).
       `pnpm test:e2e`, `pnpm manifest:check`); **Step 3: commit** "Describe the everyday
       fixes".
 
+## Milestone 7b: Security review
+
+**Goal:** Fix what an independent security review of the whole extension found, each finding
+with a regression test that fails first (milestone 7).
+
+**Reviewed on 2026-10-07** at the head of milestone 7a by three fresh reviewers in parallel, by
+attack surface: the extension boundary (background, messages, side panel, permissions, the
+API key), the page boundary (overlay, capture, the main-world bridge, the prompt) and the
+supply chain (dependencies, CI, MCP, build output). Threat model: a hostile or compromised page
+(also third-party scripts on the developer's own app), another installed extension, the
+network, the supply chain; a compromised renderer or browser is out of scope (noted as
+defense in depth). Tasks 61–68 are the extension and ship in one pull request; Tasks 69–70
+change the repository's guards and CI and ship in their own pull request (`AGENTS.md`: a check
+is fixed in its own PR).
+
+**What held:** every background message is gated by sender and shape; no external messaging;
+the API key never leaves the extension origin except to OpenRouter; no HTML sinks in the panel;
+`isTrusted` on every overlay action; form values never captured; quotes and code spans in the
+prompt cannot be broken; fork pull requests get no secrets; actions pinned; the production
+build has no remote code, eval or source maps; nothing sensitive in the history.
+
+**Decisions:**
+
+- **The overlay's host is a `div`, not a custom element.** A page could define the custom
+  element name first: the overlay then got the page's element, and through
+  `ElementInternals` the page reached the closed shadow root (read and change the comment,
+  move the focus onto Delete or the mic). A built-in element runs no page code and has no
+  internals. The comment guard also requires trusted input events, and IME composition only
+  between trusted `compositionstart` and `compositionend`.
+- **The guard checks where an edit lands:** an insert keeps the text before and after the
+  selection it was announced for; a deletion removes one range that touches that selection.
+  A page's select-all plus a replay of the developer's keystroke is restored. The guard also
+  keeps the selection the developer made (taken during their own selection gestures, else
+  computed from the edits it accepted), puts it back before each key and announces each edit
+  for it: a selection the page moves first (`selectAll`, `Selection.modify()`) does not decide
+  where the developer's key lands. An input method writes where it started, a drag removes
+  only the selection, a drop removes nothing, undo and redo return only to a text the
+  developer had, and dictation goes in at the developer's selection.
+- **Invisible characters never reach the prompt:** format characters (zero-width, Unicode
+  tags, bidi controls, soft hyphen), variation selectors and filler characters are removed
+  from captured text and from comments; one zero-width (non-)joiner or presentation selector
+  attached to a character stays in captured text (Persian and Indic words, emoji sequences),
+  and stored text items are found again by their text cleaned the same way; text hidden with
+  `opacity: 0` or `font-size: 0` is not read.
+- **Page strings in the prompt are always delimited:** component names and file paths as code
+  spans (names must be identifiers, paths must end in a source extension, else dropped), the
+  title quoted, style values in a code span, the URL heading in angle brackets. The preamble
+  says that only the blockquoted lines are the developer's words.
+- **A covered overlay takes no clicks:** Save, Delete, Restore, the mic, Retry, Grant and the
+  Pin chip act only once the browser has reported them unobscured for half a second
+  (Intersection Observer v2: a cover taken away as the pointer is pressed does not count);
+  otherwise the popover says "Something on this page covers the overlay." until they are seen
+  again. The host is raised again as soon as something covers it, at most once a second (a
+  web component's popover opened later covers it, too). A page hiding the host's popover
+  re-shows it. The overlay's theme is declared inside its shadow root, with the defaults of
+  Tailwind's registered variables and a left-to-right direction: what a page sets on the host
+  does not reach it.
+- **No page-visible start signal:** the overlay uses its own content-script context without
+  WXT's `postMessage` and document event (which revealed the extension id and let a page
+  remove the overlay); a newer overlay stops the older one through the content-script
+  world's own global.
+- **Overlay questions fail closed:** `overlay:leave` and `overlay:status` wait up to 10 s; a
+  late answer to `overlay:leave` refuses Go to ("The page is busy. Try again in a moment."),
+  a late `overlay:status` counts as running.
+- **The background trusts less:** `site:remember`, `site:forget` and `tab:go` accept the panel
+  only; a page's URL is stored as its page key (no credentials, no fragment); the context
+  menu entry follows the stored option in one queue; the panel talks to the top frame only
+  and checks the overlay's site against the tab's URL; `externally_connectable` is declared
+  empty.
+- **Storage cannot be lost or filled:** a stored collection that no longer validates is kept
+  (copied aside once) and its valid pins are used, never overwritten by an empty one;
+  `unlimitedStorage` (no install warning) plus a per-site budget for pins with a clear
+  refusal; the undo history has one budget across sites, in UTF-8 bytes.
+- **OpenRouter requests** follow no redirect, send no cookies, referrer or cache, and the
+  extension pages' CSP allows connections to `openrouter.ai` only.
+- **Repository (own PR):** the denylist scan runs in its own CI job that installs nothing; the
+  MCP server runs through `pnpm dlx` (age gate and build allowlist apply); `.zip`, `.output/`,
+  `.wxt/` and `.superpowers/` are forbidden paths; a bundle check (no source maps, eval,
+  dev hosts or unknown remote hosts) runs in CI and `pnpm zip`; a pre-push hook checks
+  identities, messages, added lines and ref names of what is pushed; the history scan checks
+  every pattern, paths, author names and merges.
+
+**Known limits:** a page can still read the focused comment field through the selection
+(an extension-origin editor iframe would close that; candidate for later); a page that moves
+the field's selection during the developer's own selection gesture (a held press in the field,
+an arrow key) still chooses where the next edit lands, spelling suggestions are not checked
+against the selection, and Select All from the context menu is undone by the next key (the
+same iframe would close these); Go to opens a page without its fragment, so a hash-routed app
+opens on its default route; a page can still
+observe its own pinned ranges through `CSS.highlights`; a page can freeze itself while the
+developer points at a 1000-level-deep tree (selector search). Left for later as well: each
+"not found" report reads every site's collection (performance; done right it needs the
+missing marks stored per site), and a form dialog with a field named like a DOM method can
+keep the popover from opening there. The development build keeps WXT's own content security
+policy: its reload connects over a socket.
+
+### Task 61: A built-in host, and a stricter comment guard
+
+- Files: `src/entrypoints/overlay.content/{index.ts,comment-guard.ts,CommentPopover.vue}`,
+  `tests/fixtures/sites/{taken-name,meddling}/`, `tests/unit/comment-guard.test.ts`,
+  `tests/e2e/{activate,robustness}.e2e.test.ts`
+- [ ] **Step 1:** failing tests: a page that defines `webdev-overlay` with
+      `attachInternals()` cannot reach the shadow root and cannot add words on Enter; an
+      untrusted or unannounced composition edit is restored; a select-all replay is restored;
+      the failed-start notice still works (a page without an HTML body). **Step 2–4;**
+      **Step 5: commit.**
+
+### Task 62: Invisible characters and hidden text
+
+- Files: `src/lib/text.ts`, `src/lib/capture/reader.ts`, `src/lib/format/escape.ts`,
+  `tests/unit/{text,capture-text,format-escape}.test.ts`
+- [ ] **Step 1:** failing tests: `collapse` drops `\p{Cf}`, tags, variation selectors,
+      fillers; comments lose them in the prompt; `opacity: 0` and `font-size: 0` text is not
+      read. **Step 2–5.**
+
+### Task 63: Delimited page strings in the prompt
+
+- Files: `src/lib/format/markdown.ts`, `src/lib/capture/{origin.ts,source-attributes.ts}`,
+  `tests/unit/{format-markdown,capture-origin}.test.ts`, `tests/unit/golden/*`
+- [ ] **Step 1:** failing tests: a component name or path with `) — Note …`, a title with
+      ` · Viewport:`, a style value and a URL with instructions stay inside delimiters; names
+      that are not identifiers and paths without a source extension are dropped; the
+      preamble names the boundary. **Step 2–5.**
+
+### Task 64: A covered overlay takes no clicks
+
+- Files: `src/entrypoints/overlay.content/{CommentPopover.vue,SelectionChip.vue,top-layer.ts,
+use-unobscured.ts}`, `tests/fixtures/sites/covering/`, `tests/e2e/top-layer.e2e.test.ts`,
+  `tests/unit/overlay-start.test.ts`
+- [ ] **Step 1:** failing tests: a `pointer-events: none` popover in a closed shadow root over
+      the comment popover: a click on the mic starts nothing and the popover says why; the
+      page's `hidePopover()` on the host is undone. **Step 2–5.**
+
+### Task 65: No page-visible start signal
+
+- Files: `src/entrypoints/overlay.content/index.ts`, `tests/e2e/reactivate.e2e.test.ts`
+- [ ] **Step 1:** failing tests: the page's `message` listener never sees the extension id; a
+      forged start event leaves the overlay running; a second injection still replaces the
+      first. **Step 2–5.**
+
+### Task 66: The background trusts less
+
+- Files: `src/entrypoints/background.ts`, `src/lib/background/{ask-overlay,anchor-status}.ts`,
+  `src/lib/collection/ops.ts`, `src/entrypoints/sidepanel/{App.vue,use-*.ts}`,
+  `src/lib/settings.ts`, `wxt.config.ts`, `scripts/check-manifest.mjs`, tests
+- [ ] **Step 1:** failing tests: offscreen-URL senders refused for the three messages; late
+      answers refuse Go to and inject nothing; stored URL equals the page key; on→off toggled
+      at once leaves no menu entry; `externally_connectable` is `{ ids: [] }`. **Step 2–5.**
+
+### Task 67: Storage cannot be lost or filled
+
+- Files: `src/lib/collection/store.ts`, `src/lib/background/{writer,history}.ts`,
+  `wxt.config.ts`, `scripts/check-manifest.mjs`, tests
+- [ ] **Step 1:** failing tests: a collection with one invalid pin keeps its valid pins after an
+      add and is copied aside; adds beyond the site budget are refused with the message;
+      history across sites stays within its byte budget. **Step 2–5.**
+
+### Task 68: OpenRouter requests and the CSP
+
+- Files: `src/lib/voice/openrouter.ts`, `wxt.config.ts`, `scripts/check-manifest.mjs`,
+  `tests/e2e/harness.ts` (origin rewrite), tests
+- [ ] **Step 1:** failing tests: fetch options; manifest CSP. **Step 2–5.**
+
+### Task 69: Supply chain (own pull request)
+
+- Files: `.github/workflows/ci.yml`, `.mcp.json`, `scripts/{privacy-check,check-bundle}.mjs`
+  and tests, `.gitignore`, `package.json`, `pnpm-workspace.yaml`
+- [ ] **Step 1:** failing script tests: the secret's job installs nothing; MCP servers run
+      through pnpm with an exact version; forbidden paths; the bundle check. **Step 2–5.**
+
+### Task 70: Guards before the push (same pull request as Task 69)
+
+- Files: `.husky/pre-push`, `scripts/privacy-check.mjs` and its tests
+- [ ] **Step 1:** failing tests: a rebased commit with another committer is refused before the
+      push; history scan finds an address, a forbidden path and an author name. **Step 2–5.**
+
 ## Milestone 7: Hardening and release readiness
 
 **Goal:** Independent security review, smoke checklist, user documentation.

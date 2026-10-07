@@ -66,6 +66,21 @@ describe('transcribe', () => {
     })
   })
 
+  it('follows no redirect and sends no cookies, referrer or cached answer, also for the key test', async () => {
+    const fetch = fakeFetch(json({ text: 'Make it wider.' }))
+    await transcribe(AUDIO, REQUEST, { fetch })
+    const keyFetch = fakeFetch(json({ data: {} }))
+    await checkKey(KEY, { fetch: keyFetch })
+    for (const [, init] of [...fetch.mock.calls, ...keyFetch.mock.calls]) {
+      expect(init).toMatchObject({
+        redirect: 'error',
+        credentials: 'omit',
+        cache: 'no-store',
+        referrerPolicy: 'no-referrer',
+      })
+    }
+  })
+
   it('names the language only when it is not automatic', async () => {
     const fetch = fakeFetch(json({ text: 'Hallo.' }))
     await transcribe(AUDIO, { ...REQUEST, language: 'de' }, { fetch })
