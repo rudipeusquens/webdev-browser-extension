@@ -41,6 +41,8 @@ jobs:
       - run: pnpm manifest:check
       # What ships: no source maps, eval, dev-server code or unknown hosts.
       - run: pnpm bundle:check
+      # The installable package: built again, packed, and read back against the checked build.
+      - run: pnpm zip
       # Explicit, idempotent: with a warm pnpm store cache, puppeteer's postinstall is skipped
       # and the fresh runner would have no Chrome for Testing.
       - run: pnpm exec puppeteer browsers install chrome

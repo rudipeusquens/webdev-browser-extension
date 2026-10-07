@@ -1,7 +1,8 @@
 import assert from 'node:assert/strict'
+import { readFileSync } from 'node:fs'
 import { describe, it } from 'node:test'
 
-import { checkManifest } from './check-manifest.mjs'
+import { checkManifest, OPTIONAL_HOSTS, PERMISSIONS, SHORTCUT } from './check-manifest.mjs'
 
 const valid = () => ({
   manifest_version: 3,
@@ -128,5 +129,27 @@ describe('checkManifest', () => {
       checkManifest({ ...valid(), minimum_chrome_version: '110' }).join('\n'),
       /minimum_chrome_version/,
     )
+  })
+})
+
+describe('README', () => {
+  const readme = readFileSync(new URL('../README.md', import.meta.url), 'utf8')
+
+  it('explains the permissions and optional hosts the manifest may have, and no others', () => {
+    const lines = readme.split('\n')
+    const start = lines.findIndex((line) => /^\|\s*Permission\s*\|/.test(line))
+    assert.ok(start >= 0, 'a table headed "Permission"')
+    const rows = lines.slice(start + 2)
+    const named = rows
+      .slice(
+        0,
+        rows.findIndex((line) => !line.startsWith('|')),
+      )
+      .flatMap((row) => [...row.split('|')[1].matchAll(/`([^`]+)`/g)].map((m) => m[1]))
+    assert.deepEqual(named.sort(), [...PERMISSIONS, ...OPTIONAL_HOSTS].sort())
+  })
+
+  it('names the toolbar shortcut the manifest suggests', () => {
+    assert.ok(readme.includes(`\`${SHORTCUT}\``))
   })
 })
