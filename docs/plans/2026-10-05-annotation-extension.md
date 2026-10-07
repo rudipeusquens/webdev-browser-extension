@@ -4301,3 +4301,83 @@ a real Chrome and in Brave is the owner's, before the first release.
 `OPENROUTER_API_KEY_TEST`; section 8 uses `_execute_action` instead of an `activate` command;
 section 14 moves the tree under `src/`; milestone 4 adds the pin visibility toggle and the
 orphaned-overlay cleanup ("Reload the page").
+
+## Milestone 8a: Rec in the panel
+
+**Goal:** Dictation without a pin: **Rec** in the panel turns speech into text and puts it on
+the clipboard as it is, to paste into an agent's prompt or anywhere else.
+
+**Planned and built on 2026-10-07** at the owner's request, after milestone 7. Tasks 75–78;
+one pull request.
+
+**Decisions:**
+
+- **The same dictation:** the panel opens its own `voice` port; the background accepts it
+  from the panel's URL as it accepts a popover's from a tab's top frame, so key, model,
+  language, microphone, the two-minute limit, Retry and "one recorder at a time" are the
+  popover's. Rec needs nothing from the page and works on any tab.
+- **Raw text, nothing stored:** the transcript goes to the clipboard as it is, without a
+  header, a page or a pin; it changes no pin and is kept nowhere.
+- **Without the focus:** the text arrives seconds after the stop, often when the developer is
+  in the agent's window already. The Clipboard API refuses an unfocused document; the copy
+  command does not, in a page of an extension with `clipboardWrite` (a spike in Chrome for
+  Testing: the async write failed with "Document is not focused", the copy command wrote).
+  The panel sets the text in the copy event, so no field is selected and the focus stays.
+  When Chrome refuses anyway, the copy dialog offers the text.
+- **Rec and pins at once: never mixed; the clipboard holds what the developer did last.**
+  Rec copies only its text, Copy as prompt only pins. Pins copied while Rec's text is
+  transcribed keep the clipboard, and the dialog offers the text (selected); a dictation
+  stopped or retried after a copy of pins takes the clipboard, and Copy again brings the pins
+  back.
+- **Layout:** two rows on one grid: the modes and Rec, the filter and Pins. Rec and Pins
+  share a column of 22 % of the row (at least 36 px), 8 px from the rest; the left column
+  keeps at least its content's width. A container query hides their words below 76 px, so a
+  narrow panel shows icons. The modes and the filter items are as wide as each other where
+  there is room, and as wide as their words where there is not (in Chrome for Testing's font,
+  a 400 px panel makes Element a few pixels wider than Browse). Known limit: in a 320 px
+  panel, counts of three digits in every filter push Rec and Pins past the edge.
+- **Keys:** `Alt+V` starts and stops Rec in the panel, by the key's place as in a pin; `Esc`
+  cancels a running Rec while no dialog is open. Both are in the Settings list and the README.
+
+**Review focus for this milestone** (each line has a test in the owning task):
+
+1. A port from another page of the extension, another extension or a tab's subframe asking to
+   dictate: refused (Task 75).
+2. The text arriving after the developer left the panel: still on the clipboard (Task 77).
+3. Copy as prompt while the text is transcribed: the pins keep the clipboard, the text is
+   offered (Tasks 76, 77).
+4. Closing the panel while recording: the recorder closes, nothing is sent (Tasks 76, 77).
+5. A narrow panel with two-digit counts: nothing overflows, Rec and Pins show icons (Task 77).
+
+### Task 75: The background takes the panel's dictation
+
+- Files: `src/lib/background/voice.ts`, `src/lib/voice/protocol.ts`,
+  `tests/unit/background-voice.test.ts`, `tests/unit/helpers/fake-ports.ts`
+- [x] Failing tests: the panel dictates like a popover; a start in the panel ends a popover's
+      dictation and the other way round; other extension pages stay refused. Then the change.
+
+### Task 76: Rec in the panel
+
+- Files: `src/composables/use-voice.ts` (moved from the overlay, shared),
+  `src/entrypoints/sidepanel/{use-dictation.ts,clipboard.ts,RecButton.vue,App.vue,CopyFallbackDialog.vue}`,
+  `src/lib/shortcuts.ts`, `tests/unit/sidepanel-rec.test.ts`,
+  `tests/unit/sidepanel-clipboard.test.ts`, `tests/unit/shortcuts.test.ts`
+- [x] Failing tests: start, clock, stop; the raw text on the clipboard and no pin changed;
+      the two-minute note; no overlay needed; the dialog when the clipboard refuses; the
+      conflict rules; failures with Grant, Open settings and Retry; `Alt+V` and `Esc`; the
+      line closes with the panel. Then the composable, the button and the layout.
+
+### Task 77: End to end
+
+- Files: `tests/e2e/rec.e2e.test.ts`, `tests/e2e/panel-layout.e2e.test.ts`
+- [x] Rec with Chrome's fake microphone and the fake OpenRouter: the text on the clipboard
+      after the panel lost the focus (a focus-bound write fails this test), on a tab without
+      the overlay, the conflict with Copy as prompt, `Alt+V` and `Esc`, no key, the panel
+      closing. The layout at 320, 400 and 600 px.
+
+### Task 78: Docs and screenshots
+
+- Files: the spec (sections 3, 5, 8–12), this plan, `README.md`, `docs/smoke-test.md`,
+  `AGENTS.md`, `docs/images`
+- [x] The spec and the README describe Rec; the smoke test dictates with Rec into a real
+      agent; the screenshots are retaken.

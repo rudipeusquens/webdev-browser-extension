@@ -103,8 +103,20 @@ Settings → **Voice**:
 - [ ] `Alt+V` (`⌥V`) to start, `Esc` while recording. → The recording stops; nothing is
       inserted.
 - [ ] After a dictation, `Ctrl+Z` (`⌘Z`) in the field. → The dictated text goes out again.
-- [ ] Remove the key (bin icon), then click the mic in a popover. → "Add an OpenRouter API key
-      in settings." with **Open settings**.
+- [ ] Click **Rec** in the panel, say a sentence, click it again, and switch to your agent's
+      window at once. → **Rec** turns red with a timer while recording. Paste in the agent:
+      exactly the sentence, nothing else. The panel says "Copied dictation"; the pins are as
+      they were.
+- [ ] **Rec** on a tab where the overlay does not run (`chrome://extensions`). → It works the
+      same.
+- [ ] With an open pin: **Rec**, speak, stop, and click **Copy as prompt** while it says
+      "Transcribing…". → Pasting gives the pins' prompt; a dialog shows the dictated text,
+      selected.
+- [ ] `Alt+V` (`⌥V`) in the panel to start **Rec**, `Esc` to cancel. → Nothing is copied.
+- [ ] Narrow the side panel as far as it goes. → **Rec** and **Pins** show only their icons;
+      nothing is cut off.
+- [ ] Remove the key (bin icon), then click the mic in a popover, and **Rec**. → Both say "Add
+      an OpenRouter API key in settings." with **Open settings**.
 
 ## 7. Update in place
 

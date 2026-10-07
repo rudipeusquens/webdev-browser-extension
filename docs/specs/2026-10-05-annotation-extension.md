@@ -32,6 +32,7 @@ selector and text) and understands what should change.
 
 - Three ways to mark: **element** (click), **text** (select), **area** (drag a rectangle)
 - Comments typed or **dictated** (speech-to-text via OpenRouter, bring your own key)
+- **Rec** in the panel: a dictation without a pin, its text copied as it is, to paste anywhere
 - One collection per site (scheme, host and port), across its pages, surviving reloads, HMR,
   navigation and browser restarts
 - Copy the site's open items as Markdown to the clipboard; copied items become **done**, deleted
@@ -70,16 +71,16 @@ and **shadcn-vue**. Manifest V3, minimum Chrome version **116** (`chrome.sidePan
 
 ### Components
 
-| Unit                    | Runs in                               | Responsibility                                                                                                                                                                                                                                                                                                                                                                                                                                                                                         |
-| ----------------------- | ------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| **Background**          | service worker                        | Single writer of the sites' collections and settings in `chrome.storage.local` and of the undo history in `chrome.storage.session`; handles the action click, the keyboard command and the page's context menu entry (opens the side panel, injects the overlay); remembered sites (`chrome.permissions` + `chrome.scripting.registerContentScripts`); coordinates dictation (reads the API key and voice settings, opens and closes the recorder, relays its states to the popover) and tests the key |
-| **Overlay**             | content script, closed shadow root    | Modes, hover highlight, area drag, selection chip, comment popover with mic button, numbered pins; builds snapshots; re-anchors pins                                                                                                                                                                                                                                                                                                                                                                   |
-| **Origin bridge**       | page main world, injected per request | Reads Vue component chains (properties invisible to the isolated world) and returns them as the result of `chrome.scripting.executeScript`                                                                                                                                                                                                                                                                                                                                                             |
-| **Side panel**          | extension page                        | **Edit**: the active site's list with its filter, mode switch, copy, copy again, clear, undo and redo; **Settings**: voice, sites, keyboard shortcuts                                                                                                                                                                                                                                                                                                                                                  |
-| **Recorder**            | offscreen document (`USER_MEDIA`)     | Records microphone audio with `MediaRecorder` (`audio/webm;codecs=opus`, 32 kbit/s) and sends it to OpenRouter; keeps it for **Retry**; one document per dictation                                                                                                                                                                                                                                                                                                                                     |
-| **Mic permission page** | extension page in a tab               | One-time `getUserMedia` call so Chrome grants the microphone to the extension origin (side panel and offscreen documents cannot show the prompt)                                                                                                                                                                                                                                                                                                                                                       |
-| **Formatter**           | pure module                           | Collection → Markdown; no browser APIs                                                                                                                                                                                                                                                                                                                                                                                                                                                                 |
-| **Capture library**     | pure modules                          | Selector generation, style extraction, truncation, area element selection; DOM in, plain data out                                                                                                                                                                                                                                                                                                                                                                                                      |
+| Unit                    | Runs in                               | Responsibility                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                            |
+| ----------------------- | ------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **Background**          | service worker                        | Single writer of the sites' collections and settings in `chrome.storage.local` and of the undo history in `chrome.storage.session`; handles the action click, the keyboard command and the page's context menu entry (opens the side panel, injects the overlay); remembered sites (`chrome.permissions` + `chrome.scripting.registerContentScripts`); coordinates dictation (reads the API key and voice settings, opens and closes the recorder, relays its states to the popover or the panel's Rec) and tests the key |
+| **Overlay**             | content script, closed shadow root    | Modes, hover highlight, area drag, selection chip, comment popover with mic button, numbered pins; builds snapshots; re-anchors pins                                                                                                                                                                                                                                                                                                                                                                                      |
+| **Origin bridge**       | page main world, injected per request | Reads Vue component chains (properties invisible to the isolated world) and returns them as the result of `chrome.scripting.executeScript`                                                                                                                                                                                                                                                                                                                                                                                |
+| **Side panel**          | extension page                        | **Edit**: the active site's list with its filter, mode switch, Rec, copy, copy again, clear, undo and redo; **Settings**: voice, sites, keyboard shortcuts                                                                                                                                                                                                                                                                                                                                                                |
+| **Recorder**            | offscreen document (`USER_MEDIA`)     | Records microphone audio with `MediaRecorder` (`audio/webm;codecs=opus`, 32 kbit/s) and sends it to OpenRouter; keeps it for **Retry**; one document per dictation                                                                                                                                                                                                                                                                                                                                                        |
+| **Mic permission page** | extension page in a tab               | One-time `getUserMedia` call so Chrome grants the microphone to the extension origin (side panel and offscreen documents cannot show the prompt)                                                                                                                                                                                                                                                                                                                                                                          |
+| **Formatter**           | pure module                           | Collection → Markdown; no browser APIs                                                                                                                                                                                                                                                                                                                                                                                                                                                                                    |
+| **Capture library**     | pure modules                          | Selector generation, style extraction, truncation, area element selection; DOM in, plain data out                                                                                                                                                                                                                                                                                                                                                                                                                         |
 
 ### Data flow: annotating
 
@@ -102,7 +103,8 @@ and **shadcn-vue**. Manifest V3, minimum Chrome version **116** (`chrome.sidePan
 ### Data flow: dictating
 
 1. Mic button in the popover or `Alt+V` (trusted events only) → the popover opens a port
-   named `voice` to the background (one per popover) and sends `start`.
+   named `voice` to the background (one per popover) and sends `start`. **Rec** in the panel
+   (or `Alt+V` there) does the same on the panel's own `voice` port.
 2. Background reads the API key (none: the popover says so) and the voice settings, creates
    the offscreen recorder and sends it `start` with key, model and language over the
    recorder's own port. The recorder checks the microphone permission, records, and the
@@ -111,11 +113,13 @@ and **shadcn-vue**. Manifest V3, minimum Chrome version **116** (`chrome.sidePan
    microphone and sends the audio to OpenRouter itself: a service worker is stopped when a
    `fetch` takes longer than 30 s, a document is not. States (`recording`, `transcribing`,
    `done` with the text, `failed`) flow back through the background to the popover, which
-   inserts the text at the caret in the comment field. The recorder's heartbeat every 10 s
-   keeps the service worker alive meanwhile.
+   inserts the text at the caret in the comment field; the panel puts Rec's text on the
+   clipboard (section 8). The recorder's heartbeat every 10 s keeps the service worker alive
+   meanwhile.
 4. `Esc` while recording or transcribing cancels: nothing is sent, or the answer is dropped.
    Closing the popover, a navigation or a new overlay closes the port, which ends the
-   dictation and closes the recorder. A dictation started in another popover ends this one.
+   dictation and closes the recorder; closing the panel ends Rec's. A dictation started in
+   another popover or in the panel ends this one.
 5. A failure after recording keeps the audio in the recorder: **Retry** sends it again with
    the key and settings read anew.
 
@@ -127,7 +131,7 @@ and **shadcn-vue**. Manifest V3, minimum Chrome version **116** (`chrome.sidePan
 | `storage`                                             | collection and settings                                                    |
 | `sidePanel`                                           | the panel                                                                  |
 | `offscreen`                                           | microphone recording                                                       |
-| `clipboardWrite`                                      | copying from the panel                                                     |
+| `clipboardWrite`                                      | copying from the panel, also Rec's text once the panel has lost the focus  |
 | `contextMenus`                                        | **Annotate this page** in the page's context menu (an option in Settings)  |
 | `unlimitedStorage`                                    | no quota for the feedback; each site keeps within its own budget (4 MB)    |
 | optional host permissions `http://*/*`, `https://*/*` | requested per origin by **Always enable here**, never at install           |
@@ -514,10 +518,26 @@ while a pin's popover is open, its entry stays marked.
     Chrome takes the access back; the feedback stays), **Always enable here** on another active
     web site (asks Chrome for access to the origin, then the overlay loads there by itself),
     **Annotate this page** on a page the panel can start the overlay on.
-  - Buttons: mode switch (Browse, Element, Area) and **Pins** toggle that hides all pins (`P` on
-    the page), filling the row with 8 px between them; the filter **Open · All · + Deleted**
-    with counts. The filter is one choice for the list and the pins of every tab, kept across
-    restarts.
+  - Buttons, two rows on one grid: the mode switch (Browse, Element, Area) and **Rec**; the
+    filter **Open · All · + Deleted** with counts and the **Pins** toggle that hides all pins
+    (`P` on the page). Rec and Pins share a column that grows with the panel (22 % of the row,
+    at least 36 px), 8 px from the rest, which keeps at least the width of its words; in a cell
+    narrower than 76 px Rec and Pins show their icons only. The modes and the filter share the
+    rest of their rows, as wide as each other where there is room. The filter is one choice
+    for the list and the pins of every tab, kept across restarts.
+  - **Rec:** a dictation without a pin, for text to paste anywhere (an agent's prompt, a
+    terminal). A click or `Alt+V` in the panel starts it, another stops it; while it records
+    it is red with the clock, and `Esc` cancels it. Key, model, language, microphone and limit
+    are those of dictation in a pin (section 9); it needs nothing from the page, so it works
+    on any tab, with or without the overlay. The transcript goes to the clipboard as it is,
+    nothing added ("Copied dictation"), also when the developer has moved on to another window
+    meanwhile: the panel uses the copy command, which `clipboardWrite` allows without the focus.
+    It is not stored and changes no pin. The clipboard holds what the developer did last: pins
+    copied while the text is transcribed keep it, and a dialog offers the text, selected for
+    copying by hand; a dictation stopped or retried after a copy of pins takes it (**Copy
+    again** brings the pins back). Failures show in the footer's red line in the popover's
+    words, with **Retry**, **Grant** or **Open settings**. Closing the panel ends Rec; a
+    dictation started in a pin ends it, and Rec ends one in a pin.
   - List of the active site only, grouped by page and set apart by a line (current page first,
     with **This page** before its path). Headings show the path; with **Show page titles** in
     Settings the page's title too. Another page's path on the web is its Go to link: it opens
@@ -531,13 +551,13 @@ while a pin's popover is open, its entry stays marked.
     that site's pins are read. Actions: **Copy** (open: that pin
     as the prompt; it becomes done and is what Copy again copies), **Reopen** (done),
     **Restore** (deleted), **Delete** (open and done).
-  - Footer: notes and refusals above the buttons ("Copied 3 pins"), so its padding is the same
-    on every side; **Copy as prompt** on its own row (the site's open pins, which then become
-    done), below it **Copy again** (the pins of the site's last copy that were not deleted
-    since; changes nothing) and **Clear all** (every open and done pin of the site moves to
-    Deleted at once; undoable). Once only deleted pins are left, **Empty bin** takes the place
-    of Clear all: after a confirmation it removes them for good (undoable until the browser
-    closes). Both carry the bin icon.
+  - Footer: notes and refusals above the buttons ("Copied 3 pins", "Copied dictation", Rec's
+    failures), so its padding is the same on every side; **Copy as prompt** on its own row
+    (the site's open pins, which then become done), below it **Copy again** (the pins of the
+    site's last copy that were not deleted since; changes nothing) and **Clear all** (every
+    open and done pin of the site moves to Deleted at once; undoable). Once only deleted pins
+    are left, **Empty bin** takes the place of Clear all: after a confirmation it removes them
+    for good (undoable until the browser closes). Both carry the bin icon.
   - Without a site (the overlay does not answer on the tab), the middle of the view says how to
     start it, or offers **Annotate this page** where the panel can; no list. Empty states sit in
     the middle of the list area: "No feedback yet: pick an element, drag an area, or select
@@ -588,9 +608,10 @@ select-parent), ClickUp and Air comment pins with a side list.
   can edit before saving. `Ctrl+Z` (`⌘Z`) takes the dictated text out again and `Ctrl+Shift+Z`
   puts it back, while nothing else changed the field. The text is set as a whole, not as an
   edit of the field: the page's listeners see the input events of edits and would read it.
-- **Retry:** after a failed request the audio stays in the recorder until the popover
-  closes, so **Retry** does not require speaking again; it reads the key and the settings
-  again, so a fixed key works at once.
+  Rec copies the transcript instead (section 8).
+- **Retry:** after a failed request the audio stays in the recorder until the popover (or,
+  for Rec, the panel) closes, so **Retry** does not require speaking again; it reads the key
+  and the settings again, so a fixed key works at once.
 - **Messages:** 401 "Invalid API key", 402 "Out of credits", 429 "Rate limited, try again",
   400/404/422 "Transcription failed: " and OpenRouter's own message (one line, at most 200
   characters, text only) with **Open settings** (most often a model OpenRouter does not know), 5xx "Transcription failed", no answer within 65 s "Transcription
@@ -641,13 +662,15 @@ select-parent), ClickUp and Air comment pins with a side list.
 | A reload or a navigation by the page while the popover holds unsaved text                                                                               | Known limit: the text is lost; the overlay does not hold up the page's own navigation.                                                                                                                                                                                                                                                                                                     |
 | Toolbar, shortcut, context menu or Annotate this page where the overlay runs already                                                                    | It is not started again: the open popover, the mode and the session's marks stay. An overlay that does not answer within a second (orphaned, a busy page) counts as none.                                                                                                                                                                                                                  |
 | An entry is clicked while its target is not rendered (a closed menu)                                                                                    | Its popover opens in the middle of the viewport with "hidden" in its header and moves next to the target once that is rendered.                                                                                                                                                                                                                                                            |
-| Voice: no key                                                                                                                                           | The popover says "Add an OpenRouter API key in settings." with **Open settings**, which opens the panel on its settings.                                                                                                                                                                                                                                                                   |
+| Voice: no key                                                                                                                                           | The popover (for Rec, the panel's footer) says "Add an OpenRouter API key in settings." with **Open settings**, which opens the panel on its settings.                                                                                                                                                                                                                                     |
 | Voice: microphone not granted or no device                                                                                                              | "Allow the microphone first." with **Grant** (opens the permission page), "The microphone is blocked for this extension." with **Grant** (the page says how to allow it), or "No microphone found."                                                                                                                                                                                        |
 | Voice: 401 / 402 / 429 / 5xx / timeout / offline                                                                                                        | Inline message (section 9) with **Retry**, which sends the kept audio again.                                                                                                                                                                                                                                                                                                               |
-| Voice: popover closed, page navigated or overlay replaced while recording or transcribing                                                               | The port closes: the recording is dropped or the request aborted, the recorder closes and releases the microphone; nothing is inserted.                                                                                                                                                                                                                                                    |
-| Voice: a second popover starts dictating                                                                                                                | The first dictation ends, also one that only holds a recording for **Retry**; its popover says "Another dictation started, this one ended."                                                                                                                                                                                                                                                |
+| Voice: popover closed, page navigated or overlay replaced while recording or transcribing                                                               | The port closes: the recording is dropped or the request aborted, the recorder closes and releases the microphone; nothing is inserted. The same when the panel closes during Rec.                                                                                                                                                                                                         |
+| Voice: another popover or the panel starts dictating                                                                                                    | The first dictation ends, also one that only holds a recording for **Retry**; its popover (or the panel) says "Another dictation started, this one ended."                                                                                                                                                                                                                                 |
 | Voice: service worker stopped mid-dictation (it should not be: the recorder's heartbeat keeps it)                                                       | The popover says "Recording stopped unexpectedly."; the recorder sees its port close and drops everything.                                                                                                                                                                                                                                                                                 |
 | Voice: empty transcript                                                                                                                                 | "No speech detected."                                                                                                                                                                                                                                                                                                                                                                      |
+| Rec: pins copied while its text is transcribed                                                                                                          | The pins' prompt stays on the clipboard; a dialog offers the text, selected for copying by hand.                                                                                                                                                                                                                                                                                           |
+| Rec: the clipboard refuses the text                                                                                                                     | The same dialog, saying the clipboard was not available.                                                                                                                                                                                                                                                                                                                                   |
 
 ## 11. Security
 
@@ -736,9 +759,10 @@ select-parent), ClickUp and Air comment pins with a side list.
 - **API key:** see section 9. The OpenRouter key pattern (`sk-or-v1-…`) is added to the secret
   scanners of this repository.
 - **Dictation:** the popover starts a recording only on a trusted click or key. The background
-  accepts the popover's `voice` port only from the top frame of a tab and the recorder's port
-  only from `offscreen.html`; the panel's voice and key messages only from the panel's URL;
-  `voice:grant` and `voice:settings` only from the top frame of a tab. OpenRouter's error
+  accepts a `voice` port only from the top frame of a tab (a popover) or from the panel's URL
+  (Rec), and the recorder's port only from `offscreen.html`; the panel's voice and key
+  messages only from the panel's URL; `voice:grant` and `voice:settings` only from the top
+  frame of a tab. OpenRouter's error
   text is shown as text only, cut to one line. Requests go only to `openrouter.ai`, follow no
   redirect and send no cookies, referrer or cached answer, and the content security policy
   allows no other connection; test
@@ -771,7 +795,8 @@ deliberate bug hunt.
      copy → clipboard equals the expected Markdown; remember and forget a site (with a test
      copy of the build that grants localhost, since Chrome's prompt cannot be automated); voice with
      Chrome's fake microphone (`--use-file-for-fake-audio-capture`) against a local fake
-     OpenRouter (test builds only; production builds always use `https://openrouter.ai`); the
+     OpenRouter (test builds only; production builds always use `https://openrouter.ai`), in a
+     popover and with Rec (its text on the clipboard after the panel lost the focus); the
      review loop on two sites at once: copy → done → copy again → undo → redo, delete from the
      popover and restore, jump from the list to an item on another page
 3. **Live voice test** (`pnpm test:live`): runs only locally when `OPENROUTER_API_KEY_TEST` is set in
