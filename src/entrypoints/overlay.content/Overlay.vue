@@ -29,6 +29,7 @@ import {
   type PanelMessage,
   type PinsPointed,
   type Reply,
+  UNSAVED_PIN,
 } from '@/lib/messages'
 import { createAnchorStatus } from './anchor-status'
 import CommentPopover from './CommentPopover.vue'
@@ -62,6 +63,8 @@ const props = defineProps<{ host: HTMLElement; layer: Layer }>()
 // Containers that script focus traps (Radix, reka-ui, focus-trap) usually guard.
 const TRAP = '[aria-modal="true"], [role="dialog"], [role="alertdialog"]'
 const FOCUS_TAKEN = 'This page took the focus. Click into the comment field to continue.'
+/** What the popover says when a click asks for another one while it holds unsaved text. */
+const KEEP_DRAFT = 'Save or cancel this pin first.'
 /** Smaller drags are clicks, not areas. */
 const MIN_AREA = 4
 /**
@@ -107,6 +110,10 @@ const mode = ref<Mode>('browse')
 const path = shallowRef<TargetPath | null>(null)
 const hovered = shallowRef<Element | null>(null)
 const draft = shallowRef<Draft | null>(null)
+// Whether the open popover holds something closing it would lose (the popover says so), and a
+// counter that gives its field the focus again.
+const unsaved = ref(false)
+const nudge = ref(0)
 const highlighted = ref<string | null>(null)
 // The panel or the P key can hide the pins, until they show them again or the overlay
 // restarts.
@@ -427,13 +434,27 @@ function containForComment(el: Element) {
 
 watch(draft, (current, previous) => {
   if (!current && previous) props.layer.contain(null)
+  if (!current) unsaved.value = false
 })
+
+/**
+ * Keeps the open popover while it holds unsaved text: it says why and takes the focus. Only
+ * `Esc`, Cancel or Save close it then. True when it stays.
+ */
+function keepsDraft(): boolean {
+  const current = draft.value
+  if (!current || !unsaved.value) return false
+  draft.value = { ...current, error: KEEP_DRAFT }
+  nudge.value++
+  return true
+}
 
 /** Opens the popover for a new item or an edit. */
 function openDraft(next: Omit<Draft, 'key' | 'busy'>): number {
   chip.value = null
   containForComment(next.el)
   const key = ++drafts
+  unsaved.value = false
   draft.value = { ...next, key, busy: false }
   return key
 }
@@ -534,11 +555,21 @@ function openEdit(id: string): boolean {
   return true
 }
 
-function reveal(id: string): boolean {
+/**
+ * Scrolls to an item and opens its popover. Its own open popover stays as it is; another one
+ * stays while it holds unsaved text ('kept').
+ */
+function reveal(id: string): 'shown' | 'kept' | 'missing' {
   const placement = placements.value.get(id)
-  if (!placement) return false
+  if (draft.value?.edit?.id === id) {
+    placement?.el.scrollIntoView({ block: 'center', inline: 'nearest' })
+    nudge.value++
+    return 'shown'
+  }
+  if (keepsDraft()) return 'kept'
+  if (!placement) return 'missing'
   placement.el.scrollIntoView({ block: 'center', inline: 'nearest' })
-  return openEdit(id)
+  return openEdit(id) ? 'shown' : 'missing'
 }
 
 // A reveal that came before its item was placed (the panel jumped to this page): it happens
@@ -546,13 +577,17 @@ function reveal(id: string): boolean {
 let wanted: string | null = null
 let wantedTimer: ReturnType<typeof setTimeout> | undefined
 
-function revealSoon(id: string): boolean {
+/** The panel's click on an entry: refused only while the open popover holds unsaved text. */
+function revealSoon(id: string): Reply {
   clearTimeout(wantedTimer)
   wanted = null
-  if (reveal(id)) return true
-  wanted = id
-  wantedTimer = setTimeout(() => (wanted = null), REVEAL_WAIT)
-  return false
+  const shown = reveal(id)
+  if (shown === 'kept') return { ok: false, error: UNSAVED_PIN }
+  if (shown === 'missing') {
+    wanted = id
+    wantedTimer = setTimeout(() => (wanted = null), REVEAL_WAIT)
+  }
+  return { ok: true }
 }
 
 watch(placements, (placed) => {
@@ -643,7 +678,10 @@ async function changeStatus(type: 'annotation:remove' | 'annotation:restore') {
 }
 
 function onPinClick(e: MouseEvent, id: string) {
-  if (e.isTrusted) openEdit(id)
+  if (!e.isTrusted) return
+  // Its popover is open already: it stays as it is.
+  if (draft.value?.edit?.id === id) nudge.value++
+  else if (!keepsDraft()) openEdit(id)
 }
 
 function cancel() {
@@ -813,10 +851,12 @@ const onMessage: Parameters<typeof browser.runtime.onMessage.addListener>[0] = (
       sendResponse({ ok: true } satisfies Reply)
       return
     case 'overlay:reveal':
+      sendResponse(revealSoon(message.id))
+      return
+    case 'overlay:leave':
+      // Go to: the page stays while the open popover holds unsaved text.
       sendResponse(
-        (revealSoon(message.id)
-          ? { ok: true }
-          : { ok: false, error: 'Not found on this page yet.' }) satisfies Reply,
+        (keepsDraft() ? { ok: false, error: UNSAVED_PIN } : { ok: true }) satisfies Reply,
       )
       return
   }
@@ -963,10 +1003,12 @@ onBeforeUnmount(() => {
       :busy="draft.busy"
       :error="draft.error"
       :frame="frame"
+      :nudge="nudge"
       @save="save"
       @cancel="cancel"
       @remove="changeStatus('annotation:remove')"
       @restore="changeStatus('annotation:restore')"
+      @unsaved="unsaved = $event"
     />
   </div>
 </template>

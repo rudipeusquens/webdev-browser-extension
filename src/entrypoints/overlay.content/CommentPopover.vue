@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { ArchiveRestoreIcon, LoaderCircleIcon, Trash2Icon, XIcon } from '@lucide/vue'
-import { computed, nextTick, onBeforeUnmount, onMounted, ref, useTemplateRef } from 'vue'
+import { computed, nextTick, onBeforeUnmount, onMounted, ref, useTemplateRef, watch } from 'vue'
 import { browser } from 'wxt/browser'
 import { Button } from '@/components/ui/button'
 import { LIMITS, type Rect, type Status } from '@/lib/collection/model'
@@ -27,9 +27,18 @@ const props = defineProps<{
   busy?: boolean
   /** Changes whenever positions may have changed (see use-tracking.ts). */
   frame?: number
+  /** Changes when the overlay keeps this popover open for its unsaved text: the field takes the focus. */
+  nudge?: number
 }>()
 
-const emit = defineEmits<{ save: [comment: string]; cancel: []; remove: []; restore: [] }>()
+const emit = defineEmits<{
+  save: [comment: string]
+  cancel: []
+  remove: []
+  restore: []
+  /** Whether closing now would lose something: a changed comment, or a dictation. */
+  unsaved: [unsaved: boolean]
+}>()
 
 const guard = new CommentGuard(props.initial ?? '')
 const text = ref(guard.verified)
@@ -65,6 +74,17 @@ const failure = computed(() => {
     settings: now.error === 'no-key' || now.error === 'invalid-key',
   }
 })
+// Spaces at the ends are not saved, so they change nothing.
+const unsaved = computed(() => {
+  const now = voice.state.value
+  const held = now.state === 'failed' && now.retry
+  return text.value.trim() !== (props.initial ?? '').trim() || voice.busy.value || held
+})
+watch(unsaved, (now) => emit('unsaved', now), { immediate: true })
+watch(
+  () => props.nudge,
+  () => field.value?.focus({ preventScroll: true }),
+)
 const position = computed(() => {
   void props.frame
   const { x, y } = placeNear(props.rect, size.value, {

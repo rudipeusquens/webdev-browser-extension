@@ -20,6 +20,7 @@ import { Button } from '@/components/ui/button'
 import { Toggle } from '@/components/ui/toggle'
 import { ToggleGroup, ToggleGroupItem } from '@/components/ui/toggle-group'
 import { groupByPage } from '@/lib/collection/ops'
+import { isObject } from '@/lib/collection/validate'
 import { formatCollection } from '@/lib/format/markdown'
 import {
   type BackgroundMessage,
@@ -27,6 +28,7 @@ import {
   MODES,
   type OverlayMessage,
   type Reply,
+  UNSAVED_PIN,
 } from '@/lib/messages'
 import { isSiteOrigin, originPattern } from '@/lib/settings'
 import EmptyBinDialog from './EmptyBinDialog.vue'
@@ -191,8 +193,8 @@ function toBackground(message: BackgroundMessage) {
 const panelError = ref('')
 
 /**
- * A change of the site's items: its refusal is shown, its success clears the last one. True
- * when it was made.
+ * A change of the site's items, or Go to: its refusal is shown, its success clears the last
+ * one. True when it was made.
  */
 async function change(
   message: BackgroundMessage,
@@ -320,7 +322,7 @@ function emptySiteBin() {
 function goTo(pageKey: string) {
   cancelJump()
   if (tabId.value === undefined) return
-  toBackground({ type: 'tab:go', tabId: tabId.value, pageKey })
+  void change({ type: 'tab:go', tabId: tabId.value, pageKey })
 }
 
 const { pointed } = useOverlayLines(tabId, status)
@@ -344,8 +346,24 @@ function jumpTo(pageKey: string, id: string) {
   cancelJump()
   const tab = tabId.value
   if (tab === undefined) return
-  toBackground({ type: 'tab:go', tabId: tab, pageKey })
-  jump = { tab, pageKey, id, timer: setTimeout(cancelJump, JUMP_WAIT) }
+  // Set before the page loads: its overlay may answer before Go to does.
+  const pending = { tab, pageKey, id, timer: setTimeout(cancelJump, JUMP_WAIT) }
+  jump = pending
+  void change({ type: 'tab:go', tabId: tab, pageKey }).then((went) => {
+    if (!went && jump === pending) cancelJump()
+  })
+}
+
+/**
+ * Opens a pin on the tab's page. The overlay refuses only while its popover holds unsaved
+ * text: that is shown, as a refused change is, until something works.
+ */
+async function showPin(id: string) {
+  if (tabId.value === undefined) return
+  const message: OverlayMessage = { type: 'overlay:reveal', id }
+  const reply: unknown = await browser.tabs.sendMessage(tabId.value, message).catch(() => undefined)
+  if (isObject(reply) && reply.ok === false) panelError.value = UNSAVED_PIN
+  else if (isObject(reply) && reply.ok === true) panelError.value = ''
 }
 
 watch(status, (now) => {
@@ -353,12 +371,12 @@ watch(status, (now) => {
   if (tabId.value !== jump.tab || now.pageKey !== jump.pageKey) return
   const { id } = jump
   cancelJump()
-  toOverlay({ type: 'overlay:reveal', id })
+  void showPin(id)
 })
 
 function reveal(id: string) {
   cancelJump()
-  toOverlay({ type: 'overlay:reveal', id })
+  void showPin(id)
 }
 
 function setPins(visible: boolean) {

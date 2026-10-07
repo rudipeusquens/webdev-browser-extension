@@ -102,6 +102,41 @@ describe('CommentPopover', () => {
     expect(wrapper.text()).toContain('New pin')
   })
 
+  it('reports unsaved text: any for a new pin, a change for an existing one', async () => {
+    const fresh = mount(CommentPopover, { props: { rect, label: 'button' } })
+    await nextTick()
+    expect(fresh.emitted('unsaved')?.at(-1)).toEqual([false])
+    await type(fresh.get('textarea').element as HTMLTextAreaElement, 'insertText', ' ')
+    expect(fresh.emitted('unsaved')?.at(-1)).toEqual([false])
+    await type(fresh.get('textarea').element as HTMLTextAreaElement, 'insertText', 'W')
+    expect(fresh.emitted('unsaved')?.at(-1)).toEqual([true])
+
+    const edit = mount(CommentPopover, { props: { rect, label: 'button', initial: 'Old' } })
+    await nextTick()
+    const field = edit.get('textarea').element as HTMLTextAreaElement
+    expect(edit.emitted('unsaved')?.at(-1)).toEqual([false])
+    await type(field, 'insertText', ' ')
+    expect(edit.emitted('unsaved')?.at(-1)).toEqual([false])
+    await type(field, 'insertText', '!')
+    expect(edit.emitted('unsaved')?.at(-1)).toEqual([true])
+    await type(field, 'deleteContentBackward', null)
+    expect(field.value).toBe('Old ')
+    expect(edit.emitted('unsaved')?.at(-1)).toEqual([false])
+  })
+
+  it('takes the focus back when nudged', async () => {
+    const wrapper = mount(CommentPopover, {
+      props: { rect, label: 'button', initial: 'Mine' },
+      attachTo: document.body,
+    })
+    await nextTick()
+    await nextTick()
+    ;(wrapper.get('[data-testid="overlay-save"]').element as HTMLElement).focus()
+    await wrapper.setProps({ nudge: 1 })
+    expect(document.activeElement).toBe(wrapper.get('textarea').element)
+    wrapper.unmount()
+  })
+
   it('renders the target label as text', () => {
     const wrapper = mount(CommentPopover, { props: { rect, label: '<img src=x>' } })
     expect(wrapper.find('img').exists()).toBe(false)
@@ -113,6 +148,14 @@ describe('CommentPopover', () => {
 function trusted<T extends Event>(event: T): T {
   Object.defineProperty(event, 'isTrusted', { get: () => true })
   return event
+}
+/** A typed edit as the browser makes it: a trusted beforeinput, then the input. */
+async function type(field: HTMLTextAreaElement, inputType: string, data: string | null) {
+  const init = { bubbles: true, cancelable: true, inputType, data }
+  field.dispatchEvent(trusted(new InputEvent('beforeinput', init)))
+  field.value = inputType.startsWith('delete') ? field.value.slice(0, -1) : field.value + data
+  field.dispatchEvent(trusted(new InputEvent('input', init)))
+  await nextTick()
 }
 const click = (el: Element) => el.dispatchEvent(trusted(new MouseEvent('click', { bubbles: true })))
 const press = (el: Element, init: KeyboardEventInit) =>
@@ -249,6 +292,20 @@ describe('CommentPopover: dictation', () => {
     expect(field().selectionStart).toBe(17)
     click(get('overlay-save').element)
     expect(wrapper.emitted('save')).toEqual([['Fix this and that, please']])
+  })
+
+  it('reports a running dictation and a held recording as unsaved', async () => {
+    const { get, wrapper, receive } = open({ initial: 'Keep' })
+    await nextTick()
+    const last = () => wrapper.emitted('unsaved')?.at(-1)
+    expect(last()).toEqual([false])
+    click(get('overlay-mic').element)
+    await receive({ state: 'recording', limit: 120_000 })
+    expect(last()).toEqual([true])
+    await receive({ state: 'failed', error: 'offline', retry: true })
+    expect(last()).toEqual([true])
+    await receive({ state: 'failed', error: 'no-speech', retry: false })
+    expect(last()).toEqual([false])
   })
 
   it('cancels a running recording on Esc and keeps the comment open', async () => {
