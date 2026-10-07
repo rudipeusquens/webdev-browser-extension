@@ -1,8 +1,8 @@
 {
   "mcpServers": {
     "shadcn": {
-      "command": "npx",
-      "args": ["-y", "shadcn@4.21.0", "mcp"]
+      "command": "pnpm",
+      "args": ["--silent", "dlx", "shadcn@4.21.0", "mcp"]
     }
   }
 }

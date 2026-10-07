@@ -5,14 +5,14 @@
   "description": "Chrome extension that turns highlights and comments on a web page into a prompt for an AI coding agent.",
   "license": "MIT",
   "type": "module",
-  "packageManager": "pnpm@11.6.0",
+  "packageManager": "pnpm@11.6.0+sha512.9a36518224080c6fe5165afdcfe79bfa118c29be703f3f462b1e32efe1e98e47e8750b148e08286250aad4113cc7993ca413c4e2cd447752708c2ee5751bc95f",
   "engines": {
     "node": ">=22.13.0"
   },
   "scripts": {
     "dev": "wxt",
     "build": "wxt build",
-    "zip": "wxt zip",
+    "zip": "wxt zip && node scripts/check-manifest.mjs && node scripts/check-bundle.mjs",
     "compile": "vue-tsc --noEmit",
     "postinstall": "wxt prepare",
     "prepare": "husky",
@@ -26,6 +26,7 @@
     "privacy:check": "node scripts/privacy-check.mjs --all",
     "check": "pnpm lint && pnpm format:check && pnpm compile && pnpm test && pnpm secrets:check && pnpm privacy:check",
     "manifest:check": "node scripts/check-manifest.mjs",
+    "bundle:check": "node scripts/check-bundle.mjs",
     "test:e2e": "vitest run --config vitest.e2e.config.ts",
     "test:live": "vitest run --config vitest.live.config.ts",
     "voice:fixtures": "node --env-file=.env scripts/voice-fixtures.mjs"

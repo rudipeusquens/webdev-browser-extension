@@ -18,6 +18,9 @@ build/
 # pages, the personal-data denylist (docs/public-repo-policy.md).
 .private/
 
+# Workspaces of coding agents (plans in progress, review packages)
+.superpowers/
+
 # Network captures and logs (contain real URLs, cookies, headers)
 *.har
 *.log
