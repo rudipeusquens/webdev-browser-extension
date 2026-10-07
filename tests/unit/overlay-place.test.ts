@@ -30,6 +30,20 @@ describe('placeNear', () => {
     expect(y + size.height).toBeLessThanOrEqual(viewport.height - 8)
   })
 
+  it('goes to the middle, a third from the top, for a target without a box (not rendered)', () => {
+    expect(placeNear({ x: 0, y: 0, width: 0, height: 0 }, size, viewport)).toEqual({
+      x: 356,
+      y: 213,
+    })
+  })
+
+  it('stays next to a rendered target without height, such as a wrapper of floats', () => {
+    expect(placeNear({ x: 40, y: 600, width: 120, height: 0 }, size, viewport)).toEqual({
+      x: 40,
+      y: 608,
+    })
+  })
+
   it('keeps the margin when the popover is wider than the viewport', () => {
     expect(
       placeNear({ x: 50, y: 0, width: 10, height: 10 }, size, { width: 200, height: 800 }).x,

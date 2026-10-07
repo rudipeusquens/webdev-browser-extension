@@ -65,15 +65,21 @@ function place(item: Annotation, anchor: LiveAnchor | undefined, doc: Document) 
       const dx = target.rect.x - target.container.box.x
       const dy = target.rect.y - target.container.box.y
       const { width, height } = target.rect
-      return {
-        el,
-        rect: () => {
-          const box = boxOf(el)
-          return { x: box.x + dx, y: box.y + dy, width, height }
-        },
-      }
+      return { el, rect: () => areaIn(boxOf(el), dx, dy, width, height) }
     }
   }
+}
+
+/** A box that is not rendered (`display: none`, a closed menu): no size at all. */
+export const notRendered = (r: Rect) => r.width === 0 && r.height === 0
+
+/**
+ * An area `dx`, `dy` inside the container's box `box`; without a box while the container is
+ * not rendered, as an element's own target would be.
+ */
+export function areaIn(box: Rect, dx: number, dy: number, width: number, height: number): Rect {
+  if (notRendered(box)) return { x: 0, y: 0, width: 0, height: 0 }
+  return { x: box.x + dx, y: box.y + dy, width, height }
 }
 
 /**
@@ -230,6 +236,16 @@ export function linesOf(range: Range, viewportHeight: number): { rect: Rect; lin
       ? { x: 0, y: 0, width: 0, height: 0 }
       : { x: left, y: top, width: right - left, height: bottom - top }
   return { rect, lines }
+}
+
+/** Whether any of `rect` lies within `bounds`, edges included: also a box without a size. */
+export function inBounds(rect: Rect, bounds: Rect): boolean {
+  return (
+    rect.x + rect.width >= bounds.x &&
+    rect.x <= bounds.x + bounds.width &&
+    rect.y + rect.height >= bounds.y &&
+    rect.y <= bounds.y + bounds.height
+  )
 }
 
 /** The part of the viewport that `clippers` let through, or null when nothing is visible. */

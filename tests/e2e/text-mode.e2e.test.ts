@@ -7,6 +7,7 @@ import {
   centerOf,
   clickInOverlay,
   dragSelect,
+  overlayCenter,
   overlayMounted,
   sleep,
   storedCollection,
@@ -237,6 +238,67 @@ describe('marking text', () => {
     await waitInOverlay(session, POPOVER, false)
     expect(await inOverlay(HIGHLIGHT)).toBe(false)
     expect((await storedCollection(panel))?.items.length ?? 0).toBe(0)
+  })
+
+  it('hides the chip while its selection is scrolled out of view, and shows it again', async () => {
+    await dragSelect(session.page, 'h3', 'Email')
+    await waitInOverlay(session, CHIP)
+    await session.page.evaluate(() => window.scrollTo({ top: 1500, behavior: 'instant' }))
+    await waitInOverlay(session, CHIP, false)
+    await session.page.evaluate(() => window.scrollTo({ top: 0, behavior: 'instant' }))
+    await waitInOverlay(session, CHIP)
+  })
+
+  it('hides the chip of a selection scrolled out of its scroll container', async () => {
+    await session.page.goto(`${server.origin}/plain/`)
+    panel = await clickAction(session)
+    await overlayMounted(session)
+    await dragSelect(session.page, '.scroll-box p', 'Scrollable')
+    await waitInOverlay(session, CHIP)
+    await session.page.$eval('.scroll-box', (el) => el.scrollTo({ top: 200, behavior: 'instant' }))
+    await waitInOverlay(session, CHIP, false)
+    await session.page.$eval('.scroll-box', (el) => el.scrollTo({ top: 0, behavior: 'instant' }))
+    await waitInOverlay(session, CHIP)
+  })
+
+  it('hides the chip while its selection is not rendered', async () => {
+    await dragSelect(session.page, 'h3', 'Email')
+    await waitInOverlay(session, CHIP)
+    await session.page.$eval('.prefs', (el) => ((el as HTMLElement).style.display = 'none'))
+    await waitInOverlay(session, CHIP, false)
+    await session.page.$eval('.prefs', (el) => ((el as HTMLElement).style.display = ''))
+    await waitInOverlay(session, CHIP)
+  })
+
+  it('offers the chip for a selection released over a pin', async () => {
+    await dragSelect(session.page, '#intro', 'contact you')
+    await comment('Friendlier wording')
+    const pin = await overlayCenter(session, '[data-testid="overlay-pin"]')
+    const { start } = await textEnds(session.page, '#intro', 'Choose')
+    await session.page.mouse.move(start.x, start.y)
+    await session.page.mouse.down()
+    await session.page.mouse.move(pin.x, pin.y, { steps: 8 })
+    await session.page.mouse.up()
+    await waitInOverlay(session, CHIP)
+  })
+
+  it('brings no chip back after a pin was clicked with text selected', async () => {
+    await dragSelect(session.page, '#intro', 'contact you')
+    await comment('Friendlier wording')
+    await dragSelect(session.page, 'h3', 'Email')
+    await waitInOverlay(session, CHIP)
+    await clickInOverlay(session, '[data-testid="overlay-pin"]')
+    await waitInOverlay(session, POPOVER)
+    await sleep(200)
+    await session.page.keyboard.press('Escape')
+    await waitInOverlay(session, POPOVER, false)
+    await expectNoChip()
+  })
+
+  it('brings no chip back for a selection that was pinned', async () => {
+    await dragSelect(session.page, 'h3', 'Email')
+    await comment('Shorter')
+    await expectNoChip()
   })
 
   it('keeps the chip off in element mode', async () => {

@@ -10,6 +10,7 @@ import { pageInfo, snapshotElement } from '@/lib/capture/snapshot'
 import {
   type CapturedText,
   chipAnchor,
+  firstShownCharacter,
   rangeContainer,
   sameRange,
   selectionRange,
@@ -29,6 +30,7 @@ import {
   type PanelMessage,
   type PinsPointed,
   type Reply,
+  UNSAVED_PIN,
 } from '@/lib/messages'
 import { createAnchorStatus } from './anchor-status'
 import CommentPopover from './CommentPopover.vue'
@@ -38,11 +40,14 @@ import { type Origins, readOrigins, sourcesOf, within, withOrigins } from './ori
 import { pageShortcut } from './keys'
 import { forwardsWheel, isEditable, pickAt, TargetPath, wheelTarget } from './picker'
 import {
+  areaIn,
   boxOf,
   clippersOf,
+  inBounds,
   isLiveRange,
   type LiveAnchor,
   linesOf,
+  notRendered,
   outlineBox,
   pinPositions,
   placeItems,
@@ -62,6 +67,8 @@ const props = defineProps<{ host: HTMLElement; layer: Layer }>()
 // Containers that script focus traps (Radix, reka-ui, focus-trap) usually guard.
 const TRAP = '[aria-modal="true"], [role="dialog"], [role="alertdialog"]'
 const FOCUS_TAKEN = 'This page took the focus. Click into the comment field to continue.'
+/** What the popover says when a click asks for another one while it holds unsaved text. */
+const KEEP_DRAFT = 'Save or cancel this pin first.'
 /** Smaller drags are clicks, not areas. */
 const MIN_AREA = 4
 /**
@@ -85,7 +92,8 @@ interface Draft {
   rect: () => Rect
   /** A selected text, drawn line by line. */
   range?: Range
-  label: string
+  /** The popover's header for the target's box now: its size, or that it is not rendered. */
+  label: (rect: Rect) => string
   busy: boolean
   error?: string
   /** A new item: taken when it was marked, what was true at that moment. */
@@ -101,19 +109,24 @@ interface Draft {
   edit?: { id: string; number: number; comment: string; status: Status }
 }
 
-// This overlay, for the panel: a second toolbar click starts a new one on the same tab.
+// This overlay, for the panel: a new injection (after an update, or where this one did not
+// answer) starts a new one on the same tab.
 const instance = newId()
 const mode = ref<Mode>('browse')
 const path = shallowRef<TargetPath | null>(null)
 const hovered = shallowRef<Element | null>(null)
 const draft = shallowRef<Draft | null>(null)
+// Whether the open popover holds something closing it would lose (the popover says so), and a
+// counter that gives its field the focus again.
+const unsaved = ref(false)
+const nudge = ref(0)
 const highlighted = ref<string | null>(null)
 // The panel or the P key can hide the pins, until they show them again or the overlay
 // restarts.
 const pinsShown = ref(true)
-// The page's selection the Comment chip offers to comment on (browse mode), and the
-// character the chip sits under.
-const chip = shallowRef<{ range: Range; anchor: Range } | null>(null)
+// The page's selection the Pin chip offers to pin (browse mode), the character the chip sits
+// under, and the first one the selection shows.
+const chip = shallowRef<{ range: Range; anchor: Range; start: Range | null } | null>(null)
 // The rectangle being dragged in area mode, in viewport coordinates.
 const drag = shallowRef<{ from: { x: number; y: number }; to: { x: number; y: number } } | null>(
   null,
@@ -145,10 +158,12 @@ function rectOf(el: Element): Rect {
   return boxOf(el)
 }
 
+/** A box's size, or "hidden" for a target that is not rendered (a closed menu). */
+const sizeOf = (r: Rect) =>
+  notRendered(r) ? 'hidden' : `${Math.round(r.width)}×${Math.round(r.height)}`
+
 const describe = (el: Element, r: Rect, component?: string | null) =>
-  [tagOf(el), component, `${Math.round(r.width)}×${Math.round(r.height)}`]
-    .filter(Boolean)
-    .join(' · ')
+  [tagOf(el), component, sizeOf(r)].filter(Boolean).join(' · ')
 
 // The innermost component of elements looked up while hovering, for the label. A WeakMap is
 // not reactive: `componentsSeen` changes whenever an entry is added.
@@ -199,12 +214,40 @@ const draftRect = computed(() => {
   void frame.value
   return draftText.value?.rect ?? draft.value?.rect() ?? null
 })
+const draftLabel = computed(() =>
+  draftRect.value ? (draft.value?.label(draftRect.value) ?? '') : '',
+)
+/** The target being commented on is rendered: it gets a marking (a closed menu has none). */
+const draftShown = computed(() => !!draftRect.value && !notRendered(draftRect.value))
+// The scroll containers and clipping boxes around the chip's selection: looked up once per
+// selection, measured on every frame.
+const chipClippers = computed(() => {
+  const anchor = chip.value?.anchor
+  return anchor ? clippersOf(rangeContainer(anchor), true) : []
+})
 const chipLine = computed(() => {
   void frame.value
   const anchor = chip.value?.anchor
   if (!anchor || mode.value !== 'browse' || draft.value) return null
   const r = anchor.getBoundingClientRect()
-  return { x: r.x, y: r.y, width: r.width, height: r.height }
+  const line = { x: r.x, y: r.y, width: r.width, height: r.height }
+  // The page hid the selection's end (a menu closed): it would sit in the corner.
+  if (notRendered(line)) return null
+  // From the first character to the last: a long selection keeps its chip at the edge while
+  // any of it is in view.
+  const s = chip.value?.start?.getBoundingClientRect() ?? r
+  const x = Math.min(r.x, s.x)
+  const y = Math.min(r.y, s.y)
+  const span = {
+    x,
+    y,
+    width: Math.max(r.right, s.right) - x,
+    height: Math.max(r.bottom, s.bottom) - y,
+  }
+  const viewport = { x: 0, y: 0, width: window.innerWidth, height: window.innerHeight }
+  // Scrolled out of view or out of its box: no chip, until the selection is back.
+  const bounds = visibleBounds(chipClippers.value, viewport)
+  return bounds && inBounds(span, bounds) ? line : null
 })
 
 /** The items of this page that the filter shows: only they are placed and pinned. */
@@ -427,13 +470,27 @@ function containForComment(el: Element) {
 
 watch(draft, (current, previous) => {
   if (!current && previous) props.layer.contain(null)
+  if (!current) unsaved.value = false
 })
+
+/**
+ * Keeps the open popover while it holds unsaved text: it says why and takes the focus. Only
+ * `Esc`, Cancel or Save close it then. True when it stays.
+ */
+function keepsDraft(): boolean {
+  const current = draft.value
+  if (!current || !unsaved.value) return false
+  draft.value = { ...current, error: KEEP_DRAFT }
+  nudge.value++
+  return true
+}
 
 /** Opens the popover for a new item or an edit. */
 function openDraft(next: Omit<Draft, 'key' | 'busy'>): number {
   chip.value = null
   containForComment(next.el)
   const key = ++drafts
+  unsaved.value = false
   draft.value = { ...next, key, busy: false }
   return key
 }
@@ -465,7 +522,7 @@ function select(el: Element | null) {
     rect: () => boxOf(el),
     target,
     live: el,
-    label: describe(el, boxOf(el), componentOf(el)),
+    label: (r) => describe(el, r, componentOf(el)),
     ...asked,
   })
   // The popover names the component once it is known.
@@ -473,7 +530,7 @@ function select(el: Element | null) {
     const component = origin?.chain.at(-1)?.name
     const current = draft.value
     if (component && current?.key === key) {
-      draft.value = { ...current, label: describe(el, current.rect(), component) }
+      draft.value = { ...current, label: (r) => describe(el, r, component) }
     }
   })
 }
@@ -494,26 +551,25 @@ function selectArea(rect: Rect) {
   openDraft({
     kind: 'area',
     el: container,
-    rect: () => {
-      const box = boxOf(container)
-      return { x: box.x + dx, y: box.y + dy, width: rect.width, height: rect.height }
-    },
+    rect: () => areaIn(boxOf(container), dx, dy, rect.width, rect.height),
     target,
     live: container,
-    label: labelOf(target, container, rect),
+    label: labelOf(target, container),
     ...marking(target, [container, ...elements]),
   })
 }
 
-/** Short description of an item's target for the popover header. */
-function labelOf(target: Target, el: Element, rect: Rect): string {
+/** Short description of an item's target for the popover header, for its box now. */
+function labelOf(target: Target, el: Element): (rect: Rect) => string {
   switch (target.kind) {
     case 'element':
-      return describe(el, rect)
-    case 'text':
-      return `"${truncate(target.selected, 24)}"`
+      return (r) => describe(el, r)
+    case 'text': {
+      const quoted = `"${truncate(target.selected, 24)}"`
+      return (r) => (notRendered(r) ? `${quoted} · hidden` : quoted)
+    }
     case 'area':
-      return `area · ${Math.round(rect.width)}×${Math.round(rect.height)}`
+      return (r) => `area · ${sizeOf(r)}`
   }
 }
 
@@ -528,17 +584,27 @@ function openEdit(id: string): boolean {
     el,
     rect,
     range,
-    label: labelOf(item.target, el, rect()),
+    label: labelOf(item.target, el),
     edit: { id, number: item.number, comment: item.comment, status: item.status },
   })
   return true
 }
 
-function reveal(id: string): boolean {
+/**
+ * Scrolls to an item and opens its popover. Its own open popover stays as it is; another one
+ * stays while it holds unsaved text ('kept').
+ */
+function reveal(id: string): 'shown' | 'kept' | 'missing' {
   const placement = placements.value.get(id)
-  if (!placement) return false
+  if (draft.value?.edit?.id === id) {
+    placement?.el.scrollIntoView({ block: 'center', inline: 'nearest' })
+    nudge.value++
+    return 'shown'
+  }
+  if (keepsDraft()) return 'kept'
+  if (!placement) return 'missing'
   placement.el.scrollIntoView({ block: 'center', inline: 'nearest' })
-  return openEdit(id)
+  return openEdit(id) ? 'shown' : 'missing'
 }
 
 // A reveal that came before its item was placed (the panel jumped to this page): it happens
@@ -546,13 +612,17 @@ function reveal(id: string): boolean {
 let wanted: string | null = null
 let wantedTimer: ReturnType<typeof setTimeout> | undefined
 
-function revealSoon(id: string): boolean {
+/** The panel's click on an entry: refused only while the open popover holds unsaved text. */
+function revealSoon(id: string): Reply {
   clearTimeout(wantedTimer)
   wanted = null
-  if (reveal(id)) return true
-  wanted = id
-  wantedTimer = setTimeout(() => (wanted = null), REVEAL_WAIT)
-  return false
+  const shown = reveal(id)
+  if (shown === 'kept') return { ok: false, error: UNSAVED_PIN }
+  if (shown === 'missing') {
+    wanted = id
+    wantedTimer = setTimeout(() => (wanted = null), REVEAL_WAIT)
+  }
+  return { ok: true }
 }
 
 watch(placements, (placed) => {
@@ -566,7 +636,8 @@ watch(placements, (placed) => {
 /**
  * Offers the chip for the page's selection after the user let go of the mouse or a key: a
  * selection the page makes by script gets none. The check waits a frame, until the
- * selection has settled.
+ * selection has settled. Releases inside the overlay reach the window as the host's and are
+ * not checked, except over a pin (its own listener): a selection dragged onto a pin.
  */
 function onRelease(e: Event) {
   if (!e.isTrusted || e.target === props.host || mode.value !== 'browse' || draft.value) return
@@ -574,7 +645,7 @@ function onRelease(e: Event) {
   chipCheck = requestAnimationFrame(() => {
     const range = selectionRange(document)
     const anchor = range && chipAnchor(range)
-    chip.value = range && anchor ? { range, anchor } : null
+    chip.value = range && anchor ? { range, anchor, start: firstShownCharacter(range) } : null
   })
 }
 
@@ -615,7 +686,7 @@ function commentOnSelection() {
     range: read,
     target,
     live: read,
-    label: labelOf(target, el, rect()),
+    label: labelOf(target, el),
     ...marking(target, [el]),
   })
 }
@@ -643,7 +714,10 @@ async function changeStatus(type: 'annotation:remove' | 'annotation:restore') {
 }
 
 function onPinClick(e: MouseEvent, id: string) {
-  if (e.isTrusted) openEdit(id)
+  if (!e.isTrusted) return
+  // Its popover is open already: it stays as it is.
+  if (draft.value?.edit?.id === id) nudge.value++
+  else if (!keepsDraft()) openEdit(id)
 }
 
 function cancel() {
@@ -813,10 +887,12 @@ const onMessage: Parameters<typeof browser.runtime.onMessage.addListener>[0] = (
       sendResponse({ ok: true } satisfies Reply)
       return
     case 'overlay:reveal':
+      sendResponse(revealSoon(message.id))
+      return
+    case 'overlay:leave':
+      // Go to: the page stays while the open popover holds unsaved text.
       sendResponse(
-        (revealSoon(message.id)
-          ? { ok: true }
-          : { ok: false, error: 'Not found on this page yet.' }) satisfies Reply,
+        (keepsDraft() ? { ok: false, error: UNSAVED_PIN } : { ok: true }) satisfies Reply,
       )
       return
   }
@@ -831,7 +907,12 @@ const panels = new Set<Browser.runtime.Port>()
 
 /** What the pins point at, by id only: the panel marks the entries (spec section 8). */
 function pointedNow(): PinsPointed {
-  return { type: 'pins:pointed', hovered: hoveredPin.value, open: draft.value?.edit?.id ?? null }
+  return {
+    type: 'pins:pointed',
+    hovered: hoveredPin.value,
+    open: draft.value?.edit?.id ?? null,
+    popover: draft.value !== null,
+  }
 }
 
 function tellPanels(message: PinsPointed) {
@@ -844,7 +925,9 @@ function tellPanels(message: PinsPointed) {
   }
 }
 
-watch([hoveredPin, () => draft.value?.edit?.id ?? null], () => tellPanels(pointedNow()))
+watch([hoveredPin, () => draft.value?.edit?.id ?? null, () => draft.value !== null], () =>
+  tellPanels(pointedNow()),
+)
 
 const onConnect: Parameters<typeof browser.runtime.onConnect.addListener>[0] = (port) => {
   if (port.name !== 'panel' || port.sender?.id !== browser.runtime.id) return
@@ -858,7 +941,7 @@ const onConnect: Parameters<typeof browser.runtime.onConnect.addListener>[0] = (
     setMode('browse')
   })
   const now = pointedNow()
-  if (now.hovered || now.open) tellPanels(now)
+  if (now.hovered || now.open || now.popover) tellPanels(now)
 }
 
 const RELEASES = ['pointerup', 'mouseup', 'keyup'] as const
@@ -931,6 +1014,7 @@ onBeforeUnmount(() => {
       :class="pin.tone"
       :style="{ left: pin.left, top: pin.top }"
       :aria-label="`Edit pin ${pin.number}`"
+      @pointerup="onRelease"
       @mouseenter="hoveredPin = pin.id"
       @mouseleave="hoveredPin = null"
       @click="onPinClick($event, pin.id)"
@@ -939,7 +1023,7 @@ onBeforeUnmount(() => {
     </button>
     <TextHighlight v-if="draftText" :boxes="draftText.lines" :status="editStatus" />
     <HoverBox
-      v-else-if="draftRect"
+      v-else-if="draftRect && draftShown"
       :rect="draftRect"
       :tone="draft?.kind === 'area' ? 'area' : 'selected'"
       :status="editStatus"
@@ -956,17 +1040,19 @@ onBeforeUnmount(() => {
       v-if="draft && draftRect"
       :key="draft.key"
       :rect="draftRect"
-      :label="draft.label"
+      :label="draftLabel"
       :initial="draft.edit?.comment"
       :number="draft.edit?.number"
       :status="draft.edit?.status"
       :busy="draft.busy"
       :error="draft.error"
       :frame="frame"
+      :nudge="nudge"
       @save="save"
       @cancel="cancel"
       @remove="changeStatus('annotation:remove')"
       @restore="changeStatus('annotation:restore')"
+      @unsaved="unsaved = $event"
     />
   </div>
 </template>

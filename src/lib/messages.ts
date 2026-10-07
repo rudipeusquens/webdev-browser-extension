@@ -119,13 +119,18 @@ const isIdList = (x: unknown): x is string[] =>
 /** Most selectors one `origin:read` asks for: an area's container and its elements. */
 export const MAX_ORIGIN_SELECTORS = LIMITS.areaElements + 1
 
-/** Side panel → overlay of the active tab. */
+/**
+ * Side panel → overlay of the active tab; `overlay:status` and `overlay:leave` also come from
+ * the background. `overlay:reveal` and `overlay:leave` are refused while the open popover holds
+ * unsaved text: Go to asks with `overlay:leave` before the tab navigates.
+ */
 export type OverlayMessage =
   | { type: 'overlay:status' }
   | { type: 'overlay:set-mode'; mode: Mode }
   | { type: 'overlay:highlight'; id: string | null }
   | { type: 'overlay:reveal'; id: string }
   | { type: 'overlay:set-pins'; visible: boolean }
+  | { type: 'overlay:leave' }
 
 /**
  * Overlay → side panel: something the panel shows has changed; ask again. It names the overlay,
@@ -151,16 +156,23 @@ export type PanelAway = { type: 'panel:away' }
  * Overlay → side panel, on the line the panel keeps to it: the pin under the pointer and the
  * item whose popover is open, by id only (spec section 8).
  */
-export type PinsPointed = { type: 'pins:pointed'; hovered: string | null; open: string | null }
+export type PinsPointed = {
+  type: 'pins:pointed'
+  hovered: string | null
+  open: string | null
+  /** Whether a popover is open, also a new pin's: the panel drops its refusal once it closes. */
+  popover: boolean
+}
 
 const isIdOrNull = (x: unknown) => x === null || isAnnotationId(x)
 
 export function isPinsPointed(x: unknown): x is PinsPointed {
   return (
-    hasKeys(x, ['type', 'hovered', 'open']) &&
+    hasKeys(x, ['type', 'hovered', 'open', 'popover']) &&
     x.type === 'pins:pointed' &&
     isIdOrNull(x.hovered) &&
-    isIdOrNull(x.open)
+    isIdOrNull(x.open) &&
+    typeof x.popover === 'boolean'
   )
 }
 
@@ -173,11 +185,14 @@ export interface OverlayStatus {
   mode: Mode
   /** Whether the pins are shown. */
   pins: boolean
-  /** Random id of this overlay: a second toolbar click starts a new one on the same tab. */
+  /** Random id of this overlay: a new injection starts a new one on the same tab. */
   instance: string
 }
 
 export type Reply = { ok: true } | { ok: false; error: string }
+
+/** Why the overlay keeps its popover: the panel shows it when Go to or a click is refused. */
+export const UNSAVED_PIN = 'Save or cancel the open pin first.'
 
 /** Background → side panels: the key was saved or removed; read it again (never its value). */
 export type KeyChanged = { type: 'voice:key:changed' }
@@ -282,6 +297,7 @@ export function isOverlayMessage(x: unknown): x is OverlayMessage {
   if (!isObject(x)) return false
   switch (x.type) {
     case 'overlay:status':
+    case 'overlay:leave':
       return hasKeys(x, ['type'])
     case 'overlay:set-mode':
       return hasKeys(x, ['type', 'mode']) && isMode(x.mode)

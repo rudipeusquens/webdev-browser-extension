@@ -1,6 +1,7 @@
 import { browser, type Browser } from 'wxt/browser'
 import { defineBackground } from 'wxt/utils/define-background'
 import { createAnchorStore, forgetMissing } from '@/lib/background/anchor-status'
+import { overlayLetsGo, overlayRuns } from '@/lib/background/ask-overlay'
 import { goTo } from '@/lib/background/go-to'
 import { readOrigins } from '@/lib/background/origins'
 import { createSites, OVERLAY_SCRIPT } from '@/lib/background/sites'
@@ -20,6 +21,7 @@ import {
   type PanelToggle,
   type PanelView,
   type Reply,
+  UNSAVED_PIN,
 } from '@/lib/messages'
 import { isSiteOrigin, loadSettings, originPattern } from '@/lib/settings'
 import { VIEW_KEY } from '@/lib/view'
@@ -49,9 +51,14 @@ export default defineBackground(() => {
     return tab.id !== undefined && tab.id >= 0 ? tab.id : undefined
   }
 
+  /**
+   * Starts the overlay where none runs: one that answers keeps its open popover, its mode and
+   * what was marked in this session.
+   */
   function start(tabId: number) {
     void clearFailed(tabId).catch(() => undefined)
-    inject(tabId)
+    overlayRuns(tabId)
+      .then((runs) => (runs ? undefined : inject(tabId)))
       // Restricted pages (chrome://, Web Store) refuse injection; the panel says so.
       .then(
         () => clearBlocked(tabId),
@@ -68,7 +75,7 @@ export default defineBackground(() => {
   async function startFromPanel(tabId: number): Promise<Reply> {
     await clearFailed(tabId).catch(() => undefined)
     try {
-      await inject(tabId)
+      if (!(await overlayRuns(tabId))) await inject(tabId)
     } catch {
       return {
         ok: false,
@@ -182,6 +189,8 @@ export default defineBackground(() => {
     if (!page || !origin || !isSiteOrigin(origin)) {
       return { ok: false, error: 'This page cannot be opened from here.' }
     }
+    // Not over a popover's unsaved text: the overlay keeps it and says so.
+    if (!(await overlayLetsGo(tabId))) return { ok: false, error: UNSAVED_PIN }
     return goTo(tabId, page.url, await sites.isRemembered(origin))
   }
 

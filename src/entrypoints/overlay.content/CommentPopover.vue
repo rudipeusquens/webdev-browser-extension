@@ -1,10 +1,11 @@
 <script setup lang="ts">
 import { ArchiveRestoreIcon, LoaderCircleIcon, Trash2Icon, XIcon } from '@lucide/vue'
-import { computed, nextTick, onBeforeUnmount, onMounted, ref, useTemplateRef } from 'vue'
+import { computed, nextTick, onBeforeUnmount, onMounted, ref, useTemplateRef, watch } from 'vue'
 import { browser } from 'wxt/browser'
 import { Button } from '@/components/ui/button'
 import { LIMITS, type Rect, type Status } from '@/lib/collection/model'
 import type { BackgroundMessage } from '@/lib/messages'
+import { currentPlatform, isMacPlatform, panelKey } from '@/lib/shortcuts'
 import { voiceErrorText } from '@/lib/voice/protocol'
 import { CommentGuard } from './comment-guard'
 import { popoverKey } from './keys'
@@ -27,9 +28,18 @@ const props = defineProps<{
   busy?: boolean
   /** Changes whenever positions may have changed (see use-tracking.ts). */
   frame?: number
+  /** Changes when the overlay keeps this popover open for its unsaved text: the field takes the focus. */
+  nudge?: number
 }>()
 
-const emit = defineEmits<{ save: [comment: string]; cancel: []; remove: []; restore: [] }>()
+const emit = defineEmits<{
+  save: [comment: string]
+  cancel: []
+  remove: []
+  restore: []
+  /** Whether closing now would lose something: a changed comment, or a dictation. */
+  unsaved: [unsaved: boolean]
+}>()
 
 const guard = new CommentGuard(props.initial ?? '')
 const text = ref(guard.verified)
@@ -62,9 +72,21 @@ const failure = computed(() => {
     text: voiceErrorText(now.error, now.detail),
     retry: now.retry,
     grant: now.error === 'mic-not-granted' || now.error === 'mic-blocked',
-    settings: now.error === 'no-key' || now.error === 'invalid-key',
+    // A refused request is most often a model OpenRouter does not know.
+    settings: now.error === 'no-key' || now.error === 'invalid-key' || now.error === 'rejected',
   }
 })
+// Spaces at the ends are not saved, so they change nothing.
+const unsaved = computed(() => {
+  const now = voice.state.value
+  const held = now.state === 'failed' && now.retry
+  return text.value.trim() !== (props.initial ?? '').trim() || voice.busy.value || held
+})
+watch(unsaved, (now) => emit('unsaved', now), { immediate: true })
+watch(
+  () => props.nudge,
+  () => field.value?.focus({ preventScroll: true }),
+)
 const position = computed(() => {
   void props.frame
   const { x, y } = placeNear(props.rect, size.value, {
@@ -87,21 +109,50 @@ function onInput(e: Event) {
   else restore(el)
 }
 
+/**
+ * The field before and after the last dictation, while nothing else changed it: Ctrl+Z (⌘Z)
+ * takes the dictated text out, Ctrl+Shift+Z puts it back. The text is set as a whole, not as
+ * an edit of the field: a page sees the input events of edits, and would read what was
+ * dictated. So the browser's own undo does not know it.
+ */
+let dictated: { before: string; after: string; from: number; caret: number } | null = null
+const mac = isMacPlatform(currentPlatform())
+
+/** Sets the field to `value` as the overlay's own edit, with the caret at `caret`. */
+function setText(el: HTMLTextAreaElement, value: string, caret: number) {
+  el.value = value
+  guard.accept(value)
+  text.value = value
+  el.setSelectionRange(caret, caret)
+}
+
+function undoDictation(e: KeyboardEvent): boolean {
+  const el = field.value
+  if (!dictated || !el || e.target !== el) return false
+  const key = panelKey(e, mac)
+  if (key === 'undo' && el.value === dictated.after) setText(el, dictated.before, dictated.from)
+  else if (key === 'redo' && el.value === dictated.before)
+    setText(el, dictated.after, dictated.caret)
+  else return false
+  e.preventDefault()
+  return true
+}
+
 /** The dictated text goes in at the caret; the field keeps what was typed meanwhile. */
 voice.onText((transcript, atLimit) => {
   const el = field.value
   if (!el) return
+  const before = guard.verified
+  const from = Math.min(el.selectionStart, before.length)
   const { value, caret, cut } = insertTranscript(
-    guard.verified,
+    before,
     el.selectionStart,
     el.selectionEnd,
     transcript,
   )
-  el.value = value
-  guard.accept(value)
-  text.value = value
   el.focus({ preventScroll: true })
-  el.setSelectionRange(caret, caret)
+  setText(el, value, caret)
+  dictated = value === before ? null : { before, after: value, from, caret }
   notice.value = [
     atLimit ? 'Recording stopped after 2 minutes.' : '',
     cut
@@ -135,6 +186,7 @@ function save() {
 }
 
 function onKeydown(e: KeyboardEvent) {
+  if (undoDictation(e)) return
   const action = popoverKey(e)
   // Enter saves from the field; on a focused button it presses that button.
   if (!action || (action === 'save' && e.target !== field.value)) return

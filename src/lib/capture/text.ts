@@ -119,9 +119,21 @@ export function chipAnchor(range: Range): Range | null {
     // Text before the start of the range is not part of the selection.
     return range.comparePoint(char.startContainer, char.startOffset) >= 0 ? char : null
   }
+  return firstShownCharacter(range)
+}
+
+/**
+ * The first character the range shows, within the same bounded walk; null when it shows no
+ * text there. With the chip's anchor, it tells whether any of a long selection is in view
+ * without measuring all of it.
+ */
+export function firstShownCharacter(range: Range): Range | null {
+  const doc = documentOf(range.startContainer)
+  const view = doc.defaultView
+  if (range.collapsed || !view) return null
   const ahead = readForward(
-    reader,
-    root,
+    new TextReader(view, true),
+    range.commonAncestorContainer,
     range.startContainer,
     range.startOffset,
     untilEndOf(range),

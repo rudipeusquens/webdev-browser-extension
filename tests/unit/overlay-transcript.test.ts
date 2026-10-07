@@ -43,6 +43,21 @@ describe('insertTranscript', () => {
     )
   })
 
+  it('adds no space after an opening bracket or quote', () => {
+    expect(insertTranscript('Say (', 5, 5, 'hello').value).toBe('Say (hello')
+    expect(insertTranscript('Use [', 5, 5, 'x').value).toBe('Use [x')
+    expect(insertTranscript('Use {', 5, 5, 'x').value).toBe('Use {x')
+    expect(insertTranscript('He said "', 9, 9, 'wow').value).toBe('He said "wow')
+    expect(insertTranscript('"', 1, 1, 'wow').value).toBe('"wow')
+    expect(insertTranscript('Sie sagte „', 11, 11, 'gut').value).toBe('Sie sagte „gut')
+    expect(insertTranscript("it's '", 6, 6, 'odd').value).toBe("it's 'odd")
+    // A quote after a word closes it, guillemets too (German »…«, French «…»).
+    expect(insertTranscript('a "word"', 8, 8, 'next').value).toBe('a "word" next')
+    expect(insertTranscript('»gut«', 5, 5, 'und').value).toBe('»gut« und')
+    expect(insertTranscript('le «mot»', 8, 8, 'et').value).toBe('le «mot» et')
+    expect(insertTranscript('Er sagte «', 10, 10, 'ja').value).toBe('Er sagte «ja')
+  })
+
   it('replaces a selection', () => {
     expect(insertTranscript('Make it red please', 8, 11, 'blue')).toEqual({
       value: 'Make it blue please',
