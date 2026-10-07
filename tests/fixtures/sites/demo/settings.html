@@ -1,0 +1,46 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <title>Settings · Shop</title>
+    <link rel="stylesheet" href="demo.css" />
+  </head>
+  <!--
+    A made-up app for the README's screenshots (pnpm screenshots): the settings page of a
+    shop, with the typo and the uneven cards the README's prompt example talks about.
+    components.js gives its elements Vue component data with made-up source paths.
+  -->
+  <body>
+    <header class="bar">
+      <span class="brand">Shop</span>
+      <nav>
+        <a href="#products">Products</a>
+        <a href="#orders">Orders</a>
+        <a href="#settings" class="current">Settings</a>
+      </nav>
+    </header>
+    <main id="settings">
+      <h1>Settings</h1>
+      <section class="panel">
+        <h2>Profile</h2>
+        <form id="profile">
+          <label>Name <input name="name" value="Alex Example" /></label>
+          <label>Email <input name="email" value="alex@example.com" /></label>
+          <div class="actions">
+            <button type="submit" class="h-12 px-6 rounded-md bg-primary">Save changes</button>
+          </div>
+        </form>
+      </section>
+      <section class="panel prefs">
+        <h2>Notifications</h2>
+        <h3>Manage your Email notifcations and alerts for new orders.</h3>
+      </section>
+      <section class="features">
+        <div class="card"><strong>Fast setup</strong><span>Ready in minutes.</span></div>
+        <div class="card"><strong>Secure</strong><span>Encrypted backups.</span></div>
+        <div class="card wide"><strong>Support</strong><span>Help when you need it.</span></div>
+      </section>
+    </main>
+    <script src="components.js"></script>
+  </body>
+</html>
