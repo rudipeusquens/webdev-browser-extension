@@ -8,10 +8,12 @@ import type { Annotation, Collection, PageInfo } from '../collection/model'
 
 export const HISTORY_LIMIT = 50
 /**
- * Most characters of one site's history: storage.session (10 MB) also holds the missing items,
- * the tab status and the panel's view, which must always find room.
+ * Most UTF-8 bytes of one site's history, and of all sites' together: storage.session (10 MB)
+ * also holds the missing items, the tab status and the panel's view, which must always find
+ * room.
  */
 export const HISTORY_BYTES = 1_000_000
+export const HISTORY_TOTAL = 4_000_000
 export const HISTORY_PREFIX = 'history:'
 export const LABELS_PREFIX = 'historyLabels:'
 
@@ -113,6 +115,40 @@ export function applyStep(c: Collection, step: Step, to: Side): Collection | nul
 
 const historyKey = (site: string) => `${HISTORY_PREFIX}${site}`
 const labelsKey = (site: string) => `${LABELS_PREFIX}${site}`
+/** When each site's history was last saved: the least recent goes first when all are too big. */
+const SAVED_KEY = 'historySaved'
+
+const bytes = (x: unknown) => new TextEncoder().encode(JSON.stringify(x)).length
+
+/**
+ * The sites whose histories go so that `size` more bytes for `site` keep all of them within
+ * HISTORY_TOTAL: the least recently saved first.
+ */
+async function overBudget(
+  site: string,
+  size: number,
+): Promise<{ gone: string[]; saved: Record<string, number> }> {
+  const all = await browser.storage.session.get(null)
+  const stored = all[SAVED_KEY]
+  const saved: Record<string, number> =
+    typeof stored === 'object' && stored !== null ? { ...(stored as Record<string, number>) } : {}
+  const others = Object.entries(all)
+    .filter(([key]) => key.startsWith(HISTORY_PREFIX) && key !== historyKey(site))
+    .map(([key, value]) => {
+      const other = key.slice(HISTORY_PREFIX.length)
+      return { site: other, size: bytes(value), at: Number(saved[other]) || 0 }
+    })
+    .sort((a, b) => a.at - b.at)
+  let total = size + others.reduce((sum, other) => sum + other.size, 0)
+  const gone: string[] = []
+  for (const other of others) {
+    if (total <= HISTORY_TOTAL) break
+    gone.push(other.site)
+    total -= other.size
+    delete saved[other.site]
+  }
+  return { gone, saved }
+}
 
 const isHistory = (x: unknown): x is History =>
   typeof x === 'object' &&
@@ -146,15 +182,22 @@ export async function saveHistory(site: string, h: History): Promise<void> {
     undo: h.undo.slice(-HISTORY_LIMIT),
     redo: h.redo.slice(-HISTORY_LIMIT),
   }
-  while (kept.undo.length + kept.redo.length > 0 && JSON.stringify(kept).length > HISTORY_BYTES) {
+  while (kept.undo.length + kept.redo.length > 0 && bytes(kept) > HISTORY_BYTES) {
     kept = withoutOldest(kept)
   }
   if (kept.undo.length + kept.redo.length === 0) return forgetHistory(site)
+  const { gone, saved } = await overBudget(site, bytes(kept))
+  if (gone.length > 0) {
+    await browser.storage.session.remove(
+      gone.flatMap((other) => [historyKey(other), labelsKey(other)]),
+    )
+  }
   for (;;) {
     try {
       await browser.storage.session.set({
         [historyKey(site)]: kept,
         [labelsKey(site)]: labelsOf(kept),
+        [SAVED_KEY]: { ...saved, [site]: Date.now() },
       })
       return
     } catch {
