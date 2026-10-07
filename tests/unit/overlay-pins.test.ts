@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import {
+  inBounds,
   linesOf,
   outlineBox,
   clippersOf,
@@ -137,6 +138,18 @@ describe('placeItems: areas', () => {
     const found = placeItems([item], new Map(), document)
     expect(found.get('a')?.el).toBe($('main'))
     expect(found.get('a')?.rect()).toEqual({ x: 120, y: 90, width: 300, height: 100 })
+  })
+
+  it('has no box while its container is not rendered', () => {
+    boxes.set($('main'), { x: 0, y: 0, width: 0, height: 0 })
+    const item = area(
+      'a',
+      'main',
+      { x: 120, y: 640, width: 300, height: 100 },
+      { x: 100, y: 600, width: 800, height: 400 },
+    )
+    const found = placeItems([item], new Map(), document)
+    expect(found.get('a')?.rect()).toEqual({ x: 0, y: 0, width: 0, height: 0 })
   })
 
   it('prefers the container marked in this session', () => {
@@ -364,5 +377,21 @@ describe('linesOf', () => {
       rect: { x: 0, y: 0, width: 0, height: 0 },
       lines: [],
     })
+  })
+})
+
+describe('inBounds', () => {
+  const bounds = { x: 0, y: 100, width: 400, height: 80 }
+
+  it('is true for a box inside or overlapping the bounds, also at their edge', () => {
+    expect(inBounds({ x: 10, y: 120, width: 8, height: 16 }, bounds)).toBe(true)
+    expect(inBounds({ x: 390, y: 170, width: 20, height: 20 }, bounds)).toBe(true)
+    expect(inBounds({ x: 50, y: 180, width: 0, height: 0 }, bounds)).toBe(true)
+  })
+
+  it('is false for a box above, below or beside the bounds', () => {
+    expect(inBounds({ x: 10, y: 60, width: 8, height: 16 }, bounds)).toBe(false)
+    expect(inBounds({ x: 10, y: 200, width: 8, height: 16 }, bounds)).toBe(false)
+    expect(inBounds({ x: 420, y: 120, width: 8, height: 16 }, bounds)).toBe(false)
   })
 })

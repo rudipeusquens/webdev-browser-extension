@@ -143,6 +143,41 @@ describe('marking an area', () => {
     expect(overflowing).toEqual([])
   })
 
+  it("opens a hidden container's area in the middle, as a hidden element", async () => {
+    await areaMode()
+    const { from, to } = await aroundCards()
+    await drag(from, to)
+    await session.page.mouse.up()
+    await waitInOverlay(session, POPOVER)
+    await session.page.keyboard.type('Cards')
+    await session.page.keyboard.press('Enter')
+    await waitForItems(panel, 1)
+    await waitInOverlay(session, POPOVER, false)
+    await session.page.keyboard.press('Escape')
+    await session.page.$eval('.features', (el) => ((el as HTMLElement).style.display = 'none'))
+    await panel.click('[data-testid="item"] button')
+    await waitInOverlay(session, POPOVER)
+    await sleep(200)
+    const realm = await contentRealm(session)
+    const shown = await realm.evaluate(() => {
+      const shadow = globalThis.__webdevOverlay?.shadow
+      const card = shadow?.querySelector('[data-testid="overlay-popover"]')
+      const r = card?.getBoundingClientRect()
+      return {
+        middle: r ? r.x + r.width / 2 : -1,
+        width: innerWidth,
+        header: card?.querySelector('p > span:last-child')?.textContent?.trim(),
+        marked: !!shadow?.querySelector('[data-testid="overlay-hover"]'),
+        pins: shadow?.querySelectorAll('[data-testid="overlay-pin"]').length,
+      }
+    })
+    expect(Math.abs(shown.middle - shown.width / 2)).toBeLessThanOrEqual(1)
+    expect(shown.header).toBe('area · hidden')
+    expect(shown.marked).toBe(false)
+    expect(shown.pins).toBe(0)
+    await session.page.keyboard.press('Escape')
+  })
+
   it('opens the saved area again from its pin', async () => {
     await areaMode()
     const { from, to } = await aroundCards()

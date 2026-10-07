@@ -2,6 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { codePoints } from '@/lib/collection/validate'
 import {
   chipAnchor,
+  firstShownCharacter,
   rangeContainer,
   sameRange,
   selectionRange,
@@ -373,5 +374,25 @@ describe('readForward', () => {
       100,
     )
     expect(join(read.pieces)).toBe('')
+  })
+})
+
+describe('firstShownCharacter', () => {
+  it('is the first character the range shows, past white space and hidden content', () => {
+    document.body.innerHTML = '<div><p>  <script>var x</script> Starts here.</p><p>End</p></div>'
+    const range = document.createRange()
+    range.selectNodeContents($('div'))
+    expect(firstShownCharacter(range)?.toString()).toBe('S')
+    document.body.innerHTML = '<p>Some words</p>'
+    expect(firstShownCharacter(over('words'))?.toString()).toBe('w')
+  })
+
+  it('is null for a collapsed range or one without text', () => {
+    document.body.innerHTML = '<div><p>   </p><textarea>Draft</textarea></div>'
+    const range = document.createRange()
+    range.selectNodeContents($('div'))
+    expect(firstShownCharacter(range)).toBeNull()
+    range.collapse(true)
+    expect(firstShownCharacter(range)).toBeNull()
   })
 })

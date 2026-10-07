@@ -175,6 +175,30 @@ describe('dictating a comment', () => {
     expect(await field()).toBe(`Typed meanwhile ${FAKE_TEXT}`)
   })
 
+  it('takes a dictated text out again with Ctrl+Z, unseen by the page', async () => {
+    await popover()
+    // What the page's own listeners get to see of edits in the comment field.
+    await s.page.evaluate(() => {
+      const seen: (string | null)[] = []
+      Object.assign(window, { seen })
+      window.addEventListener('input', (e) => seen.push((e as InputEvent).data), true)
+    })
+    await s.page.keyboard.type('Fix this')
+    await record(600)
+    await clickInOverlay(s, '[data-testid="overlay-mic"]')
+    for (let i = 0; i < 50 && !(await field()).includes(FAKE_TEXT); i++) await sleep(100)
+    expect(await field()).toBe(`Fix this ${FAKE_TEXT}`)
+    await s.page.keyboard.down('Control')
+    await s.page.keyboard.press('KeyZ')
+    await s.page.keyboard.up('Control')
+    await sleep(100)
+    expect(await field()).toBe('Fix this')
+    expect(await overlayText(s, '[data-testid="overlay-warning"]')).toBeNull()
+    const seen = await s.page.evaluate(() => (window as unknown as { seen: string[] }).seen)
+    expect(seen.join('')).toBe('Fix this')
+    await s.page.keyboard.press('Escape')
+  })
+
   it('starts and stops on Alt+V', async () => {
     await popover()
     await s.page.keyboard.down('Alt')

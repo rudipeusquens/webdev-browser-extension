@@ -51,8 +51,8 @@ export default defineContentScript({
   // build time, and code outside it would be evaluated there.
   async main(ctx) {
     try {
-      // Every injection mounts. A repeated injection (second action click) starts a new
-      // context; WXT then invalidates the previous one, which removes its UI.
+      // Every injection mounts. A repeated injection (where the last overlay did not answer)
+      // starts a new context; WXT then invalidates the previous one, which removes its UI.
       const ui = await createShadowRootUi<VueApp>(ctx, {
         name: 'webdev-overlay',
         position: 'overlay',

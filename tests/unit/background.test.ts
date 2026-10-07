@@ -126,6 +126,46 @@ describe('background', () => {
     expect(inject).toHaveBeenCalledTimes(2)
   })
 
+  it('starts no second overlay where one answers, from the toolbar or the panel', async () => {
+    const inject = vi.spyOn(fakeBrowser.scripting, 'executeScript').mockResolvedValue([] as never)
+    await markBlocked(5)
+    const running = {
+      instance: 'one',
+      host: 'localhost:3000',
+      pageKey: 'http://localhost:3000/',
+      mode: 'browse',
+      pins: true,
+    }
+    const asked = vi.spyOn(fakeBrowser.tabs, 'sendMessage').mockResolvedValue(running as never)
+    await fakeBrowser.action.onClicked.trigger(tab)
+    await flush()
+    expect(asked).toHaveBeenCalledWith(5, { type: 'overlay:status' }, { frameId: 0 })
+    expect(await isBlocked(5)).toBe(false)
+    expect(await send({ type: 'tab:start', tabId: 5 }, panelSender)).toEqual({ ok: true })
+    expect(inject).not.toHaveBeenCalled()
+  })
+
+  it.each([
+    ['nothing answers', () => Promise.reject(new Error('Receiving end does not exist.'))],
+    ['the answer is malformed', () => Promise.resolve({ instance: 'one' })],
+    ['the overlay takes too long', () => new Promise(() => undefined)],
+  ])('starts the overlay when %s', async (_, answer) => {
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] })
+    try {
+      const inject = vi.spyOn(fakeBrowser.scripting, 'executeScript').mockResolvedValue([] as never)
+      vi.spyOn(fakeBrowser.tabs, 'sendMessage').mockImplementation(answer as never)
+      await fakeBrowser.action.onClicked.trigger(tab)
+      await vi.advanceTimersByTimeAsync(1500)
+      expect(inject).toHaveBeenCalled()
+      const started = send({ type: 'tab:start', tabId: 5 }, panelSender)
+      await vi.advanceTimersByTimeAsync(1500)
+      expect(await started).toEqual({ ok: true })
+      expect(inject).toHaveBeenCalledTimes(2)
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
   it('survives a side panel that fails to open', async () => {
     vi.spyOn(fakeBrowser.sidePanel, 'open').mockRejectedValue(new Error('no window'))
     const inject = vi.spyOn(fakeBrowser.scripting, 'executeScript').mockResolvedValue([] as never)
@@ -574,6 +614,24 @@ describe('background: go to a page of the collection', () => {
     expect(await going).toEqual({ ok: true })
   })
 
+  it('stays on the page while its overlay holds unsaved text', async () => {
+    const asked = vi
+      .spyOn(fakeBrowser.tabs, 'sendMessage')
+      .mockResolvedValue({ ok: false, error: '<b>anything</b>' } as never)
+    expect(await send({ type: 'tab:go', tabId: 9, pageKey: page }, panel)).toEqual({
+      ok: false,
+      error: 'Save or cancel the open pin first.',
+    })
+    expect(asked).toHaveBeenCalledWith(9, { type: 'overlay:leave' }, { frameId: 0 })
+    expect(fakeBrowser.tabs.update).not.toHaveBeenCalled()
+  })
+
+  it('leaves the page when its overlay lets it go', async () => {
+    vi.spyOn(fakeBrowser.tabs, 'sendMessage').mockResolvedValue({ ok: true } as never)
+    void send({ type: 'tab:go', tabId: 9, pageKey: page }, panel)
+    await vi.waitFor(() => expect(fakeBrowser.tabs.update).toHaveBeenCalledWith(9, { url: page }))
+  })
+
   it('refuses pages outside the collection, file pages and requests from a tab', async () => {
     for (const [pageKey, sender] of [
       ['http://localhost:3000/other', panel],
@@ -701,6 +759,20 @@ describe('background: the page context menu', () => {
       files: ['/content-scripts/overlay.js'],
     })
     expect(asked).not.toHaveBeenCalled()
+  })
+
+  it('starts no second overlay where one answers', async () => {
+    const inject = vi.spyOn(fakeBrowser.scripting, 'executeScript').mockResolvedValue([] as never)
+    const running = { instance: 'one', host: 'a', pageKey: 'http://a/', mode: 'area', pins: false }
+    vi.spyOn(fakeBrowser.tabs, 'sendMessage').mockResolvedValue(running as never)
+    menus.click('annotate', tab)
+    await flush()
+    expect(fakeBrowser.tabs.sendMessage).toHaveBeenCalledWith(
+      5,
+      { type: 'overlay:status' },
+      { frameId: 0 },
+    )
+    expect(inject).not.toHaveBeenCalled()
   })
 
   it('ignores other entries and clicks outside a tab', async () => {
