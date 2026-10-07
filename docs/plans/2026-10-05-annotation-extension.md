@@ -4085,7 +4085,11 @@ build has no remote code, eval or source maps; nothing sensitive in the history.
 **Known limits:** a page can still read the focused comment field through the selection
 (an extension-origin editor iframe would close that; candidate for later); a page can still
 observe its own pinned ranges through `CSS.highlights`; a page can freeze itself while the
-developer points at a 1000-level-deep tree (selector search).
+developer points at a 1000-level-deep tree (selector search). Left for later as well: each
+"not found" report reads every site's collection (performance; done right it needs the
+missing marks stored per site), and a form dialog with a field named like a DOM method can
+keep the popover from opening there. The development build keeps WXT's own content security
+policy: its reload connects over a socket.
 
 ### Task 61: A built-in host, and a stricter comment guard
 
