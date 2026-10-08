@@ -1,5 +1,6 @@
-// The comment popover's line to the background for dictation (spec section 5): connected on
-// the first dictation, closed with the popover, which ends whatever runs there.
+// A dictation's line to the background (spec section 5), for the comment popover and the
+// panel's Rec: connected on the first dictation, closed with the popover or the panel, which
+// ends whatever runs there.
 
 import { computed, onScopeDispose, ref, shallowRef } from 'vue'
 import { browser, type Browser } from 'wxt/browser'
@@ -15,24 +16,28 @@ export function useVoice(
   const state = shallowRef<VoiceState>({ state: 'idle' })
   /** Seconds the running recording has taken. */
   const seconds = ref(0)
+  /** The seconds as a clock: `0:12`. */
+  const clock = computed(
+    () => `${Math.floor(seconds.value / 60)}:${String(seconds.value % 60).padStart(2, '0')}`,
+  )
   const busy = computed(() => {
     const now = state.value.state
     return now === 'starting' || now === 'recording' || now === 'transcribing'
   })
   const listeners: ((text: string, atLimit: boolean) => void)[] = []
   let port: Port | undefined
-  let clock: ReturnType<typeof setInterval> | undefined
+  let timer: ReturnType<typeof setInterval> | undefined
 
   function stopClock() {
-    clearInterval(clock)
-    clock = undefined
+    clearInterval(timer)
+    timer = undefined
   }
 
   function startClock() {
     stopClock()
     const started = Date.now()
     seconds.value = 0
-    clock = setInterval(() => (seconds.value = Math.floor((Date.now() - started) / 1000)), 250)
+    timer = setInterval(() => (seconds.value = Math.floor((Date.now() - started) / 1000)), 250)
   }
 
   function receive(message: unknown) {
@@ -69,7 +74,7 @@ export function useVoice(
     }
   }
 
-  // The line closes with the popover: the background then ends the dictation.
+  // The line closes with its popover or panel: the background then ends the dictation.
   onScopeDispose(() => {
     stopClock()
     const closing = port
@@ -84,6 +89,7 @@ export function useVoice(
   return {
     state,
     seconds,
+    clock,
     busy,
     /** Starts a dictation, or stops the recording that runs. */
     toggle() {

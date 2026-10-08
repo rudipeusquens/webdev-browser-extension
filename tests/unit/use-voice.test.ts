@@ -2,7 +2,7 @@ import { mount } from '@vue/test-utils'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { defineComponent } from 'vue'
 import type { Browser } from 'wxt/browser'
-import { useVoice } from '@/entrypoints/overlay.content/use-voice'
+import { useVoice } from '@/composables/use-voice'
 import { type FakePort, fakePort } from './helpers/fake-ports'
 
 function setup() {

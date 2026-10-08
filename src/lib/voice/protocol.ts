@@ -1,6 +1,6 @@
-// Dictation (spec sections 5 and 9): the messages between popover, background and recorder,
-// what can go wrong, and how the popover says it. Every receiver checks shapes with these
-// guards.
+// Dictation (spec sections 5 and 9): the messages between popover or panel, background and
+// recorder, what can go wrong, and how the popover and the panel say it. Every receiver checks
+// shapes with these guards.
 
 import { hasKeys, isObject, isText } from '../collection/validate'
 import type { TranscribeRequest } from './openrouter'
@@ -51,7 +51,26 @@ export function voiceErrorText(error: VoiceError, detail?: string): string {
   return error === 'rejected' && detail ? `Transcription failed: ${detail}` : TEXTS[error]
 }
 
-/** The popover's port to the background: one per comment popover that dictates. */
+/** What a failed dictation says, and which of Retry, Grant and Open settings help. */
+export interface DictationFailure {
+  text: string
+  retry: boolean
+  grant: boolean
+  settings: boolean
+}
+
+export function dictationFailure(now: VoiceState): DictationFailure | null {
+  if (now.state !== 'failed') return null
+  return {
+    text: voiceErrorText(now.error, now.detail),
+    retry: now.retry,
+    grant: now.error === 'mic-not-granted' || now.error === 'mic-blocked',
+    // A refused request is most often a model OpenRouter does not know.
+    settings: now.error === 'no-key' || now.error === 'invalid-key' || now.error === 'rejected',
+  }
+}
+
+/** The port to the background: one per comment popover that dictates, one for the panel's Rec. */
 export const VOICE_PORT = 'voice'
 /** The offscreen recorder's port to the background. */
 export const RECORDER_PORT = 'recorder'
@@ -62,7 +81,7 @@ const MAX_TEXT = 20_000
 /** Longest reason from OpenRouter (see openrouter.ts). */
 const MAX_DETAIL = 200
 
-/** Background → popover, and recorder → background. */
+/** Background → popover or panel, and recorder → background. */
 export type VoiceState =
   | { state: 'idle' }
   | { state: 'starting' }
@@ -71,7 +90,9 @@ export type VoiceState =
   | { state: 'done'; text: string; atLimit: boolean }
   | { state: 'failed'; error: VoiceError; detail?: string; retry: boolean }
 
-/** Popover → background. The popover never names a key or a model: the background reads them. */
+/**
+ * Popover or panel → background. Neither names a key or a model: the background reads them.
+ */
 export type VoiceCommand = { type: 'start' | 'stop' | 'cancel' | 'retry' }
 
 /** Background → recorder: what to record, and with which key, model and language. */

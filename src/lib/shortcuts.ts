@@ -1,5 +1,6 @@
 // The keys the settings list (spec section 8). The overlay's handlers live in
-// src/entrypoints/overlay.content/keys.ts; tests/unit/shortcuts.test.ts keeps the two in step.
+// src/entrypoints/overlay.content/keys.ts, the panel's here; tests/unit/shortcuts.test.ts keeps
+// the list and the handlers in step.
 
 export interface ShortcutRow {
   /** Alternatives, each written as one key combination. */
@@ -26,6 +27,24 @@ export function panelKey(
   const key = e.key.toLowerCase()
   if (key === 'z') return e.shiftKey ? 'redo' : 'undo'
   if (key === 'y' && !mac && !e.shiftKey) return 'redo'
+  return null
+}
+
+/**
+ * Rec in the panel: `Alt+V` starts and stops it, like dictation in a pin, by the key's place
+ * (Option+V types a character on macOS) and not at the key repeat rate; `Escape` cancels it.
+ */
+export function recKey(
+  e: Pick<
+    KeyboardEvent,
+    'key' | 'code' | 'ctrlKey' | 'metaKey' | 'shiftKey' | 'altKey' | 'repeat' | 'isComposing'
+  >,
+): 'toggle' | 'cancel' | null {
+  if (e.isComposing) return null
+  if (e.key === 'Escape') return 'cancel'
+  if (e.code === 'KeyV' && e.altKey && !e.ctrlKey && !e.metaKey && !e.shiftKey) {
+    return e.repeat ? null : 'toggle'
+  }
   return null
 }
 
@@ -74,6 +93,8 @@ export function shortcutGroups(mac: boolean): ShortcutGroup[] {
       rows: [
         { keys: [mac ? '⌘Z' : 'Ctrl+Z'], action: 'Undo' },
         { keys: mac ? ['⇧⌘Z'] : ['Ctrl+Shift+Z', 'Ctrl+Y'], action: 'Redo' },
+        { keys: [alt('V')], action: 'Start or stop Rec' },
+        { keys: ['Esc'], action: 'Cancel Rec' },
       ],
     },
   ]

@@ -256,6 +256,14 @@ it('takes the README screenshots', async () => {
   await panel.waitForSelector('[data-testid="voice-key-masked"]')
   await panel.waitForSelector('[data-testid="voice-mic"] ::-p-text(Allowed)')
   await panel.setViewport({ width: PANEL_WIDTH, height: 1600, deviceScaleFactor: SCALE })
+  // Tall enough for all of Settings, which scrolls inside the panel otherwise.
+  const hidden = await panel.$eval(
+    '[data-testid="settings"]',
+    (el) => el.scrollHeight - el.clientHeight,
+  )
+  if (hidden > 0) {
+    await panel.setViewport({ width: PANEL_WIDTH, height: 1600 + hidden, deviceScaleFactor: SCALE })
+  }
   await panel.mouse.move(PANEL_WIDTH - 4, 4)
   await sleep(500)
   // Two columns: General, Voice and Sites; the keyboard shortcuts.

@@ -1,8 +1,9 @@
-// Dictation, coordinated (spec sections 5 and 9). Each comment popover that dictates holds a
-// port named `voice`; the background opens an offscreen recorder for it, gives the recorder
-// the key, model and language over the recorder's own port, and relays the recorder's states
-// to the popover. One recorder at a time: a start from another popover ends the running one.
-// A popover port that closes (popover closed, page gone, overlay replaced) ends its dictation.
+// Dictation, coordinated (spec sections 5 and 9). Each comment popover that dictates, and the
+// panel's Rec, holds a port named `voice`; the background opens an offscreen recorder for it,
+// gives the recorder the key, model and language over the recorder's own port, and relays the
+// recorder's states back. One recorder at a time: a start from another popover or the panel
+// ends the running one. A port that closes (popover closed, page gone, overlay replaced, panel
+// closed) ends its dictation.
 
 import { browser, type Browser } from 'wxt/browser'
 import { loadKey } from '../voice/key'
@@ -16,6 +17,7 @@ import {
   type VoiceState,
 } from '../voice/protocol'
 import { loadVoiceSettings } from '../voice/settings'
+import { isPanelSender } from './senders'
 
 type Port = Browser.runtime.Port
 
@@ -24,7 +26,8 @@ const DOCUMENT = 'offscreen.html'
 const CONNECT_TIMEOUT = 5_000
 
 interface Session {
-  overlay: Port
+  /** The popover's or the panel's port. */
+  client: Port
   recorder?: Port
   /** Changes when a start is overtaken (cancel, popover gone, another start). */
   run: number
@@ -123,7 +126,7 @@ export function createVoice() {
       if (s.recorder !== recorder || !isRecorderMessage(message) || message.state === 'alive') {
         return
       }
-      post(s.overlay, message)
+      post(s.client, message)
       // Nothing left to keep: the document goes. A failure that can be retried keeps the audio.
       const holds = message.state !== 'done' && message.state !== 'idle'
       if (!holds || (message.state === 'failed' && !message.retry)) dropRecorder(s)
@@ -131,7 +134,7 @@ export function createVoice() {
     recorder.onDisconnect.addListener(() => {
       if (s.recorder !== recorder) return
       dropRecorder(s)
-      post(s.overlay, { state: 'failed', error: 'interrupted', retry: false })
+      post(s.client, { state: 'failed', error: 'interrupted', retry: false })
     })
   }
 
@@ -140,7 +143,7 @@ export function createVoice() {
       const other = current
       other.run++
       dropRecorder(other)
-      post(other.overlay, { state: 'failed', error: 'taken', retry: false })
+      post(other.client, { state: 'failed', error: 'taken', retry: false })
     }
     if (s.recorder) dropRecorder(s)
     const run = ++s.run
@@ -149,7 +152,7 @@ export function createVoice() {
     if (s.run !== run) return
     if (!request) {
       current = undefined
-      post(s.overlay, { state: 'failed', error: 'no-key', retry: false })
+      post(s.client, { state: 'failed', error: 'no-key', retry: false })
       return
     }
     const recorder = await openRecorder().catch(() => undefined)
@@ -161,7 +164,7 @@ export function createVoice() {
     if (!recorder) {
       current = undefined
       void closeDocument()
-      post(s.overlay, { state: 'failed', error: 'mic-failed', retry: false })
+      post(s.client, { state: 'failed', error: 'mic-failed', retry: false })
       return
     }
     s.recorder = recorder
@@ -169,7 +172,7 @@ export function createVoice() {
     // A recorder that is gone before its start, its disconnect unseen, ends the dictation.
     if (!post(recorder, { type: 'start', request })) {
       dropRecorder(s)
-      post(s.overlay, { state: 'failed', error: 'mic-failed', retry: false })
+      post(s.client, { state: 'failed', error: 'mic-failed', retry: false })
     }
   }
 
@@ -177,7 +180,7 @@ export function createVoice() {
     if (!s.recorder) return
     const request = await readRequest()
     if (!s.recorder) return
-    if (!request) post(s.overlay, { state: 'failed', error: 'no-key', retry: true })
+    if (!request) post(s.client, { state: 'failed', error: 'no-key', retry: true })
     else post(s.recorder, { type: 'retry', request })
   }
 
@@ -189,24 +192,33 @@ export function createVoice() {
       current = undefined
       void closeDocument()
     }
-    post(s.overlay, { state: 'idle' })
+    post(s.client, { state: 'idle' })
   }
 
-  function connectOverlay(overlay: Port) {
-    const { sender } = overlay
-    if (sender?.id !== browser.runtime.id || sender.tab?.id === undefined || sender.frameId !== 0) {
-      overlay.disconnect()
+  /**
+   * A comment popover (the overlay in a tab's top frame, never a page of the extension opened
+   * in a tab) or the panel's Rec.
+   */
+  function connectClient(client: Port) {
+    const { sender } = client
+    const overlay =
+      sender?.id === browser.runtime.id &&
+      sender.tab?.id !== undefined &&
+      sender.frameId === 0 &&
+      !sender.url?.startsWith(browser.runtime.getURL('/'))
+    if (!sender || (!overlay && !isPanelSender(sender))) {
+      client.disconnect()
       return
     }
-    const s: Session = { overlay, run: 0 }
-    overlay.onMessage.addListener((message: unknown) => {
+    const s: Session = { client, run: 0 }
+    client.onMessage.addListener((message: unknown) => {
       if (!isVoiceCommand(message)) return
       if (message.type === 'start') void start(s)
       else if (message.type === 'stop') post(s.recorder, { type: 'stop' })
       else if (message.type === 'retry') void retry(s)
       else cancel(s)
     })
-    overlay.onDisconnect.addListener(() => {
+    client.onDisconnect.addListener(() => {
       s.run++
       if (s.recorder || current === s) dropRecorder(s)
     })
@@ -225,7 +237,7 @@ export function createVoice() {
 
   return {
     onConnect(port: Port) {
-      if (port.name === VOICE_PORT) connectOverlay(port)
+      if (port.name === VOICE_PORT) connectClient(port)
       else if (port.name === RECORDER_PORT) connectRecorder(port)
     },
   }
