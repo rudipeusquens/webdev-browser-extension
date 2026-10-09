@@ -47,7 +47,8 @@ that starts it) once the spike results of milestone 1 are recorded in the spec.
   `Enter` save (not during IME composition), `Shift+Enter` new line, `Alt+V` voice; in the
   panel `Ctrl+Z` undo, `Ctrl+Shift+Z` / `Ctrl+Y` redo (`⌘Z`, `⇧⌘Z` on macOS).
 - Default speech-to-text model `openai/gpt-4o-mini-transcribe`; language `auto`; recordings
-  stop at 120 s; request timeout 65 s.
+  stop at 120 s; request timeout 65 s. (Milestone 8b: a recording pauses at a limit set in
+  Settings, 5 minutes by default, and the timeout grows with the audio.)
 - OpenRouter test key: `OPENROUTER_API_KEY_TEST` in `.env` (gitignored). Used only by the local
   live test; never in CI, logs, fixtures, snapshots or commit messages.
 - Dependencies via `pnpm add`; `minimumReleaseAge` 3 days; install scripts only via `allowBuilds`
@@ -3913,6 +3914,10 @@ milestone 7.
 **Known limits:** a reload or a navigation by the page itself still drops unsaved text (the
 overlay does not hold up the page's own navigation).
 
+**Replaced in milestone 8b:** nothing is refused any more; a popover that closes keeps its pin
+(a new one as a draft), also when the page goes, and a dictation's text goes into the stored
+pin, where the panel's Undo takes it back instead of `Ctrl+Z` in the popover.
+
 **Review focus for this milestone** (each line has a test in the owning task):
 
 1. A popover with only spaces added, or an edit changed back to its saved text: not unsaved, a
@@ -4391,3 +4396,259 @@ for copying by hand replaced the first (the dialogs now queue); pins copied whil
 lost the clipboard to the limit's stop; a page of the extension opened in a tab passed as a
 popover's port. Deferred: Settings hides Rec while it records, so it runs on unseen there
 until Edit or the two-minute limit.
+
+## Milestone 8b: Dictation in the background, drafts and Rec notes
+
+**Goal:** Dictation and comments behave like notes: nothing written or spoken is lost. The
+text is transcribed in the background, so a comment closes on the stop and the panel shows
+what is being transcribed; every pin is kept, a new one as a grey draft until it is saved;
+Rec's texts stay in the panel as notes; `Space` dictates into an empty comment; a recording
+pauses at a limit set in Settings and asks.
+
+**Planned and built on 2026-10-09** at the owner's request, from daily use: the popover had to
+stay open while its text was transcribed (closing it dropped the recording), a click on another
+pin was refused while one held unsaved text, Rec's texts were gone once copied, and recordings
+stopped hard after two minutes. Planned together with milestone 8c (its own pull request).
+Tasks 82–90; one pull request. Steps are test-first.
+
+**Decisions** (the owner's):
+
+- **Every pin is kept.** `Esc`, **Close**, a click on another pin or entry, Go to and the page
+  going close the popover and keep it: a new pin as a grey draft, also without any text; an
+  existing pin's changed comment as it is, without changing its status (a done pin is not
+  reopened), and never an empty comment. Only **Delete** throws a new pin away; it was never
+  stored. `Esc` while a dictation records, starts or holds a recording that ended by itself
+  still cancels it first. A running recording is handed over however the popover closes; a
+  starting one and one that ended by itself are dropped (only **Retry** sends the latter, after
+  principle 2).
+- **Rec notes are global:** one list for every site, above the pages, newest first. Neither
+  Copy as prompt nor Copy again takes them; each has its own **Copy** and **Delete**, and the
+  footer's buttons, the filter and **Pins** do not act on them. Delete is for good at once:
+  the undo history is per site, notes belong to none.
+- **The limit:** 5 minutes by default, in Settings (1, 2, 3, 5, 10 or 15 minutes). At the
+  limit the recording pauses and asks; **Keep** records on until another full limit,
+  **Stop** hands it over; without an answer within 60 s it stops and is transcribed.
+- **`Space` dictates** in an empty comment (only white space counts as empty) when a key is
+  saved and the pin is not being transcribed, and stops while the field is still empty; with
+  text in the field, a modifier, IME composition or a repeated key it types a space. Every
+  stop saves the pin and closes the popover; `Enter` during a recording stops it and saves.
+
+**Decisions** (technical):
+
+- **The overlay owns the dictation:** one `voice` port per overlay instead of one per
+  popover, so a popover can close while its recording goes on to the background. The popover
+  is a view of it: the state comes in as props, commands go out as events, and the overlay
+  reads the popover's text (`snapshot()`) when it stores the pin. A stop stores the pin
+  first, then posts `stop { keep: { pin } }`, then closes; a message posted on a port arrives
+  before its disconnect.
+- **Jobs outlive ports.** The recorder records one dictation at a time and turns each stopped
+  one into a job with an id, transcribed while the next records. The background keeps a
+  register of jobs (job → pin or note) and puts each result into storage, not on a port:
+  the text into its pin (`fill`, one undo step) or note, the state beside it. A client only
+  learns that its recording was `handed`; each recording ends in exactly one of `handed`,
+  `idle` or `failed`. No client names a key, a model or a limit.
+- **One document**, kept while a recording runs or a job transcribes or holds audio; a new
+  recording does not replace it. Its heartbeat keeps the service worker alive meanwhile; held
+  audio bounds that, since it goes after 10 minutes (beyond 20 MB, the oldest first).
+- **Job states in `storage.local`:** `dictation:<site>` by pin id (transcribing, failed,
+  cut), no text and no key, written by the background only. The overlay reads it to show a
+  pin being transcribed: content scripts can read `storage.local`, and `storage.session` is
+  not opened to them for this. A note's job state lies in the note, so no rule spans two
+  keys. When the background starts, it closes a document left from before, marks what was
+  transcribing as failed (`lost`, "The transcription was interrupted.") and takes Retry from
+  what failed; a recorder port that breaks marks its jobs the same way.
+- **Text a pin cannot hold becomes a note:** the pin is gone (undone, the bin emptied), its
+  site is over its budget, or the comment limit cut the text; then the whole transcript goes
+  into a new Rec note, and a pin that is still there says so until Dismiss. No transcript is
+  dropped silently.
+- **A new pin's id is fixed when it is marked**, not when it is saved: a second
+  `annotation:add` (a lost reply, a page back from the back/forward cache) fails with "This
+  pin already exists." instead of adding a duplicate; within one popover a second store is an
+  update.
+- **`pagehide`** stores the open popover at once, without waiting for code origins (a new
+  pin as a draft, saved while a recording runs), and hands its recording over; a page kept
+  for Back closes the popover.
+- **`yield`:** a start elsewhere first asks the running recording to hand itself over; one
+  that does not within 1 s ends with "Another dictation started, this one ended." as before.
+- **Refused only when storing fails:** `overlay:reveal` and `overlay:leave` answer
+  asynchronously, once the popover is kept; the panel then shows `PIN_NOT_KEPT` ("The open
+  pin could not be kept: its popover says why."), which replaces `UNSAVED_PIN`.
+- **Drafts in the model:** `draft?: true` on version-2 items, the key absent on every other
+  item (operations never write `draft: undefined`, since the history compares keys).
+  `annotation:add` takes `draft`, and only then an empty comment; `annotation:update` takes
+  `keep` for a popover closed without Save. Grey through `toneOf` (`zinc-500`) for the pin,
+  the outline, the text shading and the panel's badge. Copy as prompt takes only open pins
+  that are no drafts and not being transcribed, and says how many it left out; `markCopied`
+  skips drafts. Undo labels: "Add draft 4", "Edit draft 4", "Save pin 4" (a draft saved),
+  "Dictation into pin 4".
+- **No undo of a dictation in the popover:** the text no longer goes into the field, so the
+  `Ctrl+Z` of milestone 7a goes; the panel's Undo takes the step "Dictation into pin 4" back.
+
+**Known limits:** a very long recording (several **Keep**) may be more than OpenRouter or the
+model takes; the error shows on the pin or the note. A service worker restart (rare: the
+heartbeat keeps it alive) loses the transcriptions under way ("The transcription was
+interrupted."). An extension update while a popover is open still loses its unsaved text.
+Two dictations into the same pin are prevented in the popover only (the mic and `Space` are
+off while it is transcribed). A pin deleted while it is transcribed gets the text anyway and
+stays deleted; once it is gone, the text goes into a note. Settings still hides Rec while it
+records (milestone 8a): its question at the limit is not seen there, so Rec stops a minute
+later, and its note keeps the text.
+
+**Review focus for this milestone** (each line has a test in the owning task):
+
+1. A port that closes right after its `stop`: the job still fills the pin or the note
+   (Task 84; checked by mutation).
+2. A pin undone, its bin emptied, its site full, or a text beyond the comment limit while it
+   is transcribed: the whole text in a Rec note, nothing lost (Tasks 82, 84).
+3. A page or another extension context sending `dictation:retry` or `dictation:dismiss` for
+   another site, `note:retry` or `note:delete`, a `stop` for a pin from the panel or for a
+   note from an overlay, `voice:ready` from a subframe: refused; `voice:ready` answers only a
+   boolean (Task 84).
+4. The background starting while jobs were transcribed or held audio: marked lost, no Retry;
+   a document left from before is closed (Task 84).
+5. A second `annotation:add` of the same pin (back/forward cache, a lost reply): refused by
+   the writer, no duplicate (Task 82); a reload with an open pin stores it once (Task 89).
+6. `Space` with a modifier, during IME composition, as a repeated key or from a page script:
+   it types a space or does nothing, and never starts a recording (Task 88).
+7. Pins or a note copied while Rec records or its note waits: what was copied keeps the
+   clipboard, the text is offered (Task 87).
+8. The limit's question unanswered: the recording stops after 60 s and is handed over, also
+   for Rec (Tasks 86, 87).
+
+### Task 82: Drafts in the model
+
+- Files: `src/lib/collection/{model,validate,ops}.ts`, `src/lib/messages.ts`,
+  `src/lib/background/writer.ts`, `src/lib/status.ts`, `src/lib/voice/transcript.ts` (moved
+  from the overlay),
+  `tests/unit/{collection-ops,collection-validate,background-writer,messages,status,voice-transcript}.test.ts`
+- [x] Failing tests: an open item with the flag, also without a comment, and no flag key on
+      other items; kept, a draft stays one and a pin keeps its status; saved, a draft without
+      a comment stays one and with one becomes a pin; a pin's comment is never emptied;
+      `fillTranscript` appends with the spacing rules, makes a draft a pin, reopens a done
+      pin, leaves a deleted one deleted, cuts at the comment limit and gives the whole text
+      back when it cut or the pin is gone; `markCopied` skips drafts; Clear all and Restore;
+      the writer's `fill` as one undo step, the text given back on a full site; the labels;
+      the message guards; `toneOf`. Then the change.
+
+### Task 83: Recorder
+
+- Files: `src/lib/voice/{protocol,recorder,openrouter}.ts`, `src/entrypoints/offscreen/main.ts`,
+  `tests/unit/{voice-recorder,voice-protocol,voice-openrouter}.test.ts`
+- [x] Failing tests: a stop becomes a job and the next recording starts while it is
+      transcribed; the pause at the limit, a resume that pauses again a whole limit later, a
+      paused recording stopped; a stop with nothing recorded ends its job as "No speech
+      detected."; a transcript cut at 20,000 code points; held audio sent again on Retry,
+      gone after ten minutes and beyond 20 MB, oldest first; everything dropped when the port
+      goes; the timeout for long audio; the shapes of the new commands and states. Then the
+      recorder.
+
+### Task 84: Background jobs, notes, recovery
+
+- Files: `src/lib/background/{voice,notes,dictations}.ts`, `src/lib/notes/model.ts`,
+  `src/lib/voice/jobs.ts`, `src/lib/storage.ts`, `src/lib/ids.ts` (moved from the overlay),
+  `src/lib/messages.ts`, `src/entrypoints/background.ts`,
+  `tests/unit/{background-voice,background-notes,background,messages,ids}.test.ts`
+- [x] Failing tests: a pin's recording handed over to a job with the key and settings read
+      at the stop; its text filled into the pin, also after the port went, and a handover
+      that survives the port closing right after the stop (checked by mutation); what the pin
+      cannot hold kept as a note, a cut pin marked; failure, Retry and Dismiss on a pin and on
+      a note; the next recording in the same document; a pin's stop from the panel and a
+      note's from an overlay refused; `yield` and the 1 s wait; the notes' limits and their
+      ids coming back; the restart marking what was transcribed as lost and taking Retry from
+      what was held; `voice:ready` telling only whether a key is saved; the senders of the
+      new messages. Then the coordinator and the two writers.
+
+### Task 85: The recording limit in Settings
+
+- Files: `src/lib/voice/settings.ts`, `src/lib/background/voice-settings.ts`,
+  `src/entrypoints/sidepanel/VoiceSettings.vue`,
+  `tests/unit/{voice-settings,background-voice-settings,sidepanel-voice}.test.ts`
+- [x] Failing tests: each field read on its own, a missing or malformed limit 5 minutes with
+      the model and the language kept; `voice:set` requires the limit; the select offers 1
+      to 15 minutes, 5 by default, saves the choice with the rest and shows a limit set
+      elsewhere as its own choice. Then the setting.
+
+### Task 86: Overlay and popover
+
+- Files: `src/entrypoints/overlay.content/{Overlay,CommentPopover,VoiceButton,HoverBox,TextHighlight}.vue`,
+  `src/entrypoints/overlay.content/text-marks.ts`, `src/composables/use-voice.ts`,
+  `src/lib/background/ask-overlay.ts`, `src/entrypoints/background.ts`,
+  `tests/unit/{comment-popover,use-voice,background}.test.ts`
+- [x] Failing tests: Save until there is a comment or a recording; `Enter` stops a recording
+      and saves; `Esc` closes, or cancels a recording first; Delete discards a new pin; the
+      header of a draft; the field follows the stored comment; the clock and which key stops
+      it; Keep and Stop at the limit, and the 60 s timer with fake timers; a pin being
+      transcribed read-only; a failure with Retry and Dismiss; the cut notice; Retry of a
+      recording that ended by itself hands it over; Go to stays on the page only when the
+      overlay cannot keep the open pin. Then the overlay's port, `leave()`, `pagehide`, the
+      asynchronous answers, the tone and the pulse.
+
+### Task 87: Panel
+
+- Files: `src/entrypoints/sidepanel/{App,ItemList,NoteList,RecButton}.vue`,
+  `src/entrypoints/sidepanel/{use-dictation,use-stored}.ts`,
+  `tests/unit/{sidepanel-app,sidepanel-rec}.test.ts`
+- [x] Failing tests: a draft grey and counted as open, left out of Copy as prompt with the
+      note, nothing to copy with drafts only; a pin being transcribed, its failure with Retry,
+      Open settings and Dismiss; the jobs following the site; Rec's note at the top while it
+      waits, its text copied once it is there; the clipboard rule per note, also when nobody
+      answers at the limit; Keep and Stop in the footer; a handover when another recording
+      starts; the notes newest first, expanded on a click, copied and deleted, and left alone
+      by Copy as prompt, Copy again and Clear all. Then the list, the notes and Rec.
+
+### Task 88: Keys
+
+- Files: `src/entrypoints/overlay.content/keys.ts` (`spaceKey`), `src/lib/shortcuts.ts`,
+  `README.md`, `tests/unit/{overlay-keys,shortcuts,readme}.test.ts`
+- [x] Failing tests: `Space` starts in an empty field and stops while it stays empty, types
+      a space with text, without a key or while the pin is transcribed, is swallowed while
+      the microphone starts and as a repeat while it records, and leaves modifiers, IME
+      composition and untrusted events alone; the Settings list and the README's table name
+      `Space` and the new `Enter` and `Esc`. Then the keys.
+
+### Task 89: End to end
+
+- Files: `tests/e2e/{voice,drafts,rec,text-mode,element-mode,panel-layout}.e2e.test.ts`
+  (`drafts` replaces `unsaved`; `text-mode` and `element-mode` expected `Esc` to discard a new
+  pin), `tests/e2e/overlay-helpers.ts`
+- [x] With Chrome's fake microphone and the fake OpenRouter, which can answer late: `Space`
+      records, `Space` closes the popover, the entry shows "Transcribing…" and the text then
+      fills the pin; `Enter` during a recording; `Esc` sends nothing; a reload during a
+      recording still brings the text; a failure on the pin and Retry on its entry; HTTP
+      errors on the pin; the limit at 10 s with Keep and Stop; Rec taking over a pin's
+      recording; no key, the grant, the settings with the limit. Drafts: a click on another
+      pin or an entry keeps the open one, `Esc` keeps an empty draft, Delete discards a new
+      pin, `Enter` makes a draft a pin, Copy as prompt leaves drafts out, a reload and Go to
+      keep the open pin, the panel closed and opened keeps its text. Rec: the note at the
+      top, copied after the developer moved on, a copy of pins while it is transcribed, the
+      note's Copy and Delete, the note filled after the panel closed, `Alt+V` and `Esc`, no
+      key, no overlay needed, the panel closed before the stop. The layout: notes above the
+      pages at 320 px, two lines each.
+
+### Task 90: Docs and screenshots
+
+- Files: the spec (sections 3–5, 7–12, 14, 15), this plan, `README.md`,
+  `docs/smoke-test.md`, `AGENTS.md`, `docs/images`
+- [x] The spec, the README and the smoke test describe drafts, `Space`, the background
+      transcription, Rec's notes and the limit; the screenshots are retaken.
+
+**Found while building:** the end-to-end test of Rec taking over a pin's recording showed that a
+start arriving while the last recording still handed over its last chunk was dropped by the
+recorder, and that the end of a handed-over recording was taken for the next one's. A start
+now waits for the stop, and a handover reports no end.
+
+**Final review (2026-10-09):** an independent review of the branch found twelve defects, none
+of them about security; each is fixed, the ones that can be reached from a unit test with a
+test that failed first: Save while the microphone started left a recording without a popover
+(it is cancelled now); a transcript filled while the field held an edit of its own was
+overwritten when the popover closed (the field gets the appended text after its edit); the
+acknowledgement of a cancel ended the next recording (cancels are counted); a second
+dictation into a pin cleared the first one's state (a pin with a job left keeps saying
+"Transcribing…"); a note that could not be stored left the recording running and the document
+open (both end, and the developer is told); a second stop while the first still stopped left
+a job without an end; the key removed before a stop left an empty draft without a word (the
+pin says so); a fill beyond the site's budget went to Rec silently (the pin says where it
+went); a yield while the microphone started saved and closed the popover; `Esc`, Close and the
+page going sent a recording that had ended by itself (now only Retry sends it); a leave while
+a save was on its way stored the pin a second time; and Copy as prompt could copy pins still
+transcribed before the site's states were read.

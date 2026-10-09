@@ -20,10 +20,12 @@ div, a stricter comment guard, delimited prompt strings, no invisible characters
 on an unobscured overlay, no page-visible start signal, panel-only senders, storage budgets,
 OpenRouter-only connections, a denylist job that installs nothing, a pre-push check, a bundle
 check, the MCP server through pnpm; release readiness: the package from `pnpm zip` checked
-against the build, the README, the manual smoke test), and milestone 8a: **Rec**, dictation in
-the panel without a pin, its text copied as it is. Next: the owner's smoke test before the
-first release; later candidates are in the plan's known limits and deferred items. The spec
-is `docs/specs/2026-10-05-annotation-extension.md` — read both before working on a feature.
+against the build, the README, the manual smoke test), milestone 8a: **Rec**, dictation in
+the panel without a pin, its text copied as it is, and milestone 8b: dictation transcribed in
+the background, `Space` to dictate, every pin kept (grey drafts), Rec notes in the panel, a
+recording limit that asks. Next: the owner's smoke test before the first release; later
+candidates are in the plan's known limits and deferred items. The spec is
+`docs/specs/2026-10-05-annotation-extension.md` — read both before working on a feature.
 
 ## This repository is public
 

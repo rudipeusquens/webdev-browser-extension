@@ -98,25 +98,46 @@ Settings → **Voice**:
       tab." and closes itself; Settings shows "Allowed". On macOS the first time, the system
       asks whether the browser may use the microphone; allow it (System Settings → Privacy &
       Security → Microphone).
-- [ ] In a pin's popover, click the mic button next to **Save**, say a sentence, click it
-      again. → A timer while recording, then "Transcribing…", then the sentence at the caret.
-- [ ] `Alt+V` (`⌥V`) to start, `Esc` while recording. → The recording stops; nothing is
-      inserted.
-- [ ] After a dictation, `Ctrl+Z` (`⌘Z`) in the field. → The dictated text goes out again.
+- [ ] On `https://example.com`, press `E`, click the paragraph, and in the empty comment press
+      `Space`, say a sentence, press `Space` again. → While recording, the popover shows a red
+      dot, the clock and "Space to stop"; the second `Space` closes it at once. The new pin is
+      grey and pulses, its entry shows "Transcribing…"; then the sentence is its comment and
+      the pin turns blue.
+- [ ] Click a pin with a comment, type a word, press `Space`. → A space is typed. Press
+      `Alt+V` (`⌥V`), say a sentence, press `Enter`. → The popover closes; the sentence
+      follows the comment, after a space.
+- [ ] In the panel, point at **Undo**. → "Undo: Dictation into pin …". Press `Ctrl+Z` (`⌘Z`).
+      → The dictated sentence goes out of the comment again.
+- [ ] Click a pin, `Alt+V` (`⌥V`) to start, `Esc` while recording. → The recording stops;
+      the popover stays open; nothing is added.
+- [ ] Press `E`, click an element, and press `Esc` without typing. → A grey pin stays; its
+      entry says "No comment yet". Click **Copy as prompt**. → "Copied … left out: drafts and
+      pins still transcribed"; the grey pin stays. Click it, type a comment, `Enter`. → It
+      turns blue.
+- [ ] Settings → **Voice** → **Recording limit**: "1 minute". Dictate in a pin for a minute.
+      → At 1:00 the popover asks "Paused at 1:00. Keep recording?". **Keep**. → The clock
+      goes on, and at 2:00 it asks again. **Stop**. → The popover closes and the text
+      arrives. Set the limit back to "5 minutes".
 - [ ] Click **Rec** in the panel, say a sentence, click it again, and switch to your agent's
       window at once. → **Rec** turns red with a timer while recording. Paste in the agent:
-      exactly the sentence, nothing else. The panel says "Copied dictation"; the pins are as
-      they were.
+      exactly the sentence, nothing else. The panel says "Copied dictation" and lists the
+      sentence as a note at the top, under **Rec**; the pins are as they were.
+- [ ] **Rec**, say a sentence, click it again, and close the panel at once with the toolbar
+      icon. Open it again after a few seconds. → The newest note holds the sentence.
+- [ ] On the note, **Copy**. → "Copied note"; pasting gives its text. **Delete**. → The note
+      is gone.
 - [ ] **Rec** on a tab where the overlay does not run (`chrome://extensions`). → It works the
-      same.
-- [ ] With an open pin: **Rec**, speak, stop, and click **Copy as prompt** while it says
+      same, and the notes are listed there too.
+- [ ] With an open pin: **Rec**, speak, stop, and click **Copy as prompt** while its note says
       "Transcribing…". → Pasting gives the pins' prompt; a dialog shows the dictated text,
       selected.
-- [ ] `Alt+V` (`⌥V`) in the panel to start **Rec**, `Esc` to cancel. → Nothing is copied.
+- [ ] `Alt+V` (`⌥V`) in the panel to start **Rec**, `Esc` to cancel. → Nothing is copied; no
+      note is added.
 - [ ] Narrow the side panel as far as it goes. → **Rec** and **Pins** show only their icons;
-      nothing is cut off.
-- [ ] Remove the key (bin icon), then click the mic in a popover, and **Rec**. → Both say "Add
-      an OpenRouter API key in settings." with **Open settings**.
+      the notes wrap; nothing is cut off.
+- [ ] Remove the key (bin icon). Press `Space` in an empty comment. → A space is typed. Click
+      the mic in a popover, and **Rec**. → Both say "Add an OpenRouter API key in settings."
+      with **Open settings**.
 
 ## 7. Update in place
 
