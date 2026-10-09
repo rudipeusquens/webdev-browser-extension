@@ -54,6 +54,11 @@ On `https://example.com` with the panel open:
       click an empty spot of the page first, and note it.)
 - [ ] Press `Esc`, select a few words of the paragraph. → A **Pin** chip below the selection;
       click it, type a comment, `Enter`. → Pin 2 at the words.
+- [ ] Hold `Ctrl` (`⌘` on macOS) and drag across the words of the page's link, starting at
+      its first letter. → The words are selected, the link does not open, no tab opens, the
+      **Pin** chip shows. Click an empty spot to drop the selection. Hold `Ctrl` (`⌘`) and
+      click the link. → Nothing happens. Close the panel, `Ctrl`+click the link. → It opens in
+      a new tab as usual; open the panel again.
 - [ ] Press `A`, drag a rectangle over the paragraph, type a comment, `Enter`. → Pin 3.
 - [ ] **Copy as prompt**. → "Copied 3 pins"; the pins leave the page and the list, since the
       filter **Open** shows open pins only. Under **All** they are back, green.

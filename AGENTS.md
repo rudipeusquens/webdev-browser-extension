@@ -14,16 +14,18 @@ that has access to the code.
 pages, re-anchoring, remembered sites, code origin; voice input; review workflow: one
 collection per site, statuses, Copy again, filter, undo and redo; review polish: pins as the
 name, copy one pin, Clear all into Deleted and Empty bin, the site pill, starting the overlay
-from the panel, Settings options; everyday fixes: unsaved text kept, a hidden target's
-popover, the Pin chip with its selection, undo of a dictation; security review: the host as a
-div, a stricter comment guard, delimited prompt strings, no invisible characters, clicks only
-on an unobscured overlay, no page-visible start signal, panel-only senders, storage budgets,
+from the panel, Settings options; everyday fixes: unsaved text kept, a hidden target's popover,
+the Pin chip with its selection, undo of a dictation; security review: the host as a div, a
+stricter comment guard, delimited prompt strings, no invisible characters, clicks only on an
+unobscured overlay, no page-visible start signal, panel-only senders, storage budgets,
 OpenRouter-only connections, a denylist job that installs nothing, a pre-push check, a bundle
 check, the MCP server through pnpm; release readiness: the package from `pnpm zip` checked
-against the build, the README, the manual smoke test), and milestone 8a: **Rec**, dictation in
-the panel without a pin, its text copied as it is. Next: the owner's smoke test before the
-first release; later candidates are in the plan's known limits and deferred items. The spec
-is `docs/specs/2026-10-05-annotation-extension.md` — read both before working on a feature.
+against the build, the README, the manual smoke test), milestone 8a: **Rec**, dictation in the
+panel without a pin, its text copied as it is, and milestone 8c: `Ctrl` + drag selects text in
+a link. Next: milestone 8b (dictation in the background, drafts, Rec notes), then the owner's
+smoke test before the first release; later candidates are in the plan's known limits and
+deferred items. The spec is `docs/specs/2026-10-05-annotation-extension.md` — read both before
+working on a feature.
 
 ## This repository is public
 
