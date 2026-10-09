@@ -3,44 +3,66 @@ import { ArchiveRestoreIcon, LoaderCircleIcon, Trash2Icon, XIcon } from '@lucide
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, useTemplateRef, watch } from 'vue'
 import { browser } from 'wxt/browser'
 import { Button } from '@/components/ui/button'
-import { LIMITS, type Rect, type Status } from '@/lib/collection/model'
-import type { BackgroundMessage } from '@/lib/messages'
-import { currentPlatform, isMacPlatform, panelKey } from '@/lib/shortcuts'
-import { dictationFailure } from '@/lib/voice/protocol'
+import type { Rect, Status } from '@/lib/collection/model'
+import type { BackgroundMessage, VoiceReadyReply } from '@/lib/messages'
+import { currentPlatform, isMacPlatform } from '@/lib/shortcuts'
+import type { JobView } from '@/lib/voice/jobs'
+import { dictationFailure, type RecordingState } from '@/lib/voice/protocol'
 import { CommentGuard } from './comment-guard'
-import { popoverKey } from './keys'
+import { popoverKey, spaceKey } from './keys'
 import { placeNear } from './place'
-import { insertTranscript } from '@/lib/voice/transcript'
 import { fieldState, putBack, useFieldSelection } from './use-field-selection'
 import { useUnobscured } from './use-unobscured'
-import { useVoice } from '@/composables/use-voice'
 import VoiceButton from './VoiceButton.vue'
+
+// The comment popover (spec section 8). It holds the text being written; the overlay holds the
+// dictation and stores the pin: the popover asks for both with its events, and the overlay
+// reads its text with `snapshot()` when it closes or stops a dictation.
 
 const props = defineProps<{
   /** The target in viewport coordinates. */
   rect: Rect
   /** Short description of the target, e.g. `button · 160×48`. */
   label: string
+  /** The comment as stored now; it follows the pin while the field holds no edit of its own. */
   initial?: string
   /** Set when an existing item is edited. */
   number?: number
   /** The status of an existing item: Delete, or Restore for a deleted one. */
   status?: Status
+  /** The pin was never saved: grey, and left out of Copy as prompt. */
+  draft?: boolean
   error?: string
   busy?: boolean
   /** Changes whenever positions may have changed (see use-tracking.ts). */
   frame?: number
-  /** Changes when the overlay keeps this popover open for its unsaved text: the field takes the focus. */
+  /** Changes when the field should take the focus again. */
   nudge?: number
+  /** The overlay's dictation, and its clock. */
+  voice: RecordingState
+  clock: string
+  /** The pin's last dictation, while it is transcribed, failed or was cut. */
+  job?: JobView
 }>()
 
 const emit = defineEmits<{
+  /** Save or Enter; a running dictation is stopped first, its text follows. */
   save: [comment: string]
-  cancel: []
+  /** Esc or X: closes and keeps the pin as it is (a draft, or the changed comment). */
+  close: []
+  /** Delete on a new pin: it was never stored and goes. */
+  discard: []
   remove: []
   restore: []
-  /** Whether closing now would lose something: a changed comment, or a dictation. */
-  unsaved: [unsaved: boolean]
+  /** Starts a dictation, or stops it (Space, Alt+V, the mic, Stop, Retry of a held one). */
+  dictate: []
+  /** Esc while a dictation records: it ends, nothing is sent. */
+  'voice-cancel': []
+  /** Keep at the limit: the recording goes on. */
+  resume: []
+  /** Retry or Dismiss on the pin's failed or cut dictation. */
+  'job-retry': []
+  'job-dismiss': []
   /** A click was held back because something of the page lies over the popover. */
   obscured: []
 }>()
@@ -53,28 +75,29 @@ const warning = ref('')
 const card = useTemplateRef<HTMLElement>('card')
 const field = useTemplateRef<HTMLTextAreaElement>('field')
 const size = ref({ width: 288, height: 180 })
+/** A key is saved: Space may start a dictation. */
+const ready = ref(false)
 
-const voice = useVoice()
-/** What the last dictation needs to say besides its text. */
-const notice = ref('')
-
-// Save waits for a running dictation: its text would otherwise be lost.
-const canSave = computed(() => text.value.trim() !== '' && !props.busy && !voice.busy.value)
+const recording = computed(
+  () => props.voice.state === 'recording' || props.voice.state === 'paused',
+)
+const voiceBusy = computed(() => recording.value || props.voice.state === 'starting')
+const transcribing = computed(() => props.job?.state === 'transcribing')
+// A dictation's stop saves too: its text follows.
+const canSave = computed(
+  () => (text.value.trim() !== '' || recording.value) && !props.busy && !transcribing.value,
+)
+const micState = computed(() => (transcribing.value ? 'transcribing' : props.voice.state))
 /** What screen readers hear: changes of the dictation, not every second of its clock. */
 const spoken = computed(() => {
-  const now = voice.state.value.state
-  if (now === 'recording') return 'Recording. Alt+V stops it.'
-  if (now === 'transcribing') return 'Transcribing.'
+  if (props.voice.state === 'recording') return 'Recording. Alt+V stops it.'
+  if (props.voice.state === 'paused') return 'Recording paused at the limit. Keep recording?'
+  if (transcribing.value) return 'Transcribing.'
   return ''
 })
-const failure = computed(() => dictationFailure(voice.state.value))
-// Spaces at the ends are not saved, so they change nothing.
-const unsaved = computed(() => {
-  const now = voice.state.value
-  const held = now.state === 'failed' && now.retry
-  return text.value.trim() !== (props.initial ?? '').trim() || voice.busy.value || held
-})
-watch(unsaved, (now) => emit('unsaved', now), { immediate: true })
+const failure = computed(() => dictationFailure(props.voice))
+const jobFailure = computed(() => (props.job ? dictationFailure(props.job) : null))
+
 /** Focuses the field with the selection the user left in it. */
 function focusField() {
   const el = field.value
@@ -85,6 +108,19 @@ function focusField() {
 }
 
 watch(() => props.nudge, focusField)
+
+// A dictation filled the pin meanwhile: the field follows while it holds no edit of its own.
+watch(
+  () => props.initial,
+  (now, before) => {
+    const el = field.value
+    if (now === undefined || now === before || text.value !== (before ?? '')) return
+    text.value = now
+    if (el) el.value = now
+    guard.accept(now, now.length)
+  },
+)
+
 const position = computed(() => {
   void props.frame
   const { x, y } = placeNear(props.rect, size.value, {
@@ -128,68 +164,14 @@ function onInput(e: Event) {
   else restore(el)
 }
 
-/**
- * The field before and after the last dictation, while nothing else changed it: Ctrl+Z (⌘Z)
- * takes the dictated text out, Ctrl+Shift+Z puts it back. The text is set as a whole, not as
- * an edit of the field: a page sees the input events of edits, and would read what was
- * dictated. So the browser's own undo does not know it.
- */
-let dictated: { before: string; after: string; from: number; caret: number } | null = null
-
-/** Sets the field to `value` as the overlay's own edit, with the caret at `caret`. */
-function setText(el: HTMLTextAreaElement, value: string, caret: number) {
-  el.value = value
-  guard.accept(value, caret)
-  text.value = value
-  el.setSelectionRange(caret, caret)
-}
-
-function undoDictation(e: KeyboardEvent): boolean {
+/** The user's text as it stands: what a page changed is put back first. */
+function snapshot(): string {
   const el = field.value
-  if (!e.isTrusted || !dictated || !el || e.target !== el) return false
-  const key = panelKey(e, mac)
-  if (key === 'undo' && el.value === dictated.after) setText(el, dictated.before, dictated.from)
-  else if (key === 'redo' && el.value === dictated.before)
-    setText(el, dictated.after, dictated.caret)
-  else return false
-  e.preventDefault()
-  return true
+  if (el && !guard.matches(el.value)) restore(el)
+  return guard.verified
 }
 
-/**
- * The dictated text goes in at the caret the user left, wherever a page moved the field's;
- * the field keeps what was typed meanwhile.
- */
-voice.onText((transcript, atLimit) => {
-  const el = field.value
-  if (!el) return
-  const before = guard.verified
-  const at = guard.selection ?? { start: el.selectionStart, end: el.selectionEnd }
-  const from = Math.min(at.start, before.length)
-  const { value, caret, cut } = insertTranscript(before, at.start, at.end, transcript)
-  el.focus({ preventScroll: true })
-  setText(el, value, caret)
-  dictated = value === before ? null : { before, after: value, from, caret }
-  notice.value = [
-    atLimit ? 'Recording stopped after 2 minutes.' : '',
-    cut
-      ? `Part of it did not fit: a comment holds ${LIMITS.comment.toLocaleString('en')} characters.`
-      : '',
-  ]
-    .filter(Boolean)
-    .join(' ')
-})
-
-function dictate() {
-  if (voice.state.value.state !== 'recording') notice.value = ''
-  voice.toggle()
-}
-
-/** Retry goes away once clicked: the focus goes to the field, not to the page. */
-function retry() {
-  voice.retry()
-  focusField()
-}
+defineExpose({ snapshot })
 
 // Sent inside the trusted click: the background may open the panel only within it.
 function ask(message: BackgroundMessage) {
@@ -197,23 +179,38 @@ function ask(message: BackgroundMessage) {
 }
 
 function save() {
-  const el = field.value
-  if (el && !guard.matches(el.value)) restore(el)
-  if (canSave.value) emit('save', guard.verified.trim())
+  const comment = snapshot().trim()
+  if (canSave.value) emit('save', comment)
 }
 
 function onKeydown(e: KeyboardEvent) {
-  if (field.value && e.target === field.value) selection.keydown(e, field.value)
-  if (undoDictation(e)) return
+  const el = field.value
+  if (el && e.target === el) {
+    selection.keydown(e, el)
+    const space = spaceKey(e, {
+      empty: el.value.trim() === '',
+      ready: ready.value,
+      recording: recording.value,
+      starting: props.voice.state === 'starting',
+      blocked: transcribing.value || el.readOnly,
+    })
+    if (space) {
+      e.preventDefault()
+      if (space === 'dictate') emit('dictate')
+      return
+    }
+  }
   const action = popoverKey(e)
   // Enter saves from the field; on a focused button it presses that button.
-  if (!action || (action === 'save' && e.target !== field.value)) return
+  if (!action || (action === 'save' && e.target !== el)) return
   e.preventDefault()
   if (action === 'save') save()
-  else if (action === 'voice') dictate()
-  // Escape ends a running dictation first, then the comment.
-  else if (voice.busy.value) voice.cancel()
-  else emit('cancel')
+  else if (action === 'voice') {
+    if (!transcribing.value) emit('dictate')
+  }
+  // Escape ends a running dictation first, then closes and keeps the pin.
+  else if (voiceBusy.value) emit('voice-cancel')
+  else emit('close')
 }
 
 // Covered: the overlay puts itself on top again, at most once a second (top-layer.ts).
@@ -232,6 +229,8 @@ function onButton(e: MouseEvent, action: () => void) {
     return
   }
   action()
+  // The focus goes back to the field, not to the page, where Escape closes the comment.
+  focusField()
 }
 
 function measure() {
@@ -242,6 +241,11 @@ function measure() {
 const resizes = new ResizeObserver(measure)
 
 onMounted(async () => {
+  // Only whether a key is saved: the key itself never reaches the page's world.
+  void browser.runtime
+    .sendMessage({ type: 'voice:ready' } satisfies BackgroundMessage)
+    .then((reply: VoiceReadyReply | undefined) => (ready.value = reply?.ready === true))
+    .catch(() => undefined)
   await nextTick()
   measure()
   if (card.value) resizes.observe(card.value)
@@ -263,6 +267,7 @@ onBeforeUnmount(() => {
     ref="card"
     data-testid="overlay-popover"
     :data-covered="unobscured ? undefined : ''"
+    :data-voice-ready="ready ? '' : undefined"
     role="dialog"
     :aria-label="number ? `Edit pin ${number}` : 'New pin'"
     class="fixed z-[2147483647] flex w-72 flex-col gap-2 rounded-lg border bg-popover p-3 text-sm text-popover-foreground shadow-lg"
@@ -273,6 +278,7 @@ onBeforeUnmount(() => {
       <!-- The label cuts itself: an ellipsis takes the color of the element that cuts. -->
       <p class="flex min-w-0 items-baseline gap-1 font-medium">
         <span class="shrink-0">{{ number ? `Pin ${number}` : 'New pin' }}</span>
+        <span v-if="draft" class="shrink-0 font-normal text-muted-foreground">· Draft</span>
         <span class="min-w-0 truncate font-mono text-xs font-normal text-muted-foreground">{{
           label
         }}</span>
@@ -280,8 +286,9 @@ onBeforeUnmount(() => {
       <Button
         variant="ghost"
         size="icon-xs"
-        aria-label="Cancel"
-        @click="onButton($event, () => emit('cancel'))"
+        aria-label="Close"
+        title="Close, keeping the pin (Esc)"
+        @click="onButton($event, () => emit('close'))"
       >
         <XIcon class="size-4" />
       </Button>
@@ -291,9 +298,10 @@ onBeforeUnmount(() => {
       ref="field"
       data-testid="overlay-comment"
       rows="3"
-      placeholder="What should change?"
+      placeholder="What should change? Space dictates."
       :value="text"
-      class="field-sizing-content max-h-48 min-h-16 w-full resize-none rounded-md border border-input bg-transparent px-3 py-2 text-sm shadow-xs outline-none placeholder:text-muted-foreground focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50 dark:bg-input/30"
+      :readonly="transcribing"
+      class="field-sizing-content max-h-48 min-h-16 w-full resize-none rounded-md border border-input bg-transparent px-3 py-2 text-sm shadow-xs outline-none placeholder:text-muted-foreground read-only:opacity-60 focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50 dark:bg-input/30"
       @pointerdown="onFieldPointer"
       @beforeinput="onBeforeInput"
       @input="onInput"
@@ -310,14 +318,39 @@ onBeforeUnmount(() => {
     </p>
     <p v-if="error" class="text-xs text-destructive" role="alert">{{ error }}</p>
     <div
-      v-if="failure"
+      v-if="voice.state === 'paused'"
+      data-testid="overlay-voice-limit"
+      class="flex flex-wrap items-center gap-x-2 gap-y-1 text-xs"
+      role="alert"
+    >
+      <span class="min-w-0 flex-1 basis-40">Paused at {{ clock }}. Keep recording?</span>
+      <Button
+        data-testid="overlay-voice-keep"
+        variant="outline"
+        size="xs"
+        @click="onButton($event, () => emit('resume'))"
+      >
+        Keep
+      </Button>
+      <Button
+        data-testid="overlay-voice-stop"
+        variant="outline"
+        size="xs"
+        @click="onButton($event, () => emit('dictate'))"
+      >
+        Stop
+      </Button>
+    </div>
+    <div
+      v-for="shown in [failure, jobFailure].filter((f) => f !== null)"
+      :key="shown.text"
       data-testid="overlay-voice-message"
       class="flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-destructive"
       role="alert"
     >
-      <span class="min-w-0 flex-1 basis-40">{{ failure.text }}</span>
+      <span class="min-w-0 flex-1 basis-40">{{ shown.text }}</span>
       <Button
-        v-if="failure.grant"
+        v-if="shown.grant"
         data-testid="overlay-voice-grant"
         variant="outline"
         size="xs"
@@ -326,7 +359,7 @@ onBeforeUnmount(() => {
         Grant
       </Button>
       <Button
-        v-if="failure.settings"
+        v-if="shown.settings"
         data-testid="overlay-voice-settings"
         variant="outline"
         size="xs"
@@ -335,37 +368,56 @@ onBeforeUnmount(() => {
         Open settings
       </Button>
       <Button
-        v-if="failure.retry"
+        v-if="shown.retry"
         data-testid="overlay-voice-retry"
         variant="outline"
         size="xs"
-        @click="onButton($event, retry)"
+        @click="onButton($event, () => (shown === failure ? emit('dictate') : emit('job-retry')))"
       >
         Retry
       </Button>
+      <Button
+        v-if="shown === jobFailure"
+        data-testid="overlay-voice-dismiss"
+        variant="outline"
+        size="xs"
+        @click="onButton($event, () => emit('job-dismiss'))"
+      >
+        Dismiss
+      </Button>
     </div>
-    <p
-      v-if="notice"
+    <div
+      v-if="job?.state === 'cut'"
       data-testid="overlay-voice-notice"
-      class="text-xs text-muted-foreground"
+      class="flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-muted-foreground"
       role="status"
     >
-      {{ notice }}
-    </p>
+      <span class="min-w-0 flex-1 basis-40">
+        The dictation was too long for a pin: the full text is in Rec.
+      </span>
+      <Button
+        data-testid="overlay-voice-dismiss"
+        variant="outline"
+        size="xs"
+        @click="onButton($event, () => emit('job-dismiss'))"
+      >
+        Dismiss
+      </Button>
+    </div>
     <div class="flex items-center justify-between gap-2">
       <Button
-        v-if="number && status !== 'deleted' && !voice.busy.value"
+        v-if="status !== 'deleted' && !voiceBusy"
         data-testid="overlay-delete"
         variant="ghost"
         size="sm"
         class="-ml-2 text-muted-foreground hover:text-destructive"
-        :aria-label="`Delete pin ${number}`"
-        @click="onButton($event, () => emit('remove'))"
+        :aria-label="number ? `Delete pin ${number}` : 'Delete this new pin'"
+        @click="onButton($event, () => (number ? emit('remove') : emit('discard')))"
       >
         <Trash2Icon /> Delete
       </Button>
       <Button
-        v-else-if="number && status === 'deleted' && !voice.busy.value"
+        v-else-if="number && status === 'deleted' && !voiceBusy"
         data-testid="overlay-restore"
         variant="ghost"
         size="sm"
@@ -379,25 +431,23 @@ onBeforeUnmount(() => {
         data-testid="overlay-voice-status"
         class="flex min-w-0 flex-1 items-center gap-1.5 text-xs whitespace-nowrap text-muted-foreground"
       >
-        <template v-if="voice.state.value.state === 'recording'">
+        <template v-if="voice.state === 'recording'">
           <span class="size-2 shrink-0 animate-pulse rounded-full bg-red-600" aria-hidden="true" />
-          <span class="font-medium text-foreground tabular-nums">{{ voice.clock.value }}</span>
-          <span class="truncate">· Alt+V to stop</span>
+          <span class="font-medium text-foreground tabular-nums">{{ clock }}</span>
+          <span class="truncate">· {{ text.trim() === '' ? 'Space' : 'Alt+V' }} to stop</span>
         </template>
-        <template v-else-if="voice.state.value.state === 'transcribing'">
+        <template v-else-if="transcribing">
           <LoaderCircleIcon class="size-3 shrink-0 animate-spin" aria-hidden="true" />
           Transcribing…
         </template>
-        <template v-else-if="voice.state.value.state === 'starting'">
-          Starting the microphone…
-        </template>
+        <template v-else-if="voice.state === 'starting'"> Starting the microphone… </template>
       </p>
       <span class="sr-only" role="status" aria-live="polite">{{ spoken }}</span>
       <div class="flex shrink-0 items-center gap-1.5">
         <VoiceButton
           data-testid="overlay-mic"
-          :state="voice.state.value.state"
-          @click="onButton($event, dictate)"
+          :state="micState"
+          @click="onButton($event, () => !transcribing && emit('dictate'))"
         />
         <Button
           data-testid="overlay-save"

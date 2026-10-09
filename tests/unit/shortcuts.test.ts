@@ -1,5 +1,10 @@
 import { describe, expect, it } from 'vitest'
-import { pageShortcut, popoverKey, type ShortcutState } from '@/entrypoints/overlay.content/keys'
+import {
+  pageShortcut,
+  popoverKey,
+  type ShortcutState,
+  spaceKey,
+} from '@/entrypoints/overlay.content/keys'
 import { isMacPlatform, panelKey, recKey, shortcutGroups } from '@/lib/shortcuts'
 
 const key = (init: Partial<KeyboardEvent>) => ({
@@ -103,13 +108,25 @@ describe('the shortcut list', () => {
   })
 
   it.each([
-    ['Save', 'Enter', key({ key: 'Enter' }), 'save'],
+    ['Save (stops a dictation first; its text follows)', 'Enter', key({ key: 'Enter' }), 'save'],
     ['New line', 'Shift+Enter', key({ key: 'Enter', shiftKey: true }), null],
-    ['Cancel (a running dictation first)', 'Esc', key({ key: 'Escape' }), 'cancel'],
+    ['Close and keep the pin (cancels a dictation first)', 'Esc', key({ key: 'Escape' }), 'cancel'],
     ['Start or stop dictation', 'Alt+V', key({ key: 'v', code: 'KeyV', altKey: true }), 'voice'],
   ])('in a comment: %s is %s', (action, shown, event, expected) => {
     expect(row(groups, 'In a pin', action).keys).toEqual([shown])
     expect(popoverKey(event)).toBe(expected)
+  })
+
+  it('starts and stops dictation with Space in an empty comment', () => {
+    expect(row(groups, 'In a pin', 'Start or stop dictation (empty comment)').keys).toEqual([
+      'Space',
+    ])
+    const state = { empty: true, ready: true, recording: false, starting: false, blocked: false }
+    expect(spaceKey(key({ key: ' ', code: 'Space' }), state)).toBe('dictate')
+    expect(spaceKey(key({ key: ' ', code: 'Space' }), { ...state, recording: true })).toBe(
+      'dictate',
+    )
+    expect(spaceKey(key({ key: ' ', code: 'Space' }), { ...state, empty: false })).toBeNull()
   })
 
   it('writes the keys the way macOS does on a Mac', () => {

@@ -82,10 +82,11 @@ export function shortcutGroups(mac: boolean): ShortcutGroup[] {
     {
       title: 'In a pin',
       rows: [
-        { keys: ['Enter'], action: 'Save' },
+        { keys: ['Enter'], action: 'Save (stops a dictation first; its text follows)' },
         { keys: [shift('Enter')], action: 'New line' },
-        { keys: ['Esc'], action: 'Cancel (a running dictation first)' },
+        { keys: ['Space'], action: 'Start or stop dictation (empty comment)' },
         { keys: [alt('V')], action: 'Start or stop dictation' },
+        { keys: ['Esc'], action: 'Close and keep the pin (cancels a dictation first)' },
       ],
     },
     {

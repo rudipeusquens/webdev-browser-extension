@@ -35,6 +35,33 @@ export function popoverKey(e: Key): 'save' | 'cancel' | 'voice' | null {
   return null
 }
 
+export interface SpaceState {
+  /** The comment field holds nothing but spaces. */
+  empty: boolean
+  /** A key is saved: a dictation can start. */
+  ready: boolean
+  /** A dictation records, or waits at its limit. */
+  recording: boolean
+  /** The microphone starts. */
+  starting: boolean
+  /** The pin's last dictation is still transcribed. */
+  blocked: boolean
+}
+
+/**
+ * `Space` in the comment field (spec section 8): starts a dictation while the field is empty,
+ * and stops it while the field stays empty; anywhere else it types a space. 'swallow': it
+ * would type into an empty field whose dictation starts or runs.
+ */
+export function spaceKey(e: Key, s: SpaceState): 'dictate' | 'swallow' | null {
+  if (!e.isTrusted || e.isComposing || e.keyCode === 229 || e.key !== ' ') return null
+  if (e.ctrlKey || e.altKey || e.metaKey || e.shiftKey || !s.empty) return null
+  if (s.starting || (e.repeat && s.recording)) return 'swallow'
+  if (e.repeat) return null
+  if (s.recording) return 'dictate'
+  return s.ready && !s.blocked ? 'dictate' : null
+}
+
 export interface ShortcutState {
   mode: Mode
   /** An element is outlined under the pointer. */

@@ -23,7 +23,7 @@ import {
   type PanelToggle,
   type PanelView,
   type Reply,
-  UNSAVED_PIN,
+  PIN_NOT_KEPT,
   type VoiceReadyReply,
 } from '@/lib/messages'
 import { isSiteOrigin, loadSettings, originPattern } from '@/lib/settings'
@@ -216,9 +216,9 @@ export default defineBackground(() => {
     if (!page || !origin || !isSiteOrigin(origin)) {
       return { ok: false, error: 'This page cannot be opened from here.' }
     }
-    // Not over a popover's unsaved text: the overlay keeps it and says so.
+    // The open popover is kept first; the page stays when it cannot be (the popover says why).
     const leave = await overlayLetsGo(tabId)
-    if (leave === 'unsaved') return { ok: false, error: UNSAVED_PIN }
+    if (leave === 'kept') return { ok: false, error: PIN_NOT_KEPT }
     if (leave === 'busy') return { ok: false, error: 'The page is busy. Try again in a moment.' }
     return goTo(tabId, page.url, await sites.isRemembered(origin))
   }

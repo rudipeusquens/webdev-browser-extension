@@ -165,24 +165,25 @@ pins stay on the clipboard and the panel shows the dictated text for copying by 
 The toolbar shortcut, `Ctrl+Shift+K` (`⇧⌘K` on macOS), opens and closes the panel; change it
 at `chrome://extensions/shortcuts`. Settings lists every key, as Chrome assigned it.
 
-| Where         | Keys                       | Action                             |
-| ------------- | -------------------------- | ---------------------------------- |
-| On the page   | `E`                        | Element mode                       |
-| On the page   | `A`                        | Area mode                          |
-| On the page   | `Esc`                      | Browse mode                        |
-| On the page   | `P`                        | Show or hide the pins              |
-| Element mode  | `↑`                        | Outline the parent                 |
-| Element mode  | `↓`                        | Outline the child again            |
-| Element mode  | `Enter`                    | Pin the outlined element           |
-| Area mode     | `Esc`                      | Cancel the drag                    |
-| In a pin      | `Enter`                    | Save                               |
-| In a pin      | `Shift+Enter`              | New line                           |
-| In a pin      | `Esc`                      | Cancel (a running dictation first) |
-| In a pin      | `Alt+V`                    | Start or stop dictation            |
-| In this panel | `Ctrl+Z`                   | Undo                               |
-| In this panel | `Ctrl+Shift+Z` or `Ctrl+Y` | Redo                               |
-| In this panel | `Alt+V`                    | Start or stop Rec                  |
-| In this panel | `Esc`                      | Cancel Rec                         |
+| Where         | Keys                       | Action                                             |
+| ------------- | -------------------------- | -------------------------------------------------- |
+| On the page   | `E`                        | Element mode                                       |
+| On the page   | `A`                        | Area mode                                          |
+| On the page   | `Esc`                      | Browse mode                                        |
+| On the page   | `P`                        | Show or hide the pins                              |
+| Element mode  | `↑`                        | Outline the parent                                 |
+| Element mode  | `↓`                        | Outline the child again                            |
+| Element mode  | `Enter`                    | Pin the outlined element                           |
+| Area mode     | `Esc`                      | Cancel the drag                                    |
+| In a pin      | `Enter`                    | Save (stops a dictation first; its text follows)   |
+| In a pin      | `Shift+Enter`              | New line                                           |
+| In a pin      | `Space`                    | Start or stop dictation (empty comment)            |
+| In a pin      | `Alt+V`                    | Start or stop dictation                            |
+| In a pin      | `Esc`                      | Close and keep the pin (cancels a dictation first) |
+| In this panel | `Ctrl+Z`                   | Undo                                               |
+| In this panel | `Ctrl+Shift+Z` or `Ctrl+Y` | Redo                                               |
+| In this panel | `Alt+V`                    | Start or stop Rec                                  |
+| In this panel | `Esc`                      | Cancel Rec                                         |
 
 The keys on the page work while no field of the page has the focus. On macOS: `⇧` for Shift,
 `⌥` for Alt, and `⌘Z` and `⇧⌘Z` in the panel.

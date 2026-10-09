@@ -1,7 +1,17 @@
 <script setup lang="ts">
-import { computed, onBeforeUnmount, onMounted, ref, shallowReactive, shallowRef, watch } from 'vue'
+import {
+  computed,
+  onBeforeUnmount,
+  onMounted,
+  ref,
+  shallowReactive,
+  shallowRef,
+  useTemplateRef,
+  watch,
+} from 'vue'
 import { browser, type Browser } from 'wxt/browser'
 import { useSiteCollection } from '@/composables/use-site-collection'
+import { useVoice } from '@/composables/use-voice'
 import { closestOf, deepActiveElement, queryFirst, tagOf } from '@/lib/capture/dom'
 import { findText } from '@/lib/capture/find-text'
 import { snapshotArea } from '@/lib/capture/area'
@@ -30,8 +40,9 @@ import {
   type PanelMessage,
   type PinsPointed,
   type Reply,
-  UNSAVED_PIN,
 } from '@/lib/messages'
+import { loadStored, watchStored } from '@/lib/storage'
+import { jobsKey, parseJobs, type SiteJobs } from '@/lib/voice/jobs'
 import { createAnchorStatus } from './anchor-status'
 import CommentPopover from './CommentPopover.vue'
 import HoverBox from './HoverBox.vue'
@@ -67,8 +78,7 @@ const props = defineProps<{ host: HTMLElement; layer: Layer }>()
 // Containers that script focus traps (Radix, reka-ui, focus-trap) usually guard.
 const TRAP = '[aria-modal="true"], [role="dialog"], [role="alertdialog"]'
 const FOCUS_TAKEN = 'This page took the focus. Click into the comment field to continue.'
-/** What the popover says when a click asks for another one while it holds unsaved text. */
-const KEEP_DRAFT = 'Save or cancel this pin first.'
+const NOT_SAVED = 'Could not save. Reload the page and try again.'
 /** Smaller drags are clicks, not areas. */
 const MIN_AREA = 4
 /**
@@ -85,6 +95,10 @@ const REVEAL_WAIT = 3000
 
 interface Draft {
   key: number
+  /** The pin's id: an existing one's, or a new one's from the moment it is marked. */
+  id: string
+  /** A new pin was stored meanwhile (kept, or its dictation handed over). */
+  stored?: boolean
   kind: Target['kind']
   /** The element that holds the target: focus traps are looked for around it. */
   el: Element
@@ -116,9 +130,8 @@ const mode = ref<Mode>('browse')
 const path = shallowRef<TargetPath | null>(null)
 const hovered = shallowRef<Element | null>(null)
 const draft = shallowRef<Draft | null>(null)
-// Whether the open popover holds something closing it would lose (the popover says so), and a
-// counter that gives its field the focus again.
-const unsaved = ref(false)
+const popover = useTemplateRef<{ snapshot(): string }>('popover')
+// A counter that gives the popover's field the focus again.
 const nudge = ref(0)
 const highlighted = ref<string | null>(null)
 // The panel or the P key can hide the pins, until they show them again or the overlay
@@ -136,6 +149,26 @@ const { key: page } = usePage()
 // The site of this page: a single-page app stays on it while it navigates.
 const site = siteOf(location.href)
 const { collection } = useSiteCollection(ref(site))
+// The state of the pins' dictations while they are not done (spec section 8).
+const jobs = shallowRef<SiteJobs>({})
+let jobsChanged = false
+const stopJobs = watchStored(jobsKey(site), parseJobs, (now) => {
+  jobsChanged = true
+  jobs.value = now
+})
+void loadStored(jobsKey(site), parseJobs).then((now) => {
+  if (!jobsChanged) jobs.value = now
+})
+// The dictation belongs to the overlay, not to a popover: it outlives the popover's changes.
+const voice = useVoice({
+  // Another recording wants to start (another tab, Rec): this one is handed over.
+  yielded: () => {
+    if (draft.value) void stopDictation()
+    else voice.cancel()
+  },
+  // The limit's question went unanswered.
+  timedOut: () => void stopDictation(),
+})
 // The panel's filter: which items have pins (spec section 8).
 const filter = ref<Filter>('open')
 let filterChanged = false
@@ -292,6 +325,7 @@ const pins = computed(() => {
     id,
     number: items.get(id)?.number,
     tone: STATUS_BADGE[toneOf(items.get(id) ?? { status: 'open' })],
+    transcribing: jobs.value[id]?.state === 'transcribing',
     left: `${x}px`,
     top: `${y}px`,
   }))
@@ -342,6 +376,28 @@ const editStatus = computed((): Tone | undefined => {
   if (!edit) return undefined
   return toneOf(collection.value?.items.find((item) => item.id === edit.id) ?? edit)
 })
+/** The comment of the pin being edited as stored now: a dictation may fill it meanwhile. */
+const editComment = computed(() => {
+  const edit = draft.value?.edit
+  if (!edit) return undefined
+  return collection.value?.items.find((item) => item.id === edit.id)?.comment ?? edit.comment
+})
+
+/** Retry or Dismiss on the open pin's dictation. */
+async function jobAction(type: 'dictation:retry' | 'dictation:dismiss') {
+  const current = draft.value
+  if (!current) return
+  let reply: Reply | undefined
+  try {
+    reply = (await browser.runtime.sendMessage({ type, site, id: current.id })) as Reply | undefined
+  } catch {
+    reply = undefined
+  }
+  if (draft.value?.key === current.key && reply && !reply.ok) {
+    draft.value = { ...current, error: reply.error }
+  }
+}
+
 const highlight = computed(() => {
   void frame.value
   const item = pageItems.value.find((i) => i.id === highlighted.value)
@@ -471,28 +527,17 @@ function containForComment(el: Element) {
 
 watch(draft, (current, previous) => {
   if (!current && previous) props.layer.contain(null)
-  if (!current) unsaved.value = false
 })
 
-/**
- * Keeps the open popover while it holds unsaved text: it says why and takes the focus. Only
- * `Esc`, Cancel or Save close it then. True when it stays.
- */
-function keepsDraft(): boolean {
-  const current = draft.value
-  if (!current || !unsaved.value) return false
-  draft.value = { ...current, error: KEEP_DRAFT }
-  nudge.value++
-  return true
-}
-
 /** Opens the popover for a new item or an edit. */
-function openDraft(next: Omit<Draft, 'key' | 'busy'>): number {
+function openDraft(next: Omit<Draft, 'key' | 'busy' | 'id'>): number {
   chip.value = null
   containForComment(next.el)
   const key = ++drafts
-  unsaved.value = false
-  draft.value = { ...next, key, busy: false }
+  // What an earlier popover's dictation said is over.
+  voice.clear()
+  // A new pin's id is fixed now: storing it twice can only fail, never make two.
+  draft.value = { ...next, id: next.edit?.id ?? newId(), key, busy: false }
   return key
 }
 
@@ -599,16 +644,19 @@ function openEdit(id: string): boolean {
 
 /**
  * Scrolls to an item and opens its popover. Its own open popover stays as it is; another one
- * stays while it holds unsaved text ('kept').
+ * closes and keeps what it holds first (a draft, a changed comment, a dictation handed over).
  */
-function reveal(id: string): 'shown' | 'kept' | 'missing' {
-  const placement = placements.value.get(id)
-  if (draft.value?.edit?.id === id) {
-    placement?.el.scrollIntoView({ block: 'center', inline: 'nearest' })
+async function reveal(id: string): Promise<'shown' | 'missing' | Reply> {
+  if (draft.value?.id === id) {
+    placements.value.get(id)?.el.scrollIntoView({ block: 'center', inline: 'nearest' })
     nudge.value++
     return 'shown'
   }
-  if (keepsDraft()) return 'kept'
+  if (draft.value) {
+    const left = await leave()
+    if (!left.ok) return left
+  }
+  const placement = placements.value.get(id)
   if (!placement) return 'missing'
   placement.el.scrollIntoView({ block: 'center', inline: 'nearest' })
   return openEdit(id) ? 'shown' : 'missing'
@@ -619,12 +667,12 @@ function reveal(id: string): 'shown' | 'kept' | 'missing' {
 let wanted: string | null = null
 let wantedTimer: ReturnType<typeof setTimeout> | undefined
 
-/** The panel's click on an entry: refused only while the open popover holds unsaved text. */
-function revealSoon(id: string): Reply {
+/** The panel's click on an entry: refused only when the open popover cannot be kept. */
+async function revealSoon(id: string): Promise<Reply> {
   clearTimeout(wantedTimer)
   wanted = null
-  const shown = reveal(id)
-  if (shown === 'kept') return { ok: false, error: UNSAVED_PIN }
+  const shown = await reveal(id)
+  if (typeof shown === 'object') return shown
   if (shown === 'missing') {
     wanted = id
     wantedTimer = setTimeout(() => (wanted = null), REVEAL_WAIT)
@@ -637,7 +685,7 @@ watch(placements, (placed) => {
   const id = wanted
   wanted = null
   clearTimeout(wantedTimer)
-  reveal(id)
+  void reveal(id)
 })
 
 /**
@@ -703,6 +751,7 @@ async function changeStatus(type: 'annotation:remove' | 'annotation:restore') {
   const current = draft.value
   const id = current?.edit?.id
   if (!current || !id || current.busy) return
+  voice.cancel()
   draft.value = { ...current, busy: true, error: undefined }
   const message: BackgroundMessage = { type, site, id }
   let reply: Reply | undefined
@@ -716,57 +765,174 @@ async function changeStatus(type: 'annotation:remove' | 'annotation:restore') {
     draft.value = null
     return
   }
-  const error = reply && !reply.ok ? reply.error : 'Could not save. Reload the page and try again.'
+  const error = reply && !reply.ok ? reply.error : NOT_SAVED
   draft.value = { ...current, busy: false, error }
 }
 
 function onPinClick(e: MouseEvent, id: string) {
   if (!e.isTrusted) return
   // Its popover is open already: it stays as it is.
-  if (draft.value?.edit?.id === id) nudge.value++
-  else if (!keepsDraft()) openEdit(id)
+  if (draft.value?.id === id) nudge.value++
+  else if (!draft.value) openEdit(id)
+  else
+    void leave().then((left) => {
+      if (left.ok && !draft.value) openEdit(id)
+    })
 }
 
+/** Esc on the page: a drag ends, a dictation ends, then the popover closes and keeps its pin. */
 function cancel() {
   if (drag.value) drag.value = null
-  else draft.value = null
+  else if (voice.busy.value) voice.cancel()
+  else void leave()
 }
 
-async function save(comment: string) {
-  const current = draft.value
-  if (!current || current.busy) return
-  draft.value = { ...current, busy: true, error: undefined }
-  const id = current.edit?.id ?? newId()
-  let target = current.target
-  if (target && current.origins) {
-    const waited = performance.now() - (current.marked ?? 0)
-    const origins = await within(current.origins, ORIGIN_WAIT - waited)
-    if (draft.value?.key !== current.key) return
-    if (origins) target = withOrigins(target, origins)
+/**
+ * Stores the open popover's pin (spec section 8). Saved: Save, `Enter` or a dictation's stop,
+ * a draft until it has a comment. Kept: `Esc`, X, another pin, Go to, the page going; a new
+ * pin is a draft, a pin keeps its status. A new pin waits a moment for its code origins,
+ * unless the page goes (`wait` off: the message leaves before anything is awaited).
+ */
+async function persist(
+  current: Draft,
+  text: string,
+  how: 'save' | 'keep',
+  wait = true,
+): Promise<Reply> {
+  const comment = text.trim()
+  const kept = how === 'keep'
+  const edit = current.edit
+  let message: BackgroundMessage | undefined
+  if (edit || current.stored) {
+    const before = edit?.comment.trim() ?? ''
+    const draftNow = edit ? !!edit.draft : true
+    // Nothing changed, or a pin would lose its comment: nothing to store.
+    if ((kept && comment === before) || (!draftNow && comment === '')) return { ok: true }
+    message = { type: 'annotation:update', site, id: current.id, comment }
+    if (kept) message.keep = true
+  } else {
+    let target = current.target
+    if (target && current.origins && wait) {
+      const waited = performance.now() - (current.marked ?? 0)
+      const origins = await within(current.origins, ORIGIN_WAIT - waited)
+      if (origins) target = withOrigins(target, origins)
+    }
+    message = {
+      type: 'annotation:add',
+      id: current.id,
+      page: current.page ?? pageInfo(window),
+      target: target as Target,
+      comment,
+    }
+    if (kept || comment === '') message.draft = true
   }
-  const message: BackgroundMessage = current.edit
-    ? { type: 'annotation:update', site, id, comment }
-    : {
-        type: 'annotation:add',
-        id,
-        page: current.page ?? pageInfo(window),
-        target: target as Target,
-        comment,
-      }
   let reply: Reply | undefined
   try {
     reply = (await browser.runtime.sendMessage(message)) as Reply | undefined
   } catch {
     reply = undefined
   }
-  if (draft.value?.key !== current.key) return
-  if (reply?.ok) {
-    if (!current.edit && current.live) live.set(id, current.live)
-    draft.value = null
-    return
+  if (!reply?.ok) return { ok: false, error: reply && !reply.ok ? reply.error : NOT_SAVED }
+  if (!edit) {
+    current.stored = true
+    if (current.live) live.set(current.id, current.live)
   }
-  const error = reply && !reply.ok ? reply.error : 'Could not save. Reload the page and try again.'
-  draft.value = { ...current, busy: false, error }
+  return { ok: true }
+}
+
+/** Save or `Enter`: the pin is saved; a running dictation is stopped first, its text follows. */
+async function save(comment: string) {
+  if (voice.recording.value) return void stopDictation()
+  const current = draft.value
+  if (!current || current.busy) return
+  draft.value = { ...current, busy: true, error: undefined }
+  const reply = await persist(current, comment, 'save')
+  if (draft.value?.key !== current.key) return
+  if (reply.ok) draft.value = null
+  else draft.value = { ...current, busy: false, error: reply.error }
+}
+
+/**
+ * A dictation's stop (spec section 8): the pin is saved, a draft while it has no comment, the
+ * recording handed over to the background, and the popover closes. The text follows.
+ */
+async function stopDictation(): Promise<Reply> {
+  const current = draft.value
+  if (!current || current.busy) return { ok: false, error: NOT_SAVED }
+  draft.value = { ...current, busy: true, error: undefined }
+  const reply = await persist(current, popover.value?.snapshot() ?? '', 'save')
+  if (draft.value?.key !== current.key) return reply
+  if (!reply.ok) {
+    draft.value = { ...current, busy: false, error: reply.error }
+    return reply
+  }
+  // Only once the pin is stored: its text is filled into it.
+  voice.stop({ pin: current.id })
+  draft.value = null
+  return reply
+}
+
+/** Space, Alt+V, the mic: starts a dictation, or stops the one that runs. */
+function dictate() {
+  const current = draft.value
+  if (!current) return
+  if (voice.recording.value) return void stopDictation()
+  if (jobs.value[current.id]?.state === 'transcribing') return
+  voice.start()
+}
+
+let leaving: Promise<Reply> | undefined
+
+/**
+ * Closes the open popover and keeps what it holds (spec section 8): a new pin as a draft, a
+ * changed comment, a dictation handed over. One at a time; refused only when nothing could be
+ * stored, and the popover says why.
+ */
+function leave(): Promise<Reply> {
+  const current = draft.value
+  if (!current) return Promise.resolve({ ok: true })
+  leaving ??= (async (): Promise<Reply> => {
+    try {
+      if (voice.recording.value) return await stopDictation()
+      voice.cancel()
+      draft.value = { ...current, busy: true, error: undefined }
+      const reply = await persist(current, popover.value?.snapshot() ?? '', 'keep')
+      if (draft.value?.key !== current.key) return reply
+      if (reply.ok) draft.value = null
+      else {
+        draft.value = { ...current, busy: false, error: reply.error }
+        nudge.value++
+      }
+      return reply
+    } finally {
+      leaving = undefined
+    }
+  })()
+  return leaving
+}
+
+/** Delete on a new pin: it was never stored, and goes with what it recorded. */
+function discard() {
+  voice.cancel()
+  draft.value = null
+}
+
+/**
+ * The page goes (reload, navigation, the tab closing): the open popover is kept now, without
+ * waiting for anything, and its recording handed over. A page kept for Back closes it.
+ */
+function onPageHide(e: PageTransitionEvent) {
+  const current = draft.value
+  if (!current) return
+  const text = popover.value?.snapshot() ?? ''
+  if (voice.recording.value) {
+    void persist(current, text, 'save', false)
+    voice.stop({ pin: current.id })
+  } else {
+    voice.cancel()
+    void persist(current, text, 'keep', false)
+  }
+  if (e.persisted) draft.value = null
 }
 
 /** Hovers the element at a viewport point; only a new element resets a path walked with ↑/↓. */
@@ -894,14 +1060,12 @@ const onMessage: Parameters<typeof browser.runtime.onMessage.addListener>[0] = (
       sendResponse({ ok: true } satisfies Reply)
       return
     case 'overlay:reveal':
-      sendResponse(revealSoon(message.id))
-      return
+      void revealSoon(message.id).then(sendResponse)
+      return true
     case 'overlay:leave':
-      // Go to: the page stays while the open popover holds unsaved text.
-      sendResponse(
-        (keepsDraft() ? { ok: false, error: UNSAVED_PIN } : { ok: true }) satisfies Reply,
-      )
-      return
+      // Go to: the open popover is kept first; the page stays only when it cannot be.
+      void leave().then(sendResponse)
+      return true
   }
 }
 
@@ -956,6 +1120,7 @@ const RELEASES = ['pointerup', 'mouseup', 'keyup'] as const
 onMounted(() => {
   // Capture phase on window: before the page's own bubble-phase shortcut handlers.
   window.addEventListener('keydown', onKeydown, true)
+  window.addEventListener('pagehide', onPageHide)
   for (const type of RELEASES) window.addEventListener(type, onRelease, true)
   document.addEventListener('selectionchange', onSelectionChange)
   browser.runtime.onMessage.addListener(onMessage)
@@ -971,6 +1136,8 @@ onBeforeUnmount(() => {
   clearTimeout(reanchorTimer)
   anchors.stop()
   window.removeEventListener('keydown', onKeydown, true)
+  window.removeEventListener('pagehide', onPageHide)
+  stopJobs()
   for (const type of RELEASES) window.removeEventListener(type, onRelease, true)
   document.removeEventListener('selectionchange', onSelectionChange)
   cancelAnimationFrame(chipCheck)
@@ -1018,7 +1185,8 @@ onBeforeUnmount(() => {
       type="button"
       data-testid="overlay-pin"
       class="fixed z-[2147483647] flex size-5 items-center justify-center rounded-full text-xs leading-none font-semibold text-white shadow-md ring-2 ring-white"
-      :class="pin.tone"
+      :class="[pin.tone, pin.transcribing && 'animate-pulse motion-reduce:animate-none']"
+      :data-transcribing="pin.transcribing ? '' : undefined"
       :style="{ left: pin.left, top: pin.top }"
       :aria-label="`Edit pin ${pin.number}`"
       @pointerup="onRelease"
@@ -1050,21 +1218,31 @@ onBeforeUnmount(() => {
     />
     <CommentPopover
       v-if="draft && draftRect"
+      ref="popover"
       :key="draft.key"
       :rect="draftRect"
       :label="draftLabel"
-      :initial="draft.edit?.comment"
+      :initial="editComment"
       :number="draft.edit?.number"
       :status="draft.edit?.status"
+      :draft="editStatus === 'draft'"
       :busy="draft.busy"
       :error="draft.error"
       :frame="frame"
       :nudge="nudge"
+      :voice="voice.state.value"
+      :clock="voice.clock.value"
+      :job="jobs[draft.id]"
       @save="save"
-      @cancel="cancel"
+      @close="leave"
+      @discard="discard"
       @remove="changeStatus('annotation:remove')"
       @restore="changeStatus('annotation:restore')"
-      @unsaved="unsaved = $event"
+      @dictate="dictate"
+      @voice-cancel="voice.cancel()"
+      @resume="voice.resume()"
+      @job-retry="jobAction('dictation:retry')"
+      @job-dismiss="jobAction('dictation:dismiss')"
       @obscured="props.layer.raise()"
     />
   </div>

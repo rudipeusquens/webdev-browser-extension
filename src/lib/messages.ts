@@ -155,8 +155,9 @@ export const MAX_ORIGIN_SELECTORS = LIMITS.areaElements + 1
 
 /**
  * Side panel → overlay of the active tab; `overlay:status` and `overlay:leave` also come from
- * the background. `overlay:reveal` and `overlay:leave` are refused while the open popover holds
- * unsaved text: Go to asks with `overlay:leave` before the tab navigates.
+ * the background. For `overlay:reveal` and `overlay:leave` the open popover closes and keeps
+ * its pin first; they are refused only when it cannot be stored. Go to asks with
+ * `overlay:leave` before the tab navigates.
  */
 export type OverlayMessage =
   | { type: 'overlay:status' }
@@ -225,8 +226,11 @@ export interface OverlayStatus {
 
 export type Reply = { ok: true } | { ok: false; error: string }
 
-/** Why the overlay keeps its popover: the panel shows it when Go to or a click is refused. */
-export const UNSAVED_PIN = 'Save or cancel the open pin first.'
+/**
+ * Why the overlay keeps its popover open: its pin could not be stored. The panel shows it when
+ * Go to or a click is refused; the popover says the reason itself.
+ */
+export const PIN_NOT_KEPT = 'The open pin could not be kept: its popover says why.'
 
 /** Background → side panels: the key was saved or removed; read it again (never its value). */
 export type KeyChanged = { type: 'voice:key:changed' }
