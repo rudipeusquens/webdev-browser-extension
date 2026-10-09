@@ -30,6 +30,7 @@ import type { PageInfo, Rect, Status, Target } from '@/lib/collection/model'
 import { siteOf } from '@/lib/collection/site'
 import { STATUS_BADGE, type Tone, toneOf } from '@/lib/status'
 import { type Filter, loadView, shows, watchView } from '@/lib/view'
+import { currentPlatform, isMacPlatform } from '@/lib/shortcuts'
 import { truncate } from '@/lib/text'
 import {
   type BackgroundMessage,
@@ -49,6 +50,7 @@ import HoverBox from './HoverBox.vue'
 import { newId } from '@/lib/ids'
 import { type Origins, readOrigins, sourcesOf, within, withOrigins } from './origins'
 import { pageShortcut } from './keys'
+import { createLinkSelect, pageSelectSurface } from './link-select'
 import { forwardsWheel, isEditable, pickAt, TargetPath, wheelTarget } from './picker'
 import {
   areaIn,
@@ -1095,6 +1097,21 @@ const onMessage: Parameters<typeof browser.runtime.onMessage.addListener>[0] = (
  * section 8).
  */
 const panels = new Set<Browser.runtime.Port>()
+/** Whether a panel holds a line to this overlay (the set itself is not reactive). */
+const panelOpen = ref(false)
+
+// Ctrl+drag (⌘+drag on macOS) selects text in Browse mode, also in a link, while the panel is
+// open; the page keeps its Ctrl+click otherwise (spec section 8).
+const linkSelect = createLinkSelect(pageSelectSurface(document, props.host), {
+  host: props.host,
+  mac: isMacPlatform(currentPlatform()),
+  active: () => mode.value === 'browse' && panelOpen.value,
+  editable: (target) => isEditable(target instanceof Element ? target : null),
+})
+const onSelectDown = (e: MouseEvent) => linkSelect.down(e)
+const onSelectMove = (e: MouseEvent) => linkSelect.move(e)
+const onSelectUp = () => linkSelect.up()
+const onSelectClick = (e: MouseEvent) => linkSelect.click(e)
 
 /** What the pins point at, by id only: the panel marks the entries (spec section 8). */
 function pointedNow(): PinsPointed {
@@ -1114,6 +1131,7 @@ function tellPanels(message: PinsPointed) {
       panels.delete(port)
     }
   }
+  panelOpen.value = panels.size > 0
 }
 
 watch([hoveredPin, () => draft.value?.edit?.id ?? null, () => draft.value !== null], () =>
@@ -1123,11 +1141,13 @@ watch([hoveredPin, () => draft.value?.edit?.id ?? null, () => draft.value !== nu
 const onConnect: Parameters<typeof browser.runtime.onConnect.addListener>[0] = (port) => {
   if (port.name !== 'panel' || port.sender?.id !== browser.runtime.id) return
   panels.add(port)
+  panelOpen.value = true
   port.onMessage.addListener((message) => {
     if (isPanelAway(message)) highlighted.value = null
   })
   port.onDisconnect.addListener(() => {
     panels.delete(port)
+    panelOpen.value = panels.size > 0
     highlighted.value = null
     setMode('browse')
   })
@@ -1142,6 +1162,11 @@ onMounted(() => {
   window.addEventListener('keydown', onKeydown, true)
   window.addEventListener('pagehide', onPageHide)
   for (const type of RELEASES) window.addEventListener(type, onRelease, true)
+  window.addEventListener('mousedown', onSelectDown, true)
+  window.addEventListener('mousemove', onSelectMove, true)
+  window.addEventListener('mouseup', onSelectUp, true)
+  window.addEventListener('blur', onSelectUp)
+  window.addEventListener('click', onSelectClick, true)
   document.addEventListener('selectionchange', onSelectionChange)
   browser.runtime.onMessage.addListener(onMessage)
   browser.runtime.onConnect.addListener(onConnect)
@@ -1159,6 +1184,11 @@ onBeforeUnmount(() => {
   window.removeEventListener('pagehide', onPageHide)
   stopJobs()
   for (const type of RELEASES) window.removeEventListener(type, onRelease, true)
+  window.removeEventListener('mousedown', onSelectDown, true)
+  window.removeEventListener('mousemove', onSelectMove, true)
+  window.removeEventListener('mouseup', onSelectUp, true)
+  window.removeEventListener('blur', onSelectUp)
+  window.removeEventListener('click', onSelectClick, true)
   document.removeEventListener('selectionchange', onSelectionChange)
   cancelAnimationFrame(chipCheck)
   browser.runtime.onMessage.removeListener(onMessage)

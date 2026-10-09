@@ -5,6 +5,7 @@ import {
   type ShortcutState,
   spaceKey,
 } from '@/entrypoints/overlay.content/keys'
+import { selectModifier } from '@/entrypoints/overlay.content/link-select'
 import { isMacPlatform, panelKey, recKey, shortcutGroups } from '@/lib/shortcuts'
 
 const key = (init: Partial<KeyboardEvent>) => ({
@@ -42,6 +43,7 @@ describe('the shortcut list', () => {
   it('has the groups of the spec, in order', () => {
     expect(groups.map((g) => g.title)).toEqual([
       'On the page',
+      'Browse mode',
       'Element mode',
       'Area mode',
       'In a pin',
@@ -127,6 +129,14 @@ describe('the shortcut list', () => {
       'dictate',
     )
     expect(spaceKey(key({ key: ' ', code: 'Space' }), { ...state, empty: false })).toBeNull()
+  })
+
+  it('selects text in a link with the modifier the gesture checks, ⌘ on a Mac', () => {
+    const action = 'Select text, also in a link'
+    expect(row(groups, 'Browse mode', action).keys).toEqual(['Ctrl+drag'])
+    expect(selectModifier({ ctrlKey: true, metaKey: false }, false)).toBe(true)
+    expect(row(shortcutGroups(true), 'Browse mode', action).keys).toEqual(['⌘+drag'])
+    expect(selectModifier({ ctrlKey: false, metaKey: true }, true)).toBe(true)
   })
 
   it('writes the keys the way macOS does on a Mac', () => {

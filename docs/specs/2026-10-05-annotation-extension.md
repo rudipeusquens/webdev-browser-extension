@@ -532,6 +532,18 @@ mode; when the panel closes, every one of them switches to Browse.
 | Element | `E`   | Hover outline with a chip `tag · Component · W×H`; `↑`/`↓` move to parent/child; click or `Enter` selects. Page clicks are swallowed; the mouse wheel scrolls what lies under the pointer (below).                                                                                                                                               |
 | Area    | `A`   | Drag a rectangle (dashed outline with its size); release selects when it is at least 4 × 4 px; `Esc` cancels the drag. The mouse wheel scrolls under the pointer as in element mode; `Ctrl`/`Cmd` + wheel zooms.                                                                                                                                 |
 
+**Text in a link:** while the panel is open, `Ctrl` + drag in Browse mode (`⌘` on macOS, where
+`Ctrl` + click is a right click) selects text also where Chrome would not: it drags a link
+instead of selecting its text, and even a link made not draggable starts no selection on the
+first half of its first character, where a drag over its text begins. With the modifier the
+overlay selects by itself: the press is kept from the page (no drag, no focus, no handler of
+the page), each move extends the page's selection to the caret under the pointer, a double
+click selects the word; the release offers the **Pin** chip as for any selection. A click with
+the modifier never reaches the page: no link opens, no tab, no click handler runs. In a text
+field the press stays the field's. In a link the page made draggable or unselectable, Chrome
+paints no selection, but the chip comes and pins it. Without the panel, or in element and area
+mode, `Ctrl` + click is the page's and the browser's as before.
+
 After an annotation is saved the mode stays, so several elements can be marked in a row.
 `P` (same condition: focus not in a page field, no comment open) shows or hides the pins, like
 the panel's **Pins** toggle, which follows it.
@@ -710,8 +722,9 @@ open, its entry stays marked.
   feedback, the address opening the site in a new tab (web sites only), its number of open
   pins, **Auto** for remembered sites with **Forget** (after the same confirmation);
   **Keyboard shortcuts**: the toolbar shortcut as Chrome assigned it (**Change** opens
-  `chrome://extensions/shortcuts`), and the keys on the page, in element and area mode, in the
-  comment popover and in the panel. **Open settings** in the popover opens the panel there.
+  `chrome://extensions/shortcuts`), and the keys on the page, in Browse, element and area mode,
+  in the comment popover and in the panel. **Open settings** in the popover opens the panel
+  there.
 - Everything clickable shows the pointer cursor, in the panel and in the overlay.
 
 Visual references: v0 and Lovable element selection (outline, tag chip, inline comment field,
@@ -866,19 +879,21 @@ select-parent), ClickUp and Air comment pins with a side list.
   redirect them. Named images and forms also shadow members of `document`, but only in the
   page's own world: Chrome keeps the content script's view of `document` intact (E2E-tested).
   Page text is never read with `innerText` or `Selection.toString()` (section 6), so no form
-  field value reaches a snapshot. The shading of pinned texts is the one thing the overlay puts into
-  the page itself: a style sheet adopted by the document with `::highlight(webdev-pins…)` rules,
-  and highlights of those names in `CSS.highlights`. They hold no page data the page does not
-  have, but they tell the page which of its texts are pinned, their status and which pin is
-  hovered; the page can remove them, which only removes the shading. The overlay starts
-  without a signal the page could read or fake (WXT's start message, which carried the
-  extension's id, and its document event, which would remove the overlay); a newer overlay
-  stops an older one through the content-script world. A page can lay something over the
-  overlay or hide it: its buttons then act only once the browser has reported them unobscured
-  for half a second (Intersection Observer v2; a cover taken away as the pointer is pressed
-  does not count), and the host is shown and raised again, at most once a second, as soon as
-  something covers it. A selection a page makes
-  in its own listener for the developer's mouse release still gets the chip.
+  field value reaches a snapshot. `Ctrl` + drag in Browse mode (section 8) sets the page's
+  selection, which the page sees as any selection, and keeps that press and every click with
+  the modifier from the page while the panel is open; it adds nothing to the page. The shading
+  of pinned texts is the one thing the overlay puts into the page itself: a style sheet
+  adopted by the document with `::highlight(webdev-pins…)` rules, and highlights of those
+  names in `CSS.highlights`. They hold no page data the page does not have, but they tell the
+  page which of its texts are pinned, their status and which pin is hovered; the page can
+  remove them, which only removes the shading. The overlay starts without a signal the page
+  could read or fake (WXT's start message, which carried the extension's id, and its document
+  event, which would remove the overlay); a newer overlay stops an older one through the
+  content-script world. A page can lay something over the overlay or hide it: its buttons then
+  act only once the browser has reported them unobscured for half a second (Intersection
+  Observer v2; a cover taken away as the pointer is pressed does not count), and the host is
+  shown and raised again, at most once a second, as soon as something covers it. A selection a
+  page makes in its own listener for the developer's mouse release still gets the chip.
 - **Comment field:** while it has focus, `document.execCommand()` called by the page edits it
   despite the closed shadow root, with trusted `input` events. The overlay accepts only trusted
   edits announced by a trusted `beforeinput` of the same type and text, and only where they were

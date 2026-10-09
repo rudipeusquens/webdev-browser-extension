@@ -4397,6 +4397,62 @@ lost the clipboard to the limit's stop; a page of the extension opened in a tab 
 popover's port. Deferred: Settings hides Rec while it records, so it runs on unseen there
 until Edit or the two-minute limit.
 
+## Milestone 8c: Text in a link
+
+**Goal:** `Ctrl` + drag (`⌘` on macOS) in Browse mode selects text where Chrome drags a link
+instead, while the panel is open; the click with the modifier opens nothing.
+
+**Planned and built on 2026-10-09** at the owner's request, together with milestone 8b (planned
+the same day, its own pull request). Tasks 79–81; one pull request.
+
+**Decisions:**
+
+- **The overlay selects by itself.** A spike in Chrome for Testing tried a style sheet adopted
+  for the gesture (`-webkit-user-drag: none` and `user-select: text` on links): Chrome then
+  selects inside a link, but a drag that starts on the first half of the link's first
+  character selects nothing, also with the link made not draggable and also from just before
+  the link without any rule. That is where a drag over a link's text begins. With the modifier
+  the press is kept from the page instead (`preventDefault`, so no drag, no focus, and no
+  handler of the page), the caret goes under the pointer (`caretPositionFromPoint`, else
+  `caretRangeFromPoint`), each move with the button held extends the page's selection to the
+  caret under the pointer, and a double click selects the word (`Intl.Segmenter`). Nothing is
+  added to the page. The chip comes from the release as for any selection.
+- **Only while the panel is open, only in Browse mode:** where the overlay loads by itself
+  (remembered sites) and the panel is closed, `Ctrl` + click opens a tab as the developer
+  expects. Element and area mode keep their glass.
+- **Every click with the modifier stays away from the page**, also without a drag (a link,
+  a card with a click handler): the gesture is for selecting. Clicks inside the overlay (the
+  chip, the pins) are its own.
+- **`⌘` on macOS:** `Ctrl` + click is a right click there.
+- **Known limits:** no scrolling while the drag reaches the edge of the viewport; in a link the
+  page made draggable or unselectable, Chrome paints no selection, but the chip comes and pins
+  it.
+
+### Task 79: The gesture
+
+- Files: `src/entrypoints/overlay.content/{link-select.ts,Overlay.vue}`,
+  `tests/unit/overlay-link-select.test.ts`
+- [x] Failing tests: the modifier per platform; caret, extend, release, a move without the
+      button, the double-click word; nothing for another button, an untrusted event, the
+      overlay, a text field, Browse without the panel; the click kept from the page. Then the
+      module and its listeners (capture phase on the window).
+
+### Task 80: End to end
+
+- Files: `tests/e2e/link-select.e2e.test.ts`, `tests/fixtures/sites/plain/links.{html,js}`
+- [x] Text from a link's first letter, a word by double click, a link that starts with an
+      image: selected, the chip, no navigation, no tab, no click for the page's handlers; the
+      chip clicked with `Ctrl` held opens the popover; a card's click handler gets no
+      `Ctrl` + click; with the panel closed `Ctrl` + click opens the link in a new tab.
+
+### Task 81: Keys and docs
+
+- Files: `src/lib/shortcuts.ts`, `src/entrypoints/sidepanel/ShortcutList.vue`, `README.md`,
+  the spec (sections 8 and 11), `docs/smoke-test.md`, `tests/unit/{shortcuts,sidepanel-app}.test.ts`
+- [x] The Settings list gets **Browse mode**: `Ctrl+drag` (`⌘+drag`) "Select text, also in a
+      link", with the note "While this panel is open."; the README's table follows (its test
+      holds it to the list); the smoke test drags across a real link.
+
 ## Milestone 8b: Dictation in the background, drafts and Rec notes
 
 **Goal:** Dictation and comments behave like notes: nothing written or spoken is lost. The

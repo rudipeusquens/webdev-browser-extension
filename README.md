@@ -88,6 +88,7 @@ nothing syncs.
    - **Element** (`E`): point at it, `↑` and `↓` for its parent and child, click or `Enter`.
    - **Area** (`A`): drag a rectangle.
    - **Text:** in Browse mode (`Esc`), select the text and click the **Pin** chip below it.
+     Text in a link: hold `Ctrl` (`⌘` on macOS) while you drag; the link does not open.
 
    <img src="docs/images/element.png" width="380" alt="Element mode: an email field outlined, with a chip that names the tag, the Vue component ProfileForm and the size">
 
@@ -191,6 +192,7 @@ at `chrome://extensions/shortcuts`. Settings lists every key, as Chrome assigned
 | On the page   | `A`                        | Area mode                                          |
 | On the page   | `Esc`                      | Browse mode                                        |
 | On the page   | `P`                        | Show or hide the pins                              |
+| Browse mode   | `Ctrl+drag`                | Select text, also in a link                        |
 | Element mode  | `↑`                        | Outline the parent                                 |
 | Element mode  | `↓`                        | Outline the child again                            |
 | Element mode  | `Enter`                    | Pin the outlined element                           |
@@ -205,8 +207,9 @@ at `chrome://extensions/shortcuts`. Settings lists every key, as Chrome assigned
 | In this panel | `Alt+V`                    | Start or stop Rec                                  |
 | In this panel | `Esc`                      | Cancel Rec                                         |
 
-The keys on the page work while no field of the page has the focus. On macOS: `⇧` for Shift,
-`⌥` for Alt, and `⌘Z` and `⇧⌘Z` in the panel.
+The keys on the page work while no field of the page has the focus. `Ctrl+drag` works while
+the panel is open: it selects text where a drag would move a link or an image, and the click
+opens nothing. On macOS: `⇧` for Shift, `⌥` for Alt, `⌘+drag`, and `⌘Z` and `⇧⌘Z` in the panel.
 
 ## Settings
 

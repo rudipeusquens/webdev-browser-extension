@@ -1,6 +1,6 @@
 // The keys the settings list (spec section 8). The overlay's handlers live in
-// src/entrypoints/overlay.content/keys.ts, the panel's here; tests/unit/shortcuts.test.ts keeps
-// the list and the handlers in step.
+// src/entrypoints/overlay.content/keys.ts and link-select.ts, the panel's here;
+// tests/unit/shortcuts.test.ts keeps the list and the handlers in step.
 
 export interface ShortcutRow {
   /** Alternatives, each written as one key combination. */
@@ -66,6 +66,10 @@ export function shortcutGroups(mac: boolean): ShortcutGroup[] {
         { keys: ['Esc'], action: 'Browse mode' },
         { keys: ['P'], action: 'Show or hide the pins' },
       ],
+    },
+    {
+      title: 'Browse mode',
+      rows: [{ keys: [mac ? '⌘+drag' : 'Ctrl+drag'], action: 'Select text, also in a link' }],
     },
     {
       title: 'Element mode',

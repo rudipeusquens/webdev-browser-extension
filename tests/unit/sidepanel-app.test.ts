@@ -1231,10 +1231,23 @@ describe('side panel', () => {
       const list = byTestId('shortcut-list')
       const keys = [...list.querySelectorAll('kbd')].map((k) => k.textContent)
       expect(keys).toContain('Ctrl+Shift+K')
-      for (const k of ['E', 'A', 'P', 'Esc', '↑', '↓', 'Enter', 'Shift+Enter', 'Space', 'Alt+V']) {
+      for (const k of [
+        'E',
+        'A',
+        'P',
+        'Esc',
+        '↑',
+        '↓',
+        'Enter',
+        'Shift+Enter',
+        'Space',
+        'Alt+V',
+        'Ctrl+drag',
+      ]) {
         expect(keys).toContain(k)
       }
       expect(list.textContent).toContain('Start or stop dictation')
+      expect(list.textContent).toContain('While this panel is open.')
     })
 
     it('says when Chrome assigned no toolbar shortcut, and opens its shortcut page', async () => {
@@ -1303,6 +1316,8 @@ describe('side panel', () => {
         )
         expect(keys).toContain('⌥V')
         expect(keys).not.toContain('Alt+V')
+        expect(keys).toContain('⌘+drag')
+        expect(keys).not.toContain('Ctrl+drag')
       } finally {
         if (platform) Object.defineProperty(navigator, 'platform', platform)
         else delete (navigator as { platform?: string }).platform
