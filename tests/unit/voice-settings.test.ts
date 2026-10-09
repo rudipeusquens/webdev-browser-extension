@@ -6,8 +6,10 @@ import {
   DEFAULT_MODEL,
   isLanguage,
   isModelId,
+  DEFAULT_LIMIT,
   isVoiceSettings,
   LANGUAGES,
+  LIMIT_CHOICES,
   loadVoiceSettings,
   MODELS,
   VOICE_KEY,
@@ -20,30 +22,54 @@ const KEY = 'sk-or-v1-' + 'ab12'.repeat(16)
 describe('voice settings', () => {
   beforeEach(() => fakeBrowser.reset())
 
-  it('default to the spec model and automatic language', async () => {
+  it('default to the spec model, automatic language and a five-minute limit', async () => {
     expect(DEFAULT_MODEL).toBe('openai/gpt-4o-mini-transcribe')
-    expect(await loadVoiceSettings()).toEqual({ model: DEFAULT_MODEL, language: 'auto' })
+    expect(DEFAULT_LIMIT).toBe(300_000)
+    expect(await loadVoiceSettings()).toEqual({
+      model: DEFAULT_MODEL,
+      language: 'auto',
+      limit: 300_000,
+    })
+  })
+
+  it('offer limits of 1 to 15 minutes', () => {
+    expect(LIMIT_CHOICES).toEqual([60_000, 120_000, 180_000, 300_000, 600_000, 900_000])
   })
 
   it('load what is stored', async () => {
-    const stored = { model: 'mistralai/voxtral-mini-transcribe', language: 'de' }
+    const stored = { model: 'mistralai/voxtral-mini-transcribe', language: 'de', limit: 10_000 }
     await fakeBrowser.storage.local.set({ [VOICE_KEY]: stored })
     expect(await loadVoiceSettings()).toEqual(stored)
   })
 
+  it('keep the model and language of an earlier version, which had no limit', async () => {
+    await fakeBrowser.storage.local.set({ [VOICE_KEY]: { model: 'a/b', language: 'de' } })
+    expect(await loadVoiceSettings()).toEqual({ model: 'a/b', language: 'de', limit: 300_000 })
+  })
+
   it.each([
-    ['a model without a vendor', { model: 'gpt-4o', language: 'auto' }],
-    ['a three-letter language', { model: DEFAULT_MODEL, language: 'deu' }],
-    ['an extra key', { model: DEFAULT_MODEL, language: 'auto', key: 'x' }],
-    ['a missing language', { model: DEFAULT_MODEL }],
-    ['a string', 'openai/gpt-4o-mini-transcribe'],
-  ])('fall back to the defaults for %s, leaving the sites alone', async (_, stored) => {
+    ['a model without a vendor', { model: 'gpt-4o', language: 'de', limit: 60_000 }, 'model'],
+    ['a three-letter language', { model: 'a/b', language: 'deu', limit: 60_000 }, 'language'],
+    ['a limit under 10 s', { model: 'a/b', language: 'de', limit: 9_999 }, 'limit'],
+    ['a limit over an hour', { model: 'a/b', language: 'de', limit: 3_600_001 }, 'limit'],
+    ['a limit that is no integer', { model: 'a/b', language: 'de', limit: 1.5 }, 'limit'],
+  ])('fall back field by field for %s, leaving the sites alone', async (_, stored, bad) => {
     await fakeBrowser.storage.local.set({
       [VOICE_KEY]: stored,
       [SETTINGS_KEY]: { rememberedOrigins: ['http://localhost:3000'] },
     })
-    expect(await loadVoiceSettings()).toEqual({ model: DEFAULT_MODEL, language: 'auto' })
+    const defaults = { model: DEFAULT_MODEL, language: 'auto', limit: 300_000 }
+    expect(await loadVoiceSettings()).toEqual({ ...stored, [bad]: defaults[bad as 'model'] })
     expect((await loadSettings()).rememberedOrigins).toEqual(['http://localhost:3000'])
+  })
+
+  it.each([
+    ['an extra key', { model: 'a/b', language: 'de', limit: 60_000, key: 'x' }],
+    ['a string', 'openai/gpt-4o-mini-transcribe'],
+    ['nothing', undefined],
+  ])('read only their own fields from %s', async (_, stored) => {
+    await fakeBrowser.storage.local.set({ [VOICE_KEY]: stored })
+    expect(Object.keys(await loadVoiceSettings())).toEqual(['model', 'language', 'limit'])
   })
 
   it('report their own changes only', async () => {
@@ -53,9 +79,9 @@ describe('voice settings', () => {
     await fakeBrowser.storage.session.set({ [VOICE_KEY]: { model: 'a/b', language: 'en' } })
     expect(seen).not.toHaveBeenCalled()
     await fakeBrowser.storage.local.set({ [VOICE_KEY]: { model: 'a/b', language: 'en' } })
-    expect(seen).toHaveBeenCalledWith({ model: 'a/b', language: 'en' })
+    expect(seen).toHaveBeenCalledWith({ model: 'a/b', language: 'en', limit: 300_000 })
     await fakeBrowser.storage.local.set({ [VOICE_KEY]: { model: 'bad', language: 'en' } })
-    expect(seen).toHaveBeenLastCalledWith({ model: DEFAULT_MODEL, language: 'auto' })
+    expect(seen).toHaveBeenLastCalledWith({ model: DEFAULT_MODEL, language: 'en', limit: 300_000 })
     stop()
     await fakeBrowser.storage.local.set({ [VOICE_KEY]: { model: 'c/d', language: 'fr' } })
     expect(seen).toHaveBeenCalledTimes(2)
@@ -101,7 +127,10 @@ describe('voice settings', () => {
     expect(MODELS.every((m) => isModelId(m.id) && m.label.length > 0)).toBe(true)
     expect(LANGUAGES.every((l) => isLanguage(l.code) && l.label.length > 0)).toBe(true)
     expect(new Set(LANGUAGES.map((l) => l.code)).size).toBe(LANGUAGES.length)
-    expect(isVoiceSettings({ model: MODELS[3]?.id, language: LANGUAGES[2]?.code })).toBe(true)
+    expect(
+      isVoiceSettings({ model: MODELS[3]?.id, language: LANGUAGES[2]?.code, limit: 60_000 }),
+    ).toBe(true)
+    expect(isVoiceSettings({ model: MODELS[3]?.id, language: LANGUAGES[2]?.code })).toBe(false)
   })
 })
 

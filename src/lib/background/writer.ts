@@ -119,6 +119,9 @@ async function save(c: Collection): Promise<void> {
   else await browser.storage.local.set({ [key]: c })
 }
 
+/** What became of a dictation's text (`fill`). */
+export type Filled = { ok: true; rest?: string; part?: true } | { ok: false; error: string }
+
 /** Most UTF-8 bytes one site's collection may take: each save writes all of it. */
 export const SITE_BUDGET = 4_000_000
 
@@ -189,10 +192,11 @@ export function createWriter(
     /**
      * Puts a dictation's text after the comment of the pin `id` (spec section 9): one undo
      * step. `rest` is the whole text when it did not all go in (the pin is gone, the comment
-     * limit cut it, the site is full); the caller keeps it elsewhere.
+     * limit cut it, the site is full); the caller keeps it elsewhere. `part`: the pin got
+     * what fit of it.
      */
-    fill(site: string, id: string, text: string): Promise<Reply & { rest?: string }> {
-      return inOrder(async (): Promise<Reply & { rest?: string }> => {
+    fill(site: string, id: string, text: string): Promise<Filled> {
+      return inOrder(async (): Promise<Filled> => {
         const before = await current(site)
         const { collection: next, rest } = fillTranscript(before, id, text, now())
         if (next === before) return rest === undefined ? { ok: true } : { ok: true, rest }
@@ -202,8 +206,8 @@ export function createWriter(
         await record(site, stepBetween(before, next, `Dictation into pin ${number}`)).catch(
           () => undefined,
         )
-        return rest === undefined ? { ok: true } : { ok: true, rest }
-      }).catch((): Reply => ({ ok: false, error: 'Could not save.' }))
+        return rest === undefined ? { ok: true } : { ok: true, rest, part: true }
+      }).catch((): Filled => ({ ok: false, error: 'Could not save.' }))
     },
 
     /** Puts back what the site's last change changed. */

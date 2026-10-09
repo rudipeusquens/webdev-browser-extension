@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { newId } from '@/entrypoints/overlay.content/ids'
+import { newId } from '@/lib/ids'
 import { isAnnotationId } from '@/lib/collection/validate'
 
 describe('newId', () => {

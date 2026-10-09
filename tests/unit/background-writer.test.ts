@@ -332,7 +332,7 @@ describe('drafts and dictations', () => {
     const { write, fill } = createWriter(() => 'T1')
     await write(SITE, draft('d1'))
     const long = 'word '.repeat(1200).trim()
-    expect(await fill(SITE, 'd1', long)).toEqual({ ok: true, rest: long })
+    expect(await fill(SITE, 'd1', long)).toEqual({ ok: true, rest: long, part: true })
     expect([...((await loadSite(SITE)).items[0]?.comment ?? '')].length).toBeLessThanOrEqual(5000)
   })
 })

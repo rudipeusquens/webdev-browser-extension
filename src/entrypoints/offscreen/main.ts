@@ -1,6 +1,7 @@
-// The offscreen document of one dictation (spec section 5): the background creates it, it
-// connects back, records and transcribes on the background's commands, and is closed when the
-// dictation ends. Its port closing means the dictation is over.
+// The offscreen document of the dictations (spec section 5): the background creates it, it
+// connects back, records and transcribes on the background's commands, and is closed once no
+// recording runs and no job is transcribed or holds audio for Retry. Its port closing ends
+// everything in it.
 
 import { browser } from 'wxt/browser'
 import { transcribe } from '@/lib/voice/openrouter'
@@ -24,7 +25,7 @@ const recorder = createRecorder({
     navigator.permissions.query({ name: 'microphone' as PermissionName }).then((s) => s.state),
   getUserMedia: () => navigator.mediaDevices.getUserMedia({ audio: true }),
   record: createMediaRecorder,
-  transcribe: (audio, request, signal) => transcribe(audio, request, { signal }),
+  transcribe: (audio, request, signal, timeout) => transcribe(audio, request, { signal, timeout }),
   emit: post,
 })
 

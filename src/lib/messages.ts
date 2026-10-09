@@ -6,6 +6,7 @@ import { LIMITS } from './collection/model'
 import { isSite } from './collection/site'
 import { isOption, isSiteOrigin, type Option } from './settings'
 import { type Filter, isFilter } from './view'
+import { isLimit } from './voice/protocol'
 import { isApiKey, isLanguage, isModelId } from './voice/settings'
 import {
   hasKeys,
@@ -91,7 +92,7 @@ export type FailedMessage = { type: 'overlay:failed' }
 
 /** Side panel → background: the voice settings and the OpenRouter key (spec section 9). */
 export type VoiceSettingsMessage =
-  | { type: 'voice:set'; model: string; language: string }
+  | { type: 'voice:set'; model: string; language: string; limit: number }
   | { type: 'voice:key:save'; key: string }
   | { type: 'voice:key:remove' }
   | { type: 'voice:key:test' }
@@ -101,6 +102,23 @@ export type VoiceSettingsMessage =
  * (Grant), or the panel on its settings (Open settings).
  */
 export type VoiceRequestMessage = { type: 'voice:grant' } | { type: 'voice:settings' }
+
+/** Overlay → background: whether a key is saved, so `Space` may start a dictation. */
+export type VoiceReadyMessage = { type: 'voice:ready' }
+export type VoiceReadyReply = { ok: true; ready: boolean }
+
+/**
+ * Panel or the pin's page → background: a pin's dictation that failed is sent again with the
+ * audio the recorder holds (Retry), or its state goes (Dismiss).
+ */
+export type DictationMessage = {
+  type: 'dictation:retry' | 'dictation:dismiss'
+  site: string
+  id: string
+}
+
+/** Panel → background: a Rec note's dictation is sent again, or the note goes. */
+export type NoteMessage = { type: 'note:retry' | 'note:delete'; id: string }
 
 /**
  * `storage.session` entry the background writes for **Open settings**: the panel of that window
@@ -122,6 +140,9 @@ export type BackgroundMessage =
   | FailedMessage
   | VoiceSettingsMessage
   | VoiceRequestMessage
+  | VoiceReadyMessage
+  | DictationMessage
+  | NoteMessage
 
 /** Most ids one `anchors:report` lists in each of its lists. */
 const MAX_REPORTED = 1000
@@ -263,10 +284,20 @@ export function isBackgroundMessage(x: unknown): x is BackgroundMessage {
     case 'voice:key:test':
     case 'voice:grant':
     case 'voice:settings':
+    case 'voice:ready':
       return hasKeys(x, ['type'])
+    case 'dictation:retry':
+    case 'dictation:dismiss':
+      return hasKeys(x, ['type', 'site', 'id']) && isSite(x.site) && isAnnotationId(x.id)
+    case 'note:retry':
+    case 'note:delete':
+      return hasKeys(x, ['type', 'id']) && isAnnotationId(x.id)
     case 'voice:set':
       return (
-        hasKeys(x, ['type', 'model', 'language']) && isModelId(x.model) && isLanguage(x.language)
+        hasKeys(x, ['type', 'model', 'language', 'limit']) &&
+        isModelId(x.model) &&
+        isLanguage(x.language) &&
+        isLimit(x.limit)
       )
     case 'voice:key:save':
       return hasKeys(x, ['type', 'key']) && isApiKey(x.key)

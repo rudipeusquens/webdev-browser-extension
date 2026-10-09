@@ -3,6 +3,7 @@ import {
   checkKey,
   OPENROUTER,
   TIMEOUT,
+  timeoutFor,
   transcribe,
   type TranscribeRequest,
   VoiceFailure,
@@ -154,6 +155,24 @@ describe('transcribe', () => {
     expect(TIMEOUT).toBe(65_000)
     const result = failure(transcribe(AUDIO, REQUEST, { fetch: hangingFetch() }))
     await vi.advanceTimersByTimeAsync(64_999)
+    let settled = false
+    void result.then(() => (settled = true))
+    await vi.advanceTimersByTimeAsync(0)
+    expect(settled).toBe(false)
+    await vi.advanceTimersByTimeAsync(1)
+    expect((await result).code).toBe('timeout')
+  })
+
+  it('waits longer for longer audio: 10 seconds more for each minute after the first', async () => {
+    expect(timeoutFor(30_000)).toBe(65_000)
+    expect(timeoutFor(60_000)).toBe(65_000)
+    expect(timeoutFor(61_000)).toBe(75_000)
+    expect(timeoutFor(300_000)).toBe(105_000)
+    vi.useFakeTimers()
+    const result = failure(
+      transcribe(AUDIO, REQUEST, { fetch: hangingFetch(), timeout: timeoutFor(300_000) }),
+    )
+    await vi.advanceTimersByTimeAsync(104_999)
     let settled = false
     void result.then(() => (settled = true))
     await vi.advanceTimersByTimeAsync(0)

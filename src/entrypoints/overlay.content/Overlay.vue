@@ -35,7 +35,7 @@ import {
 import { createAnchorStatus } from './anchor-status'
 import CommentPopover from './CommentPopover.vue'
 import HoverBox from './HoverBox.vue'
-import { newId } from './ids'
+import { newId } from '@/lib/ids'
 import { type Origins, readOrigins, sourcesOf, within, withOrigins } from './origins'
 import { pageShortcut } from './keys'
 import { forwardsWheel, isEditable, pickAt, TargetPath, wheelTarget } from './picker'
