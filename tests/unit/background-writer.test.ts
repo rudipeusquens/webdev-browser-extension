@@ -324,7 +324,8 @@ describe('drafts and dictations', () => {
     await write(SITE, add('a1', 'Short.'))
     const before = await loadSite(SITE)
     const long = 'word '.repeat(600).trim()
-    expect(await fill(SITE, 'a1', long)).toEqual({ ok: true, rest: long })
+    // The pin got none of it, but says where it went, as for a cut.
+    expect(await fill(SITE, 'a1', long)).toEqual({ ok: true, rest: long, part: true })
     expect(await loadSite(SITE)).toEqual(before)
   })
 

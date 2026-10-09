@@ -200,7 +200,8 @@ export function createWriter(
         const before = await current(site)
         const { collection: next, rest } = fillTranscript(before, id, text, now())
         if (next === before) return rest === undefined ? { ok: true } : { ok: true, rest }
-        if (byteSize(next) > siteBudget) return { ok: true, rest: text }
+        // The pin gets none of it; it says where the text went, as for a cut.
+        if (byteSize(next) > siteBudget) return { ok: true, rest: text, part: true }
         await save(next)
         const number = next.items.find((i) => i.id === id)?.number ?? ''
         await record(site, stepBetween(before, next, `Dictation into pin ${number}`)).catch(

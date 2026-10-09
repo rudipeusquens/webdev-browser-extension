@@ -234,10 +234,12 @@ describe('marking text', () => {
     await session.page.mouse.click(start.x + 6, start.y, { count: 2 })
     await clickInOverlay(session, CHIP)
     await waitInOverlay(session, POPOVER)
+    // Esc closes it and keeps the pin as a draft (spec section 8).
     await session.page.keyboard.press('Escape')
     await waitInOverlay(session, POPOVER, false)
     expect(await inOverlay(HIGHLIGHT)).toBe(false)
-    expect((await storedCollection(panel))?.items.length ?? 0).toBe(0)
+    const kept = (await waitForItems(panel, 1)) as unknown as Collection
+    expect(kept.items[0]).toMatchObject({ comment: '', draft: true })
   })
 
   it('hides the chip while its selection is scrolled out of view, and shows it again', async () => {

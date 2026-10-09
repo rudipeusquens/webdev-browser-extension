@@ -103,7 +103,8 @@ describe('the recording', () => {
     expect(request).toEqual(REQUEST)
     expect(signal).toBeInstanceOf(AbortSignal)
     expect(timeout).toBe(timeoutFor(0))
-    expect(r.states()).toEqual(['starting', 'recording', 'idle', 'j1:transcribing', 'j1:done'])
+    // The background took the recording at its stop: its end says nothing.
+    expect(r.states()).toEqual(['starting', 'recording', 'j1:transcribing', 'j1:done'])
     expect(r.last()).toEqual({ job: 'j1', state: 'done', text: 'Make it wider.', cut: false })
   })
 
@@ -234,17 +235,51 @@ describe('the recording', () => {
     await flush()
     expect(track.stopped).toBe(true)
     expect(r.transcribe).not.toHaveBeenCalled()
-    expect(r.states()).toEqual(['starting', 'idle', 'j1:failed'])
+    expect(r.states()).toEqual(['starting', 'j1:failed'])
     expect(r.last()).toEqual({ job: 'j1', state: 'failed', error: 'no-speech', retry: false })
   })
 
   it('ends the job of a stop with nothing recording', async () => {
     const r = setup()
     await r.stop('j1')
-    expect(r.emitted).toEqual([
-      { state: 'idle' },
-      { job: 'j1', state: 'failed', error: 'no-speech', retry: false },
-    ])
+    expect(r.emitted).toEqual([{ job: 'j1', state: 'failed', error: 'no-speech', retry: false }])
+  })
+
+  it('starts a recording that comes while the last one still stops, right after it', async () => {
+    const r = setup()
+    await r.start()
+    r.media[0]?.chunk('first ')
+    // Stop and start in one go: the browser hands over the last chunk a task later.
+    r.recorder.command({ type: 'stop', job: 'j1', request: REQUEST })
+    r.recorder.command({ type: 'start', limit: LIMIT })
+    await flush()
+    await flush()
+    expect(await text(vi.mocked(r.deps.transcribe).mock.calls[0]?.[0])).toBe('first end')
+    expect(r.media).toHaveLength(2)
+    expect(r.last()).toEqual({ state: 'recording', limit: LIMIT, elapsed: 0 })
+  })
+
+  it('cancels only the waiting start while the last recording still stops', async () => {
+    const r = setup()
+    await r.start()
+    r.recorder.command({ type: 'stop', job: 'j1', request: REQUEST })
+    r.recorder.command({ type: 'start', limit: LIMIT })
+    r.recorder.command({ type: 'cancel' })
+    await flush()
+    await flush()
+    expect(r.transcribe).toHaveBeenCalledTimes(1)
+    expect(r.media).toHaveLength(1)
+  })
+
+  it('ends the job of a second stop while the first still stops', async () => {
+    const r = setup()
+    await r.start()
+    r.recorder.command({ type: 'stop', job: 'j1', request: REQUEST })
+    r.recorder.command({ type: 'stop', job: 'j2', request: REQUEST })
+    await flush()
+    await flush()
+    expect(r.emitted).toContainEqual({ job: 'j2', state: 'failed', error: 'lost', retry: false })
+    expect(r.last()).toMatchObject({ job: 'j1', state: 'done' })
   })
 
   it('refuses a second start while it records', async () => {
@@ -366,7 +401,7 @@ describe('the jobs', () => {
     expect(signal?.aborted).toBe(true)
     answer('too late')
     await flush()
-    expect(r.states()).toEqual(['starting', 'recording', 'idle', 'j1:transcribing'])
+    expect(r.states()).toEqual(['starting', 'recording', 'j1:transcribing'])
   })
 
   it('give up held audio after ten minutes: Retry is gone', async () => {
@@ -423,7 +458,6 @@ describe('the jobs', () => {
     expect(r.states()).toEqual([
       'starting',
       'recording',
-      'idle',
       'j1:transcribing',
       'starting',
       'recording',

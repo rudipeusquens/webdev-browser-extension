@@ -325,6 +325,80 @@ describe('background: dictation', () => {
     })
   })
 
+  describe('review findings', () => {
+    it("does not take the ack of one recording's cancel for the next one's end", async () => {
+      // A job keeps the document open, so the next start meets the ack.
+      const first = await started(overlay(5))
+      first.client.receive({ type: 'stop', keep: { pin: 'd0' } })
+      await flush()
+      first.client.receive({ type: 'start' })
+      await flush()
+      first.recorder.receive({ state: 'recording', limit: 300_000, elapsed: 0 })
+      first.client.receive({ type: 'cancel' })
+      await flush()
+      const second = overlay(6)
+      second.receive({ type: 'start' })
+      // The recorder acknowledges the cancel while the next start reads the key.
+      first.recorder.receive({ state: 'idle' })
+      await flush()
+      expect(first.recorder.posted.at(-1)).toEqual({ type: 'start', limit: 300_000 })
+      first.recorder.receive({ state: 'recording', limit: 300_000, elapsed: 0 })
+      expect(second.posted).toEqual([{ state: 'recording', limit: 300_000, elapsed: 0 }])
+    })
+
+    it('keeps a pin transcribing while another of its dictations still runs', async () => {
+      const { client, recorder } = await started()
+      client.receive({ type: 'stop', keep: { pin: 'd1' } })
+      await flush()
+      const one = lastJob(recorder)
+      client.receive({ type: 'start' })
+      await flush()
+      recorder.receive({ state: 'recording', limit: 300_000, elapsed: 0 })
+      client.receive({ type: 'stop', keep: { pin: 'd1' } })
+      await flush()
+      recorder.receive({ job: one, state: 'done', text: 'First.', cut: false })
+      await flush()
+      expect(await stored(jobsKey(SITE))).toEqual({ d1: { state: 'transcribing' } })
+    })
+
+    it('says on the pin when the key went before its stop', async () => {
+      const { client, recorder } = await started()
+      await deleteKey()
+      client.receive({ type: 'stop', keep: { pin: 'd1' } })
+      await flush()
+      expect(client.posted.at(-1)).toEqual({ state: 'failed', error: 'no-key', retry: false })
+      expect(recorder.posted.at(-1)).toEqual({ type: 'cancel' })
+      expect(await stored(jobsKey(SITE))).toEqual({
+        d1: { state: 'failed', error: 'no-key', retry: false },
+      })
+    })
+
+    it('ends the recording and says so when its note cannot be made', async () => {
+      const { client, recorder } = await started(panel())
+      const set = fakeBrowser.storage.local.set.bind(fakeBrowser.storage.local)
+      vi.spyOn(fakeBrowser.storage.local, 'set').mockImplementation(((items: object) =>
+        NOTES_KEY in items ? Promise.reject(new Error('quota')) : set(items as never)) as never)
+      client.receive({ type: 'stop', keep: { note: true } })
+      await flush()
+      expect(client.posted.at(-1)).toEqual({ state: 'failed', error: 'interrupted', retry: false })
+      expect(recorder.posted.at(-1)).toEqual({ type: 'cancel' })
+      // Nothing is stuck: the next recording starts.
+      client.receive({ type: 'start' })
+      await loaded()
+      expect(ports.recorder?.posted.at(-1)).toEqual({ type: 'start', limit: 300_000 })
+    })
+
+    it('still closes the document when a note cannot take its text', async () => {
+      const { client, recorder } = await started(panel())
+      client.receive({ type: 'stop', keep: { note: true } })
+      await flush()
+      vi.spyOn(fakeBrowser.storage.local, 'set').mockRejectedValue(new Error('quota'))
+      recorder.receive({ job: lastJob(recorder), state: 'done', text: 'Lost?', cut: false })
+      await flush()
+      expect(ports.exists).toBe(false)
+    })
+  })
+
   describe("Rec's dictation", () => {
     it('becomes a note that waits for its text, and gets it after the panel closed', async () => {
       const { client, recorder } = await started(panel())

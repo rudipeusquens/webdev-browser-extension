@@ -95,6 +95,8 @@ export function createVoice(deps: VoiceDeps) {
   let recording: Session | undefined
   /** Called once the recording asked to hand itself over did, or was let go. */
   let released: (() => void) | undefined
+  /** Cancels sent to the recorder whose `idle` has not come back: no recording ended by them. */
+  let cancels = 0
   const jobs = new Map<string, Job>()
   /**
    * The recorder document that was opened last and has not connected yet: its URL, and what
@@ -200,6 +202,11 @@ export function createVoice(deps: VoiceDeps) {
   }
 
   function onRecording(state: RecordingState) {
+    // The ack of a cancel: the recording it ended is no one's any more.
+    if (state.state === 'idle' && cancels > 0) {
+      cancels--
+      return closeIfIdle()
+    }
     const owner = recording
     if (owner) post(owner.client, state)
     // Over, unless it holds a recording that ended by itself until a stop or a cancel.
@@ -213,11 +220,32 @@ export function createVoice(deps: VoiceDeps) {
     }
   }
 
-  /** What the pin's or the note's entry shows of its job. */
+  /** Tells the recorder to end the recording; its `idle` then ends nothing else. */
+  function cancelRecorder() {
+    if (post(recorder, { type: 'cancel' })) cancels++
+  }
+
+  /**
+   * What the pin's or the note's entry shows of its job. A pin with another job still
+   * transcribed keeps saying so: its state is per pin.
+   */
   async function show(job: Job, view: JobView | null): Promise<void> {
     const { target } = job
-    if (target.kind === 'pin') await deps.dictations.set(target.site, target.id, view)
-    else if (view && view.state !== 'cut') await deps.notes.mark(target.id, view)
+    if (target.kind === 'note') {
+      if (view && view.state !== 'cut') await deps.notes.mark(target.id, view)
+      return
+    }
+    const other = [...jobs.values()].some(
+      (j) =>
+        j !== job &&
+        !j.held &&
+        j.target.kind === 'pin' &&
+        j.target.site === target.site &&
+        j.target.id === target.id,
+    )
+    const shown =
+      other && view?.state !== 'transcribing' ? { state: 'transcribing' as const } : view
+    await deps.dictations.set(target.site, target.id, shown)
   }
 
   /** The jobs of notes that went (deleted, or the oldest beyond the limit) end. */
@@ -237,33 +265,37 @@ export function createVoice(deps: VoiceDeps) {
   async function onJob(e: JobEvent) {
     const job = jobs.get(e.job)
     if (!job) return
-    if (e.state === 'transcribing') {
-      job.held = false
-      await show(job, { state: 'transcribing' })
-      return
-    }
-    if (e.state === 'failed') {
-      job.held = e.retry
-      if (!e.retry) jobs.delete(e.job)
-      const { error, detail, retry } = e
-      await show(job, { state: 'failed', error, ...(detail ? { detail } : {}), retry })
+    try {
+      if (e.state === 'transcribing') {
+        job.held = false
+        await show(job, { state: 'transcribing' })
+        return
+      }
+      if (e.state === 'failed') {
+        job.held = e.retry
+        if (!e.retry) jobs.delete(e.job)
+        const { error, detail, retry } = e
+        await show(job, { state: 'failed', error, ...(detail ? { detail } : {}), retry })
+        return
+      }
+      jobs.delete(e.job)
+      const { target } = job
+      if (target.kind === 'note') {
+        await deps.notes.fill(target.id, e.text)
+      } else {
+        const reply = await deps
+          .fill(target.site, target.id, e.text)
+          .catch((): Filled => ({ ok: false, error: '' }))
+        const rest = reply.ok ? reply.rest : e.text
+        if (rest) await keepAsNote(rest)
+        const part = reply.ok && reply.part
+        await show(job, part ? { state: 'cut' } : null)
+      }
+    } catch {
+      // Storage refused: the job is over anyway; the next start of the background says so.
+    } finally {
       closeIfIdle()
-      return
     }
-    jobs.delete(e.job)
-    const { target } = job
-    if (target.kind === 'note') {
-      await deps.notes.fill(target.id, e.text)
-    } else {
-      const reply = await deps
-        .fill(target.site, target.id, e.text)
-        .catch((): Filled => ({ ok: false, error: '' }))
-      const rest = reply.ok ? reply.rest : e.text
-      if (rest) await keepAsNote(rest)
-      const part = reply.ok && reply.part
-      await deps.dictations.set(target.site, target.id, part ? { state: 'cut' } : null)
-    }
-    closeIfIdle()
   }
 
   /** Asks the running recording to hand itself over; ends it after YIELD_WAIT otherwise. */
@@ -275,7 +307,7 @@ export function createVoice(deps: VoiceDeps) {
         if (recording === other && !other.handing) {
           other.run++
           recording = undefined
-          if (other.started) post(recorder, { type: 'cancel' })
+          if (other.started) cancelRecorder()
           other.started = false
           post(other.client, { state: 'failed', error: 'taken', retry: false })
         }
@@ -325,7 +357,7 @@ export function createVoice(deps: VoiceDeps) {
       return
     }
     recording = undefined
-    if (s.started) post(recorder, { type: 'cancel' })
+    if (s.started) cancelRecorder()
     s.started = false
     released?.()
     if (tell) post(s.client, { state: 'idle' })
@@ -346,6 +378,10 @@ export function createVoice(deps: VoiceDeps) {
       if (!request) {
         cancel(s, false)
         post(s.client, { state: 'failed', error: 'no-key', retry: false })
+        // The popover may be closed already: the pin says it too.
+        if (pin && s.site) {
+          await deps.dictations.set(s.site, pin, { state: 'failed', error: 'no-key', retry: false })
+        }
         return
       }
       let target: Target
@@ -371,6 +407,12 @@ export function createVoice(deps: VoiceDeps) {
       released?.()
       post(recorder, { type: 'stop', job, request })
       post(s.client, { state: 'handed', to })
+    } catch {
+      // A note or a state that could not be stored: the recording ends, and says so.
+      if (recording === s) {
+        cancel(s, false)
+        post(s.client, { state: 'failed', error: 'interrupted', retry: false })
+      }
     } finally {
       s.handing = false
     }

@@ -161,9 +161,10 @@ void loadStored(jobsKey(site), parseJobs).then((now) => {
 })
 // The dictation belongs to the overlay, not to a popover: it outlives the popover's changes.
 const voice = useVoice({
-  // Another recording wants to start (another tab, Rec): this one is handed over.
+  // Another recording wants to start (another tab, Rec): this one is handed over, if it
+  // recorded anything of the developer's own stop (a starting or held one is dropped).
   yielded: () => {
-    if (draft.value) void stopDictation()
+    if (draft.value && running()) void stopDictation()
     else voice.cancel()
   },
   // The limit's question went unanswered.
@@ -783,7 +784,7 @@ function onPinClick(e: MouseEvent, id: string) {
 /** Esc on the page: a drag ends, a dictation ends, then the popover closes and keeps its pin. */
 function cancel() {
   if (drag.value) drag.value = null
-  else if (voice.busy.value) voice.cancel()
+  else if (voice.busy.value || voice.holds.value) voice.cancel()
   else void leave()
 }
 
@@ -835,18 +836,29 @@ async function persist(
   if (!reply?.ok) return { ok: false, error: reply && !reply.ok ? reply.error : NOT_SAVED }
   if (!edit) {
     current.stored = true
+    // The open popover holds a copy of the draft: it is stored now too.
+    if (draft.value?.key === current.key) draft.value.stored = true
     if (current.live) live.set(current.id, current.live)
   }
   return { ok: true }
 }
 
+/** A dictation records or waits at its limit: what a stop hands over. */
+const running = () => voice.recording.value && !voice.holds.value
+
+/** The save (or stop) of the open popover while it is stored, for a leave that comes meanwhile. */
+let saving: Promise<Reply> | undefined
+
 /** Save or `Enter`: the pin is saved; a running dictation is stopped first, its text follows. */
 async function save(comment: string) {
-  if (voice.recording.value) return void stopDictation()
+  if (running()) return void stopDictation()
   const current = draft.value
   if (!current || current.busy) return
+  // A microphone that only starts recorded nothing: it goes with the popover.
+  voice.cancel()
   draft.value = { ...current, busy: true, error: undefined }
-  const reply = await persist(current, comment, 'save')
+  saving = persist(current, comment, 'save')
+  const reply = await saving.finally(() => (saving = undefined))
   if (draft.value?.key !== current.key) return
   if (reply.ok) draft.value = null
   else draft.value = { ...current, busy: false, error: reply.error }
@@ -860,7 +872,8 @@ async function stopDictation(): Promise<Reply> {
   const current = draft.value
   if (!current || current.busy) return { ok: false, error: NOT_SAVED }
   draft.value = { ...current, busy: true, error: undefined }
-  const reply = await persist(current, popover.value?.snapshot() ?? '', 'save')
+  saving = persist(current, popover.value?.snapshot() ?? '', 'save')
+  const reply = await saving.finally(() => (saving = undefined))
   if (draft.value?.key !== current.key) return reply
   if (!reply.ok) {
     draft.value = { ...current, busy: false, error: reply.error }
@@ -872,7 +885,7 @@ async function stopDictation(): Promise<Reply> {
   return reply
 }
 
-/** Space, Alt+V, the mic: starts a dictation, or stops the one that runs. */
+/** Space, Alt+V, the mic, Retry of a held recording: starts a dictation, or stops it. */
 function dictate() {
   const current = draft.value
   if (!current) return
@@ -893,7 +906,13 @@ function leave(): Promise<Reply> {
   if (!current) return Promise.resolve({ ok: true })
   leaving ??= (async (): Promise<Reply> => {
     try {
-      if (voice.recording.value) return await stopDictation()
+      // A save on its way: it closes the popover, or says why it could not.
+      if (saving) {
+        const saved = await saving.catch((): Reply => ({ ok: false, error: NOT_SAVED }))
+        if (draft.value?.key !== current.key) return saved
+      }
+      if (running()) return await stopDictation()
+      // A starting microphone recorded nothing; a held recording goes out on Retry only.
       voice.cancel()
       draft.value = { ...current, busy: true, error: undefined }
       const reply = await persist(current, popover.value?.snapshot() ?? '', 'keep')
@@ -925,12 +944,13 @@ function onPageHide(e: PageTransitionEvent) {
   const current = draft.value
   if (!current) return
   const text = popover.value?.snapshot() ?? ''
-  if (voice.recording.value) {
+  if (running()) {
     void persist(current, text, 'save', false)
     voice.stop({ pin: current.id })
   } else {
     voice.cancel()
-    void persist(current, text, 'keep', false)
+    // A save on its way stays one: its pin is not made a draft by the page going.
+    void persist(current, text, saving ? 'save' : 'keep', false)
   }
   if (e.persisted) draft.value = null
 }

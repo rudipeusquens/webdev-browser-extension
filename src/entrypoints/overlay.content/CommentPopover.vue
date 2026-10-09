@@ -82,6 +82,11 @@ const recording = computed(
   () => props.voice.state === 'recording' || props.voice.state === 'paused',
 )
 const voiceBusy = computed(() => recording.value || props.voice.state === 'starting')
+/** A recording that ended by itself, held until Retry sends it or Esc drops it. */
+const holds = computed(() => {
+  const now = props.voice
+  return now.state === 'failed' && now.error === 'mic-lost' && now.retry
+})
 const transcribing = computed(() => props.job?.state === 'transcribing')
 // A dictation's stop saves too: its text follows.
 const canSave = computed(
@@ -109,15 +114,21 @@ function focusField() {
 
 watch(() => props.nudge, focusField)
 
-// A dictation filled the pin meanwhile: the field follows while it holds no edit of its own.
+// A dictation filled the pin meanwhile: the field follows. An edit of its own keeps, and gets
+// what the dictation appended after it, so storing the field later loses neither.
 watch(
   () => props.initial,
   (now, before) => {
+    if (now === undefined || now === before) return
+    const was = before ?? ''
+    let next: string
+    if (text.value === was) next = now
+    else if (now.startsWith(was)) next = text.value + now.slice(was.length)
+    else return
     const el = field.value
-    if (now === undefined || now === before || text.value !== (before ?? '')) return
-    text.value = now
-    if (el) el.value = now
-    guard.accept(now, now.length)
+    text.value = next
+    if (el) el.value = next
+    guard.accept(next, next.length)
   },
 )
 
@@ -209,7 +220,7 @@ function onKeydown(e: KeyboardEvent) {
     if (!transcribing.value) emit('dictate')
   }
   // Escape ends a running dictation first, then closes and keeps the pin.
-  else if (voiceBusy.value) emit('voice-cancel')
+  else if (voiceBusy.value || holds.value) emit('voice-cancel')
   else emit('close')
 }
 

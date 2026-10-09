@@ -71,10 +71,10 @@ const site = computed(() => {
 })
 const { collection: stored, loading } = useSiteCollection(site)
 /** Rec's notes, the same on every site (spec section 8). */
-const storedNotes = useStored(ref(NOTES_KEY), parseNotes)
+const storedNotes = useStored(ref(NOTES_KEY), parseNotes).value
 const notes = computed(() => storedNotes.value.items)
-/** The active site's pins whose dictation is not done. */
-const jobs = useStored(
+/** The active site's pins whose dictation is not done; Copy as prompt waits until it is read. */
+const { value: jobs, loaded: jobsLoaded } = useStored(
   computed(() => (site.value ? jobsKey(site.value) : null)),
   parseJobs,
 )
@@ -145,8 +145,8 @@ const openIds = computed(() =>
     .sort((a, b) => a.number - b.number)
     .map((item) => item.id),
 )
-/** What the next Copy as prompt copies. */
-const count = computed(() => openIds.value.length)
+/** What the next Copy as prompt copies: nothing until the site's dictations are read. */
+const count = computed(() => (jobsLoaded.value ? openIds.value.length : 0))
 /** Open items it leaves out: drafts, and pins still transcribed. */
 const leftOut = computed(
   () => items.value.filter((item) => item.status === 'open').length - count.value,
@@ -326,7 +326,7 @@ function grantMicrophone() {
 async function copy() {
   const ids = openIds.value
   const current = site.value
-  if (!current || ids.length === 0) return
+  if (!current || ids.length === 0 || !jobsLoaded.value) return
   const left = leftOut.value ? `. ${leftOut.value} left out: drafts and pins still transcribed` : ''
   await writePrompt(ids, `Copied ${plural(ids.length, 'pin')}${left}`)
   await change(

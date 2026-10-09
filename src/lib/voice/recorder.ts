@@ -84,6 +84,8 @@ export function createRecorder(deps: RecorderDeps) {
   let stopping: { job: string; request: TranscribeRequest } | undefined
   /** A recording that ended by itself, until a stop sends it or a start or cancel drops it. */
   let held: { audio: Blob; ms: number } | undefined
+  /** A start that came while the last recording still stopped: its limit. */
+  let queued: number | undefined
   const jobs = new Map<string, Job>()
   let expiry: ReturnType<typeof setTimeout> | undefined
 
@@ -121,16 +123,26 @@ export function createRecorder(deps: RecorderDeps) {
     limitTimer = setTimeout(pause, limit)
   }
 
-  /** A stopped recording becomes the job `id`, transcribed now. */
+  /**
+   * A stopped recording becomes the job `id`, transcribed now. The recording's end says
+   * nothing: the background took it already, and the next recording may be someone else's.
+   */
   function hand(id: string, audio: Blob, ms: number, request: TranscribeRequest) {
     phase = 'idle'
     elapsed = 0
-    deps.emit({ state: 'idle' })
     jobs.set(id, { audio, ms })
     void send(id, request)
+    const next = queued
+    queued = undefined
+    if (next !== undefined) void start(next)
   }
 
   async function start(next: number) {
+    // The last recording still hands over its last chunk: this one starts right after.
+    if (phase === 'stopping') {
+      queued = next
+      return
+    }
     if (phase !== 'idle' && phase !== 'held') return
     endRecording()
     const mine = run
@@ -224,10 +236,13 @@ export function createRecorder(deps: RecorderDeps) {
       held = undefined
       return hand(job, audio, ms, request)
     }
-    if (phase === 'stopping') return
+    // The recording is already on its way into another job: this one has nothing.
+    if (phase === 'stopping') {
+      deps.emit({ job, state: 'failed', error: 'lost', retry: false })
+      return
+    }
     // Nothing recorded yet (the microphone still starts) or nothing at all: the job ends now.
     endRecording()
-    deps.emit({ state: 'idle' })
     deps.emit({ job, state: 'failed', error: 'no-speech', retry: false })
   }
 
@@ -305,7 +320,9 @@ export function createRecorder(deps: RecorderDeps) {
           stop(c.job, c.request)
           return
         case 'cancel':
-          endRecording()
+          // While the last recording stops, only the start that waits for it is cancelled.
+          if (phase === 'stopping') queued = undefined
+          else endRecording()
           deps.emit({ state: 'idle' })
           return
         case 'retry':

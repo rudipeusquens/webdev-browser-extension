@@ -182,6 +182,18 @@ describe('CommentPopover', () => {
     expect(wrapper.text()).toContain('<img src=x>')
   })
 
+  it('adds what a dictation appended to an edit of its own', async () => {
+    const wrapper = mount(CommentPopover, { props: props({ initial: 'Old' }) })
+    const field = wrapper.get('textarea').element as HTMLTextAreaElement
+    field.setSelectionRange(3, 3)
+    await type(field, 'insertText', ' foo')
+    await wrapper.setProps({ initial: 'Old and dictated.' })
+    expect(field.value).toBe('Old foo and dictated.')
+    expect((wrapper.vm as unknown as { snapshot(): string }).snapshot()).toBe(
+      'Old foo and dictated.',
+    )
+  })
+
   it('follows the stored comment while the field holds no edit of its own', async () => {
     const wrapper = mount(CommentPopover, { props: props({ initial: 'Typed' }) })
     const field = wrapper.get('textarea').element as HTMLTextAreaElement
@@ -283,6 +295,15 @@ describe('CommentPopover: keys and buttons', () => {
     press(field(), { key: 'Escape' })
     expect(wrapper.emitted('voice-cancel')).toHaveLength(2)
     expect(wrapper.emitted('close')).toHaveLength(1)
+  })
+
+  it('cancels on Esc a recording that ended by itself: its audio goes out on Retry only', async () => {
+    const { wrapper, field } = await open({
+      voice: { state: 'failed', error: 'mic-lost', retry: true },
+    })
+    press(field(), { key: 'Escape' })
+    expect(wrapper.emitted('voice-cancel')).toHaveLength(1)
+    expect(wrapper.emitted('close')).toBeUndefined()
   })
 
   it('dictates on Alt+V, but not while the pin is transcribed', async () => {
