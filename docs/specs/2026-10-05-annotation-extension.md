@@ -123,9 +123,17 @@ and **shadcn-vue**. Manifest V3, minimum Chrome version **116** (`chrome.sidePan
    recorder unless it is open already, and sends it `start` with the limit over the
    recorder's own port. The recorder checks the microphone permission and records; the
    popover or Rec shows a timer.
-3. At the limit (Settings, 5 minutes by default) the recorder pauses the recording
-   (`MediaRecorder.pause()`), and the popover or the panel asks whether to go on: `resume`
-   records until another full limit; without an answer within 60 s the client stops it.
+3. At the limit (Settings, 5 minutes by default) the recorder ends the part it records (the
+   media recorder stops, the microphone stays open) and the popover or the panel asks
+   whether to go on: `resume` records the next part until another full limit; without an
+   answer within 60 s the client stops it. A recording is sent in parts of at most 5 minutes:
+   besides the limit, a part is cut in the first pause after 4 minutes (the microphone's
+   level below 2 % for 0.4 s), at 5 minutes at the latest, and the next part starts before
+   the last one ends, so nothing between them is lost. Each part is transcribed on its own
+   and the texts are joined with a space; a part with no speech is left out. A model answers
+   with a limited length: 2048 tokens for the default model. In a live check on 2026-10-09 a
+   10-minute German recording sent whole lost its last 14 %, the same audio in two 5-minute
+   parts nothing (1314 and 1335 tokens).
 4. Stop (section 8 lists what stops) → an overlay first stores its pin (a new one without a
    comment as a draft), then sends `stop` and closes the popover; Rec sends `stop` from the
    panel. `stop` says where the text goes: `{ pin: id }` from an overlay (for the site of its
@@ -755,7 +763,9 @@ select-parent), ClickUp and Air comment pins with a side list.
   or 15 minutes, 5 by default; stored in milliseconds, valid from 10 s to 1 h, so tests can
   set 10 s; a stored value not in the list shows as its own choice, "10 seconds") and asks
   whether to go on: **Keep** records on until another full limit, **Stop** hands it over, and
-  without an answer within 60 s it stops and is handed over by itself; `Esc` cancels. Each
+  without an answer within 60 s it stops and is handed over by itself; `Esc` cancels. It is
+  sent in parts of at most 5 minutes, cut at a limit or in a pause (section 5: a model's
+  answer has a length limit); the texts are joined, a silent part is left out. Each
   field of the voice settings is read on its own: a missing or malformed limit falls back to
   5 minutes and keeps the model and the language. Client timeout 65 seconds per request, 10 s
   more for each further minute of audio. The recorder cuts a transcript at 20,000 code points.
@@ -840,7 +850,7 @@ select-parent), ClickUp and Air comment pins with a side list.
 | Voice: the text does not fit its pin, or its site is full                                                                                               | The whole text goes into a new Rec note, and the pin's entry says "Too long for a pin: the full text is in Rec." until **Dismiss**: a pin that got what fit of it (up to 5000 code points), or none of it on a full site.                                                                                                                                                                  |
 | Voice: the pin is deleted while its text is transcribed                                                                                                 | The text goes into the deleted pin, which stays deleted; once the pin is gone (its add undone, the bin emptied), into a new Rec note.                                                                                                                                                                                                                                                      |
 | Voice: a second dictation into a pin that is transcribed                                                                                                | Known limit: prevented in the popover only (the mic and `Space` are off while it is transcribed).                                                                                                                                                                                                                                                                                          |
-| Voice: a very long recording (several **Keep**)                                                                                                         | Known limit: OpenRouter or the model may refuse it; the error shows on the pin or the note.                                                                                                                                                                                                                                                                                                |
+| Voice: a long recording                                                                                                                                 | Sent in parts of at most 5 minutes, cut in a pause after 4 or at a limit; each part is transcribed on its own and the texts are joined: a model answers with a limited length (2048 tokens for the default model).                                                                                                                                                                         |
 | Rec: pins or a note copied while it records or its note waits, and the developer does not stop or retry it afterwards                                   | What was copied stays on the clipboard; a dialog offers Rec's text, selected for copying by hand.                                                                                                                                                                                                                                                                                          |
 | Rec: the panel closes while its note is transcribed                                                                                                     | The note gets its text; nothing is copied.                                                                                                                                                                                                                                                                                                                                                 |
 | Rec: more than 50 notes, or more than 1 MB                                                                                                              | The oldest notes go first; one that goes while it is transcribed ends its job.                                                                                                                                                                                                                                                                                                             |

@@ -4,7 +4,6 @@ import { describe, expect, it } from 'vitest'
 import { MODELS } from '../../src/lib/voice/settings'
 import {
   clickAction,
-  contentRealm,
   launch,
   serviceWorker,
   type Session,
@@ -33,7 +32,12 @@ interface Clip {
 }
 
 interface ExtensionApi {
-  storage: { local: { set(items: Record<string, unknown>): Promise<void> } }
+  storage: {
+    local: {
+      set(items: Record<string, unknown>): Promise<void>
+      get(key: string | null): Promise<Record<string, unknown>>
+    }
+  }
 }
 
 const words = (text: string) =>
@@ -63,13 +67,26 @@ async function duration(clip: Clip): Promise<number> {
   return ((file.length - 44) / 2 / file.readUInt32LE(24)) * 1000
 }
 
-async function field(s: Session): Promise<string> {
-  const realm = await contentRealm(s)
-  return realm.evaluate(
-    () =>
-      (globalThis.__webdevOverlay?.shadow?.querySelector('textarea') as HTMLTextAreaElement | null)
-        ?.value ?? '',
-  )
+/** The newest pin's comment, or the failure of its dictation. */
+async function newest(s: Session): Promise<{ comment: string; failed?: string }> {
+  const worker = await serviceWorker(s)
+  return worker.evaluate(async () => {
+    const { storage } = (globalThis as unknown as { chrome: ExtensionApi }).chrome
+    const all = await storage.local.get(null)
+    const items = Object.entries(all)
+      .filter(([key]) => key.startsWith('collection:'))
+      .flatMap(([, c]) => (c as { items: { id: string; number: number; comment: string }[] }).items)
+      .sort((a, b) => b.number - a.number)
+    const pin = items[0]
+    const jobs = Object.entries(all)
+      .filter(([key]) => key.startsWith('dictation:'))
+      .map(([, value]) => value as Record<string, { state: string; error?: string }>)
+    const job = pin && jobs.map((j) => j[pin.id]).find(Boolean)
+    return {
+      comment: pin?.comment ?? '',
+      ...(job?.state === 'failed' ? { failed: job.error ?? 'failed' } : {}),
+    }
+  })
 }
 
 /** Dictates the clip once with `model`; the transcript and the seconds it took after stop. */
@@ -77,7 +94,7 @@ async function dictate(s: Session, origin: string, clip: Clip, model: string) {
   const worker = await serviceWorker(s)
   await worker.evaluate(async (m: string) => {
     const { storage } = (globalThis as unknown as { chrome: ExtensionApi }).chrome
-    await storage.local.set({ voice: { model: m, language: 'auto' } })
+    await storage.local.set({ voice: { model: m, language: 'auto', limit: 300_000 } })
   }, model)
   await s.page.goto(`${origin}/plain/`)
   await startOverlayAgain(s)
@@ -85,20 +102,19 @@ async function dictate(s: Session, origin: string, clip: Clip, model: string) {
   await markElement(s, 'button[type="submit"]')
   await clickInOverlay(s, '[data-testid="overlay-mic"]')
   for (let i = 0; i < 100; i++) {
-    if ((await overlayText(s, '[data-testid="overlay-voice-status"]'))?.includes('Alt+V')) break
+    if ((await overlayText(s, '[data-testid="overlay-voice-status"]'))?.includes('to stop')) break
     await sleep(50)
   }
   await sleep((await duration(clip)) + 500)
+  // The stop saves the pin and closes the popover; the text follows into the pin.
   await clickInOverlay(s, '[data-testid="overlay-mic"]')
   const stopped = Date.now()
   let text = ''
   for (let i = 0; i < 600 && !text; i++) {
-    text = await field(s)
-    if (!text) {
-      const message = await overlayText(s, '[data-testid="overlay-voice-message"]')
-      if (message) throw new Error(`${model}: ${message}`)
-      await sleep(100)
-    }
+    const now = await newest(s)
+    if (now.failed) throw new Error(`${model}: ${now.failed}`)
+    text = now.comment
+    if (!text) await sleep(100)
   }
   return { text, seconds: (Date.now() - stopped) / 1000 }
 }

@@ -110,6 +110,7 @@ describe('the dictation protocol', () => {
     expect(isRecorderCommand({ type: 'drop', job: JOB })).toBe(true)
     expect(isRecorderCommand({ type: 'start' })).toBe(false)
     expect(isRecorderCommand({ type: 'start', limit: 9_999 })).toBe(false)
+    expect(isRecorderCommand({ type: 'start', limit: 3_600_000 })).toBe(true)
     expect(isRecorderCommand({ type: 'start', limit: 3_600_001 })).toBe(false)
     expect(isRecorderCommand({ type: 'stop', request })).toBe(false)
     expect(isRecorderCommand({ type: 'stop', job: JOB, request: { ...request, key: 'a b' } })).toBe(

@@ -262,8 +262,8 @@ The gear in the panel:
   commenting on their page. Do not type secrets into a comment on a site you do not trust.
 - A pin whose target is gone from its page is marked **Not found** in the panel and the prompt,
   and keeps what was captured when it was marked.
-- A very long recording (after several **Keep**) may be more than OpenRouter or the model
-  takes; the pin or the note then shows the error.
+- A long recording is sent in parts of at most five minutes, cut in a pause of your speech:
+  a model answers with a limited length, and a longer part would lose its end.
 - If the browser stops the extension's background while a text is transcribed (rare), that
   text is lost: the pin or the note says "The transcription was interrupted."
 - An update of the extension while a comment is open loses what is not saved in it.

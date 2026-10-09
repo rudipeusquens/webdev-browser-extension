@@ -332,7 +332,16 @@ describe('dictating a comment', () => {
       await sleep(500)
       await clickInOverlay(s, '[data-testid="overlay-mic"]')
       await waitInOverlay(s, '[data-testid="overlay-popover"]', false)
-      await items((i) => i[0]?.comment === FAKE_TEXT)
+      // Each stretch up to the limit is transcribed on its own; the texts are joined.
+      await items((i) => i[0]?.comment === `${FAKE_TEXT} ${FAKE_TEXT}`)
+      expect(fake.transcriptions()).toHaveLength(2)
+      for (const request of fake.transcriptions()) {
+        const audio = (request.body as { input_audio: { data: string } }).input_audio.data
+        // Each one a whole WebM file, with its own header.
+        expect(Buffer.from(audio, 'base64').subarray(0, 4)).toEqual(
+          Buffer.from([0x1a, 0x45, 0xdf, 0xa3]),
+        )
+      }
     } finally {
       await worker.evaluate(async () => {
         const { storage } = (globalThis as unknown as { chrome: ExtensionApi }).chrome

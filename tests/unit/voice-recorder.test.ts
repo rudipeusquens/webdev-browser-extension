@@ -56,7 +56,10 @@ function setup(overrides: Partial<RecorderDeps> = {}) {
   const media: FakeMediaRecorder[] = []
   const emitted: RecorderMessage[] = []
   const transcribe = vi.fn<RecorderDeps['transcribe']>(async () => 'Make it wider.')
+  /** The microphone's level the monitor reports: speech unless a test makes it quiet. */
+  const level = { now: 0.5, stopped: 0 }
   const deps: RecorderDeps = {
+    monitor: () => ({ level: () => level.now, stop: () => void level.stopped++ }),
     permission: vi.fn(async () => 'granted' as PermissionState),
     getUserMedia: vi.fn(async () => stream),
     record: () => {
@@ -79,7 +82,7 @@ function setup(overrides: Partial<RecorderDeps> = {}) {
     recorder.command({ type: 'stop', job, request })
     await flush()
   }
-  return { recorder, track, media, emitted, transcribe, deps, states, last, start, stop }
+  return { recorder, track, media, emitted, transcribe, deps, states, last, start, stop, level }
 }
 
 const text = (blob: Blob | undefined) => blob?.text()
@@ -114,17 +117,63 @@ describe('the recording', () => {
     await vi.advanceTimersByTimeAsync(9_999)
     expect(r.media[0]?.state).toBe('recording')
     await vi.advanceTimersByTimeAsync(1)
-    expect(r.media[0]?.state).toBe('paused')
     expect(r.last()).toEqual({ state: 'paused', elapsed: 10_000 })
+    // The limit ends a segment: the microphone stays open for the answer.
+    expect(r.media[0]?.state).toBe('inactive')
+    expect(r.track.stopped).toBe(false)
     // Nothing is sent while it waits for the answer.
     await vi.advanceTimersByTimeAsync(120_000)
     expect(r.transcribe).not.toHaveBeenCalled()
     r.recorder.command({ type: 'resume' })
     await flush()
-    expect(r.media[0]?.state).toBe('recording')
+    expect(r.media[1]?.state).toBe('recording')
     expect(r.last()).toEqual({ state: 'recording', limit: 10_000, elapsed: 10_000 })
     await vi.advanceTimersByTimeAsync(10_000)
     expect(r.last()).toEqual({ state: 'paused', elapsed: 20_000 })
+  })
+
+  it('transcribes each stretch between limits on its own and joins the texts', async () => {
+    const transcribe = vi
+      .fn<RecorderDeps['transcribe']>()
+      .mockResolvedValueOnce('First part.')
+      .mockResolvedValueOnce('Second part.')
+    const r = setup({ transcribe })
+    await r.start(60_000)
+    r.media[0]?.chunk('one ')
+    await vi.advanceTimersByTimeAsync(60_000)
+    r.recorder.command({ type: 'resume' })
+    // The stretch the limit ended hands over its last chunk first.
+    await vi.advanceTimersByTimeAsync(1)
+    r.media[1]?.chunk('two ')
+    await vi.advanceTimersByTimeAsync(30_000)
+    await r.stop('j1')
+    await flush()
+    expect(transcribe).toHaveBeenCalledTimes(2)
+    expect(await text(transcribe.mock.calls[0]?.[0])).toBe('one end')
+    expect(await text(transcribe.mock.calls[1]?.[0])).toBe('two end')
+    expect(transcribe.mock.calls[0]?.[3]).toBe(timeoutFor(60_000))
+    expect(transcribe.mock.calls[1]?.[3]).toBe(timeoutFor(30_000))
+    expect(r.last()).toEqual({
+      job: 'j1',
+      state: 'done',
+      text: 'First part. Second part.',
+      cut: false,
+    })
+  })
+
+  it('leaves out a silent stretch, and says no speech only when all of it was silent', async () => {
+    const transcribe = vi
+      .fn<RecorderDeps['transcribe']>()
+      .mockResolvedValueOnce('Spoken.')
+      .mockRejectedValueOnce(new VoiceFailure('no-speech'))
+    const r = setup({ transcribe })
+    await r.start(10_000)
+    await vi.advanceTimersByTimeAsync(10_000)
+    r.recorder.command({ type: 'resume' })
+    await flush()
+    await r.stop('j1')
+    await flush()
+    expect(r.last()).toEqual({ job: 'j1', state: 'done', text: 'Spoken.', cut: false })
   })
 
   it('sends a paused recording when stopped, with a timeout for its length', async () => {
@@ -133,8 +182,23 @@ describe('the recording', () => {
     await vi.advanceTimersByTimeAsync(120_000)
     await r.stop('j1')
     await flush()
+    expect(r.transcribe).toHaveBeenCalledTimes(1)
     expect(r.transcribe.mock.calls[0]?.[3]).toBe(timeoutFor(120_000))
+    expect(r.track.stopped).toBe(true)
     expect(r.last()).toMatchObject({ job: 'j1', state: 'done' })
+  })
+
+  it('keeps on after Keep that comes before the stretch finished', async () => {
+    const r = setup()
+    await r.start(10_000)
+    await vi.advanceTimersByTimeAsync(9_999)
+    // The limit and Keep at once: the stretch hands over its last chunk a task later.
+    vi.advanceTimersByTime(1)
+    r.recorder.command({ type: 'resume' })
+    expect(r.media).toHaveLength(1)
+    await vi.advanceTimersByTimeAsync(1)
+    expect(r.media).toHaveLength(2)
+    expect(r.media[1]?.state).toBe('recording')
   })
 
   it.each([
@@ -223,6 +287,59 @@ describe('the recording', () => {
     expect(track.stopped).toBe(true)
     expect(r.media).toHaveLength(0)
     expect(r.states()).toEqual(['starting', 'idle'])
+  })
+
+  it('sends a long stretch in parts of at most five minutes, cut in a pause after four', async () => {
+    const transcribe = vi
+      .fn<RecorderDeps['transcribe']>()
+      .mockResolvedValueOnce('First part.')
+      .mockResolvedValueOnce('Second part.')
+    const r = setup({ transcribe })
+    await r.start(15 * 60_000)
+    // Quiet before four minutes cuts nothing.
+    r.level.now = 0
+    await vi.advanceTimersByTimeAsync(60_000)
+    expect(r.media).toHaveLength(1)
+    r.level.now = 0.5
+    await vi.advanceTimersByTimeAsync(4 * 60_000 - 60_000)
+    expect(r.media).toHaveLength(1)
+    // The first pause after four minutes: the next part starts before this one ends.
+    r.level.now = 0
+    await vi.advanceTimersByTimeAsync(1_000)
+    expect(r.media).toHaveLength(2)
+    expect(r.media[1]?.state).toBe('recording')
+    expect(r.media[0]?.state).toBe('inactive')
+    r.level.now = 0.5
+    await vi.advanceTimersByTimeAsync(30_000)
+    await r.stop('j1')
+    await flush()
+    expect(transcribe).toHaveBeenCalledTimes(2)
+    expect(r.last()).toEqual({
+      job: 'j1',
+      state: 'done',
+      text: 'First part. Second part.',
+      cut: false,
+    })
+    // Still one recording to the developer: no pause, no question.
+    expect(r.states()).not.toContain('paused')
+  })
+
+  it('cuts at five minutes when nobody pauses', async () => {
+    const r = setup()
+    await r.start(15 * 60_000)
+    await vi.advanceTimersByTimeAsync(5 * 60_000 - 1_000)
+    expect(r.media).toHaveLength(1)
+    await vi.advanceTimersByTimeAsync(1_000)
+    expect(r.media).toHaveLength(2)
+    await vi.advanceTimersByTimeAsync(5 * 60_000)
+    expect(r.media).toHaveLength(3)
+  })
+
+  it('stops watching the microphone with the recording', async () => {
+    const r = setup()
+    await r.start()
+    await r.stop('j1')
+    expect(r.level.stopped).toBe(1)
   })
 
   it('ends the job of a stop while the microphone starts: nothing was said', async () => {

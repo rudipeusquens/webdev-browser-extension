@@ -4484,6 +4484,13 @@ Tasks 82–90; one pull request. Steps are test-first.
 - **The limit:** 5 minutes by default, in Settings (1, 2, 3, 5, 10 or 15 minutes). At the
   limit the recording pauses and asks; **Keep** records on until another full limit,
   **Stop** hands it over; without an answer within 60 s it stops and is transcribed.
+- **Parts of at most 5 minutes:** live checks sent a 15-minute English and a 10-minute German
+  recording whole; the default model answered with 2048 tokens each and cut the end without
+  a word (18 % and 14 % lost). The same German audio in two 5-minute parts came back whole
+  (1314 and 1335 tokens). So the recorder sends parts: a part ends at a limit, or is cut in
+  the first pause after 4 minutes (the microphone's level, from an analyser in the offscreen
+  document), at 5 minutes at the latest; the next part starts before the last one ends. Each
+  part is transcribed on its own and the texts are joined.
 - **`Space` dictates** in an empty comment (only white space counts as empty) when a key is
   saved and the pin is not being transcribed, and stops while the field is still empty; with
   text in the field, a modifier, IME composition or a repeated key it types a space. Every
@@ -4540,8 +4547,8 @@ Tasks 82–90; one pull request. Steps are test-first.
 - **No undo of a dictation in the popover:** the text no longer goes into the field, so the
   `Ctrl+Z` of milestone 7a goes; the panel's Undo takes the step "Dictation into pin 4" back.
 
-**Known limits:** a very long recording (several **Keep**) may be more than OpenRouter or the
-model takes; the error shows on the pin or the note. A service worker restart (rare: the
+**Known limits:** a part cut at 5 minutes without a pause may split a word at its seam; a
+model with a much shorter answer than the default one could still cut a part. A service worker restart (rare: the
 heartbeat keeps it alive) loses the transcriptions under way ("The transcription was
 interrupted."). An extension update while a popover is open still loses its unsaved text.
 Two dictations into the same pin are prevented in the popover only (the mic and `Space` are
@@ -4592,7 +4599,9 @@ later, and its note keeps the text.
   `tests/unit/{voice-recorder,voice-protocol,voice-openrouter}.test.ts`
 - [x] Failing tests: a stop becomes a job and the next recording starts while it is
       transcribed; the pause at the limit, a resume that pauses again a whole limit later, a
-      paused recording stopped; a stop with nothing recorded ends its job as "No speech
+      paused recording stopped; each part between limits transcribed on its own and the texts
+      joined, a silent part left out, Keep before the part ended; a part cut in the first
+      pause after four minutes, or at five, with the next one started first; a stop with nothing recorded ends its job as "No speech
       detected."; a transcript cut at 20,000 code points; held audio sent again on Retry,
       gone after ten minutes and beyond 20 MB, oldest first; everything dropped when the port
       goes; the timeout for long audio; the shapes of the new commands and states. Then the
