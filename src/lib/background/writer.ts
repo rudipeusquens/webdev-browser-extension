@@ -9,6 +9,7 @@ import {
   addAnnotation,
   clearAll,
   emptyBin,
+  fillTranscript,
   markCopied,
   setStatus,
   updateComment,
@@ -29,13 +30,14 @@ function apply(c: Collection, msg: CollectionMessage, now: string): Collection |
   const status = (id: string) => c.items.find((item) => item.id === id)?.status
   switch (msg.type) {
     case 'annotation:add': {
-      const { id, page, target } = msg
+      const { id, page, target, draft } = msg
       if (exists(id)) return 'This pin already exists.'
-      const next = addAnnotation(c, { id, page, target, comment: msg.comment.trim() }, now)
+      const next = addAnnotation(c, { id, page, target, comment: msg.comment.trim(), draft }, now)
       return next === c ? 'This page belongs to another site.' : next
     }
     case 'annotation:update':
-      return exists(msg.id) ? updateComment(c, msg.id, msg.comment.trim(), now) : GONE
+      if (!exists(msg.id)) return GONE
+      return updateComment(c, msg.id, msg.comment.trim(), now, { keep: msg.keep })
     case 'annotation:remove':
       return exists(msg.id) ? setStatus(c, msg.id, 'deleted', now) : GONE
     case 'annotation:restore':
@@ -59,13 +61,16 @@ const plural = (n: number, word: string) => `${n} ${word}${n === 1 ? '' : 's'}`
 function labelOf(msg: CollectionMessage, before: Collection, after: Collection): string {
   const item = (id: string) => {
     const found = after.items.find((i) => i.id === id) ?? before.items.find((i) => i.id === id)
-    return `pin ${found?.number ?? ''}`.trim()
+    return `${found?.draft ? 'draft' : 'pin'} ${found?.number ?? ''}`.trim()
   }
   switch (msg.type) {
     case 'annotation:add':
       return `Add ${item(msg.id)}`
-    case 'annotation:update':
-      return `Edit ${item(msg.id)}`
+    case 'annotation:update': {
+      const was = before.items.find((i) => i.id === msg.id)
+      const is = after.items.find((i) => i.id === msg.id)
+      return was?.draft && !is?.draft ? `Save ${item(msg.id)}` : `Edit ${item(msg.id)}`
+    }
     case 'annotation:remove':
       return `Delete ${item(msg.id)}`
     case 'annotation:restore':
@@ -113,6 +118,9 @@ async function save(c: Collection): Promise<void> {
   if (isEmpty(c)) await browser.storage.local.remove(key)
   else await browser.storage.local.set({ [key]: c })
 }
+
+/** What became of a dictation's text (`fill`). */
+export type Filled = { ok: true; rest?: string; part?: true } | { ok: false; error: string }
 
 /** Most UTF-8 bytes one site's collection may take: each save writes all of it. */
 export const SITE_BUDGET = 4_000_000
@@ -179,6 +187,28 @@ export function createWriter(
         )
         return { ok: true }
       }).catch((): Reply => ({ ok: false, error: 'Could not save.' }))
+    },
+
+    /**
+     * Puts a dictation's text after the comment of the pin `id` (spec section 9): one undo
+     * step. `rest` is the whole text when it did not all go in (the pin is gone, the comment
+     * limit cut it, the site is full); the caller keeps it elsewhere. `part`: the pin got
+     * what fit of it.
+     */
+    fill(site: string, id: string, text: string): Promise<Filled> {
+      return inOrder(async (): Promise<Filled> => {
+        const before = await current(site)
+        const { collection: next, rest } = fillTranscript(before, id, text, now())
+        if (next === before) return rest === undefined ? { ok: true } : { ok: true, rest }
+        // The pin gets none of it; it says where the text went, as for a cut.
+        if (byteSize(next) > siteBudget) return { ok: true, rest: text, part: true }
+        await save(next)
+        const number = next.items.find((i) => i.id === id)?.number ?? ''
+        await record(site, stepBetween(before, next, `Dictation into pin ${number}`)).catch(
+          () => undefined,
+        )
+        return rest === undefined ? { ok: true } : { ok: true, rest, part: true }
+      }).catch((): Filled => ({ ok: false, error: 'Could not save.' }))
     },
 
     /** Puts back what the site's last change changed. */

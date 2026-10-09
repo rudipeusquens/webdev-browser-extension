@@ -27,15 +27,16 @@ describe('background: voice settings from the panel', () => {
 
   afterEach(() => vi.restoreAllMocks())
 
-  it('saves the model and the language', async () => {
+  it('saves the model, the language and the limit', async () => {
     const reply = await send(
-      { type: 'voice:set', model: 'openai/whisper-large-v3-turbo', language: 'de' },
+      { type: 'voice:set', model: 'openai/whisper-large-v3-turbo', language: 'de', limit: 600_000 },
       panel(),
     )
     expect(reply).toEqual({ ok: true })
     expect(await loadVoiceSettings()).toEqual({
       model: 'openai/whisper-large-v3-turbo',
       language: 'de',
+      limit: 600_000,
     })
   })
 
@@ -65,7 +66,7 @@ describe('background: voice settings from the panel', () => {
     ['an unknown page', { id: fakeBrowser.runtime.id }],
   ])('refuses every voice message from %s', async (_, sender) => {
     for (const message of [
-      { type: 'voice:set', model: 'a/b', language: 'en' },
+      { type: 'voice:set', model: 'a/b', language: 'en', limit: 60_000 },
       { type: 'voice:key:save', key: KEY },
       { type: 'voice:key:remove' },
       { type: 'voice:key:test' },
@@ -75,7 +76,11 @@ describe('background: voice settings from the panel', () => {
     await storeKey(KEY)
     expect(await send({ type: 'voice:key:remove' }, sender)).toMatchObject({ ok: false })
     expect(await loadKey()).toBe(KEY)
-    expect(await loadVoiceSettings()).toEqual({ model: DEFAULT_MODEL, language: 'auto' })
+    expect(await loadVoiceSettings()).toEqual({
+      model: DEFAULT_MODEL,
+      language: 'auto',
+      limit: 300_000,
+    })
   })
 
   it('ignores another extension and malformed values', async () => {
@@ -83,13 +88,20 @@ describe('background: voice settings from the panel', () => {
     expect(await send({ type: 'voice:key:save', key: KEY }, other)).toBeUndefined()
     expect(await send({ type: 'voice:key:save', key: 'has spaces in it' }, panel())).toBeUndefined()
     expect(
-      await send({ type: 'voice:set', model: 'nope', language: 'en' }, panel()),
+      await send({ type: 'voice:set', model: 'nope', language: 'en', limit: 60_000 }, panel()),
     ).toBeUndefined()
-    expect(await send({ type: 'voice:set', model: 'a/b', language: 'english' }, panel())).toBe(
-      undefined,
-    )
+    expect(
+      await send({ type: 'voice:set', model: 'a/b', language: 'english', limit: 60_000 }, panel()),
+    ).toBe(undefined)
+    expect(
+      await send({ type: 'voice:set', model: 'a/b', language: 'en', limit: 1_000 }, panel()),
+    ).toBe(undefined)
     expect(await loadKey()).toBeUndefined()
-    expect(await loadVoiceSettings()).toEqual({ model: DEFAULT_MODEL, language: 'auto' })
+    expect(await loadVoiceSettings()).toEqual({
+      model: DEFAULT_MODEL,
+      language: 'auto',
+      limit: 300_000,
+    })
   })
 
   describe('testing the key', () => {

@@ -1,18 +1,25 @@
-// Dictation settings (spec section 9), under their own storage key: a malformed value falls
-// back to the defaults without touching the remembered sites. Only the background writes them.
+// Dictation settings (spec section 9), under their own storage key: each malformed or missing
+// field falls back to its default without touching the others or the remembered sites. Only
+// the background writes them.
 
 import { browser } from 'wxt/browser'
-import { hasKeys } from '../collection/validate'
+import { hasKeys, isObject } from '../collection/validate'
+import { isLimit } from './protocol'
 
 export interface VoiceSettings {
   /** OpenRouter model id, `vendor/name`. */
   model: string
   /** `auto` (detected by the model), or an ISO-639-1 code. */
   language: string
+  /** Milliseconds a recording runs before it pauses to ask whether to go on. */
+  limit: number
 }
 
 export const VOICE_KEY = 'voice'
 export const DEFAULT_MODEL = 'openai/gpt-4o-mini-transcribe'
+export const DEFAULT_LIMIT = 300_000
+/** The limits Settings offers, in milliseconds: 1, 2, 3, 5, 10 and 15 minutes. */
+export const LIMIT_CHOICES: readonly number[] = [1, 2, 3, 5, 10, 15].map((m) => m * 60_000)
 
 /** The short list of the settings, the default first (spec section 9). */
 export const MODELS: readonly { id: string; label: string }[] = [
@@ -58,16 +65,29 @@ export const isApiKey = (x: unknown): x is string =>
   typeof x === 'string' && /^[\x21-\x7e]{8,256}$/.test(x)
 
 export function isVoiceSettings(x: unknown): x is VoiceSettings {
-  return hasKeys(x, ['model', 'language']) && isModelId(x.model) && isLanguage(x.language)
+  return (
+    hasKeys(x, ['model', 'language', 'limit']) &&
+    isModelId(x.model) &&
+    isLanguage(x.language) &&
+    isLimit(x.limit)
+  )
 }
 
 export const defaultVoiceSettings = (): VoiceSettings => ({
   model: DEFAULT_MODEL,
   language: 'auto',
+  limit: DEFAULT_LIMIT,
 })
 
-const parse = (value: unknown): VoiceSettings =>
-  isVoiceSettings(value) ? value : defaultVoiceSettings()
+/** Each field as stored when it is well-formed, else its default. */
+function parse(value: unknown): VoiceSettings {
+  const fields = isObject(value) ? value : {}
+  return {
+    model: isModelId(fields.model) ? fields.model : DEFAULT_MODEL,
+    language: isLanguage(fields.language) ? fields.language : 'auto',
+    limit: isLimit(fields.limit) ? fields.limit : DEFAULT_LIMIT,
+  }
+}
 
 export async function loadVoiceSettings(): Promise<VoiceSettings> {
   const stored = await browser.storage.local.get(VOICE_KEY)

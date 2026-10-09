@@ -9,6 +9,9 @@ import type { VoiceError } from './protocol'
 export const OPENROUTER = 'https://openrouter.ai'
 /** Client timeout per request. */
 export const TIMEOUT = 65_000
+
+/** The timeout for a recording of `ms`: 10 s more for each minute after the first. */
+export const timeoutFor = (ms: number) => TIMEOUT + 10_000 * Math.max(0, Math.ceil(ms / 60_000) - 1)
 /** Longest reason from OpenRouter the popover shows. */
 const DETAIL = 200
 
@@ -22,6 +25,8 @@ export interface TranscribeRequest {
 interface Options {
   signal?: AbortSignal
   fetch?: typeof fetch
+  /** Milliseconds; TIMEOUT unless a long recording needs more. */
+  timeout?: number
 }
 
 export class VoiceFailure extends Error {
@@ -77,7 +82,7 @@ interface Answer {
 async function call(
   path: string,
   init: RequestInit,
-  { signal, fetch: fetchFn = globalThis.fetch }: Options,
+  { signal, fetch: fetchFn = globalThis.fetch, timeout = TIMEOUT }: Options,
 ): Promise<Answer> {
   signal?.throwIfAborted()
   const controller = new AbortController()
@@ -85,7 +90,7 @@ async function call(
   const timer = setTimeout(() => {
     timedOut = true
     controller.abort()
-  }, TIMEOUT)
+  }, timeout)
   const forward = () => controller.abort(signal?.reason)
   signal?.addEventListener('abort', forward)
   // Settles when the request is aborted, whether or not fetch and the body notice.

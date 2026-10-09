@@ -3,6 +3,7 @@ import {
   ArchiveRestoreIcon,
   ArrowUpRightIcon,
   CopyIcon,
+  LoaderCircleIcon,
   RotateCcwIcon,
   SquareDashedIcon,
   SquareMousePointerIcon,
@@ -16,12 +17,17 @@ import type { PageGroup } from '@/lib/collection/ops'
 import type { Pointed } from './use-overlay-lines'
 import { targetSummary } from '@/lib/format/summary'
 import { isSiteOrigin } from '@/lib/settings'
-import { STATUS_BADGE, STATUS_NAME } from '@/lib/status'
+import { STATUS_BADGE, STATUS_NAME, toneOf } from '@/lib/status'
+import type { JobView, SiteJobs } from '@/lib/voice/jobs'
+import { dictationFailure } from '@/lib/voice/protocol'
+import type { Annotation } from '@/lib/collection/model'
 
 const props = defineProps<{
   groups: (PageGroup & { current: boolean })[]
   /** Items not found when their page was last open. */
   missing: ReadonlySet<string>
+  /** The pins' dictations that are not done: transcribing, failed or cut. */
+  jobs?: SiteJobs
   /** What the page points at: the pin under the pointer, the item whose popover is open. */
   pointed: Pointed
   /** Headings show the page's title next to its path (an option in Settings). */
@@ -38,7 +44,16 @@ const emit = defineEmits<{
   go: [pageKey: string]
   /** An entry of another page: open that page and show the item there. */
   jump: [pageKey: string, id: string]
+  /** Retry or Dismiss on a pin's dictation; Open settings for a refused one. */
+  'job-retry': [id: string]
+  'job-dismiss': [id: string]
+  settings: []
 }>()
+
+const jobOf = (item: Annotation): JobView | undefined => props.jobs?.[item.id]
+const transcribing = (item: Annotation) => jobOf(item)?.state === 'transcribing'
+/** Copy as prompt takes open pins whose text is complete: no drafts, nothing transcribed. */
+const copyable = (item: Annotation) => item.status === 'open' && !item.draft && !transcribing(item)
 
 const list = useTemplateRef<HTMLElement>('list')
 
@@ -147,7 +162,8 @@ const ICONS = { element: SquareMousePointerIcon, text: TextSelectIcon, area: Squ
           data-testid="item"
           :data-item-id="item.id"
           :data-pointed="pointedAt(item.id)"
-          class="flex items-start gap-1 px-2 hover:bg-muted/60"
+          :data-tone="toneOf(item)"
+          class="px-2 hover:bg-muted/60"
           :class="{
             'bg-muted/60': pointedAt(item.id) === 'hovered',
             'bg-muted shadow-[inset_2px_0_0_var(--color-ring)]': pointedAt(item.id) === 'open',
@@ -155,95 +171,150 @@ const ICONS = { element: SquareMousePointerIcon, text: TextSelectIcon, area: Squ
           @mouseenter="group.current && emit('highlight', item.id)"
           @mouseleave="group.current && emit('highlight', null)"
         >
-          <button
-            type="button"
-            class="flex min-w-0 flex-1 items-start gap-3 rounded-md px-2 py-2 text-left outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:cursor-default"
-            :disabled="!group.current && !openable(group.page.url)"
-            :title="
-              group.current
-                ? 'Show on the page'
-                : openable(group.page.url)
-                  ? 'Open its page and show it'
-                  : undefined
-            "
-            @click="onEntry(group, item.id)"
-          >
-            <span
-              data-testid="item-number"
-              class="mt-0.5 flex size-5 shrink-0 items-center justify-center rounded-full text-xs font-semibold text-white"
-              :class="STATUS_BADGE[item.status]"
-              :title="STATUS_NAME[item.status]"
-              >{{ item.number }}</span
+          <div class="flex items-start gap-1">
+            <button
+              type="button"
+              class="flex min-w-0 flex-1 items-start gap-3 rounded-md px-2 py-2 text-left outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:cursor-default"
+              :disabled="!group.current && !openable(group.page.url)"
+              :title="
+                group.current
+                  ? 'Show on the page'
+                  : openable(group.page.url)
+                    ? 'Open its page and show it'
+                    : undefined
+              "
+              @click="onEntry(group, item.id)"
             >
-            <span class="min-w-0 flex-1">
               <span
-                class="line-clamp-2 break-words whitespace-pre-line"
-                :class="item.status === 'deleted' && 'text-muted-foreground line-through'"
-                >{{ item.comment }}</span
+                data-testid="item-number"
+                class="mt-0.5 flex size-5 shrink-0 items-center justify-center rounded-full text-xs font-semibold text-white"
+                :class="STATUS_BADGE[toneOf(item)]"
+                :title="STATUS_NAME[toneOf(item)]"
+                >{{ item.number }}</span
               >
-              <span class="mt-0.5 flex items-center gap-1 text-xs text-muted-foreground">
-                <component :is="ICONS[item.target.kind]" class="size-3 shrink-0" />
-                <span class="truncate font-mono">{{ targetSummary(item.target) }}</span>
-                <Badge
-                  v-if="missing.has(item.id)"
-                  data-testid="not-found"
-                  variant="outline"
-                  class="shrink-0 px-1 py-0 text-[10px] font-normal text-amber-700 dark:text-amber-400"
-                  title="Not found when this page was last open"
+              <span class="min-w-0 flex-1">
+                <span
+                  v-if="item.comment"
+                  class="line-clamp-2 break-words whitespace-pre-line"
+                  :class="item.status === 'deleted' && 'text-muted-foreground line-through'"
+                  >{{ item.comment }}</span
                 >
-                  Not found
-                </Badge>
+                <span v-else-if="!transcribing(item)" class="text-muted-foreground italic"
+                  >No comment yet</span
+                >
+                <span
+                  v-if="transcribing(item)"
+                  data-testid="item-transcribing"
+                  class="flex items-center gap-1.5 text-xs text-muted-foreground"
+                >
+                  <LoaderCircleIcon class="size-3 shrink-0 animate-spin" aria-hidden="true" />
+                  Transcribing…
+                </span>
+                <span class="mt-0.5 flex items-center gap-1 text-xs text-muted-foreground">
+                  <component :is="ICONS[item.target.kind]" class="size-3 shrink-0" />
+                  <span class="truncate font-mono">{{ targetSummary(item.target) }}</span>
+                  <Badge
+                    v-if="missing.has(item.id)"
+                    data-testid="not-found"
+                    variant="outline"
+                    class="shrink-0 px-1 py-0 text-[10px] font-normal text-amber-700 dark:text-amber-400"
+                    title="Not found when this page was last open"
+                  >
+                    Not found
+                  </Badge>
+                </span>
               </span>
-            </span>
-          </button>
-          <Button
-            v-if="item.status === 'open'"
-            data-testid="item-copy"
-            variant="ghost"
-            size="icon-sm"
-            class="mt-1 shrink-0 text-muted-foreground"
-            :aria-label="`Copy pin ${item.number}`"
-            title="Copy as prompt: it becomes done"
-            @click="emit('copy', item.id)"
+            </button>
+            <Button
+              v-if="copyable(item)"
+              data-testid="item-copy"
+              variant="ghost"
+              size="icon-sm"
+              class="mt-1 shrink-0 text-muted-foreground"
+              :aria-label="`Copy pin ${item.number}`"
+              title="Copy as prompt: it becomes done"
+              @click="emit('copy', item.id)"
+            >
+              <CopyIcon />
+            </Button>
+            <Button
+              v-if="item.status === 'done'"
+              data-testid="item-reopen"
+              variant="ghost"
+              size="icon-sm"
+              class="mt-1 shrink-0 text-muted-foreground"
+              :aria-label="`Reopen pin ${item.number}`"
+              title="Reopen: the next Copy as prompt copies it again"
+              @click="emit('reopen', item.id)"
+            >
+              <RotateCcwIcon />
+            </Button>
+            <Button
+              v-if="item.status === 'deleted'"
+              data-testid="item-restore"
+              variant="ghost"
+              size="icon-sm"
+              class="mt-1 shrink-0 text-muted-foreground"
+              :aria-label="`Restore pin ${item.number}`"
+              title="Restore as an open pin"
+              @click="emit('restore', item.id)"
+            >
+              <ArchiveRestoreIcon />
+            </Button>
+            <Button
+              v-else
+              data-testid="item-delete"
+              variant="ghost"
+              size="icon-sm"
+              class="mt-1 shrink-0 text-muted-foreground"
+              :aria-label="`Delete pin ${item.number}`"
+              title="Delete"
+              @click="emit('remove', item.id)"
+            >
+              <Trash2Icon />
+            </Button>
+          </div>
+          <div
+            v-if="jobOf(item)?.state === 'failed' || jobOf(item)?.state === 'cut'"
+            data-testid="item-job"
+            role="status"
+            class="flex flex-wrap items-center gap-x-2 gap-y-1 pr-2 pb-2 pl-10 text-xs"
           >
-            <CopyIcon />
-          </Button>
-          <Button
-            v-if="item.status === 'done'"
-            data-testid="item-reopen"
-            variant="ghost"
-            size="icon-sm"
-            class="mt-1 shrink-0 text-muted-foreground"
-            :aria-label="`Reopen pin ${item.number}`"
-            title="Reopen: the next Copy as prompt copies it again"
-            @click="emit('reopen', item.id)"
-          >
-            <RotateCcwIcon />
-          </Button>
-          <Button
-            v-if="item.status === 'deleted'"
-            data-testid="item-restore"
-            variant="ghost"
-            size="icon-sm"
-            class="mt-1 shrink-0 text-muted-foreground"
-            :aria-label="`Restore pin ${item.number}`"
-            title="Restore as an open pin"
-            @click="emit('restore', item.id)"
-          >
-            <ArchiveRestoreIcon />
-          </Button>
-          <Button
-            v-else
-            data-testid="item-delete"
-            variant="ghost"
-            size="icon-sm"
-            class="mt-1 shrink-0 text-muted-foreground"
-            :aria-label="`Delete pin ${item.number}`"
-            title="Delete"
-            @click="emit('remove', item.id)"
-          >
-            <Trash2Icon />
-          </Button>
+            <template v-if="jobOf(item)?.state === 'failed'">
+              <span class="min-w-0 flex-1 basis-32 text-destructive">{{
+                dictationFailure(jobOf(item)!)?.text
+              }}</span>
+              <Button
+                v-if="dictationFailure(jobOf(item)!)?.settings"
+                data-testid="item-job-settings"
+                variant="outline"
+                size="xs"
+                @click="emit('settings')"
+              >
+                Open settings
+              </Button>
+              <Button
+                v-if="dictationFailure(jobOf(item)!)?.retry"
+                data-testid="item-job-retry"
+                variant="outline"
+                size="xs"
+                @click="emit('job-retry', item.id)"
+              >
+                Retry
+              </Button>
+            </template>
+            <span v-else class="min-w-0 flex-1 basis-32 text-muted-foreground"
+              >Too long for a pin: the full text is in Rec.</span
+            >
+            <Button
+              data-testid="item-job-dismiss"
+              variant="outline"
+              size="xs"
+              @click="emit('job-dismiss', item.id)"
+            >
+              Dismiss
+            </Button>
+          </div>
         </li>
       </ul>
     </section>

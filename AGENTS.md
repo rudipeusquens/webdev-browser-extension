@@ -21,8 +21,9 @@ unobscured overlay, no page-visible start signal, panel-only senders, storage bu
 OpenRouter-only connections, a denylist job that installs nothing, a pre-push check, a bundle
 check, the MCP server through pnpm; release readiness: the package from `pnpm zip` checked
 against the build, the README, the manual smoke test), milestone 8a: **Rec**, dictation in the
-panel without a pin, its text copied as it is, and milestone 8c: `Ctrl` + drag selects text in
-a link. Next: milestone 8b (dictation in the background, drafts, Rec notes), then the owner's
+panel without a pin, its text copied as it is, milestone 8c: `Ctrl` + drag selects text in a
+link, and milestone 8b: dictation transcribed in the background, `Space` to dictate, every
+pin kept (grey drafts), Rec notes in the panel, a recording limit that asks. Next: the owner's
 smoke test before the first release; later candidates are in the plan's known limits and
 deferred items. The spec is `docs/specs/2026-10-05-annotation-extension.md` — read both before
 working on a feature.

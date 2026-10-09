@@ -200,7 +200,8 @@ it('takes the README screenshots', async () => {
       },
     }),
   )
-  await page.keyboard.press('Escape')
+  // Esc would keep it as a draft: this pin was only for the picture.
+  await clickInOverlay(session, '[data-testid="overlay-delete"]')
   await waitInOverlay(session, '[data-testid="overlay-popover"]', false)
 
   // Element mode before the click: the outline, and the chip with the tag, component and size.

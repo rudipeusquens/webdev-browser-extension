@@ -7,7 +7,6 @@ import {
   overlayMounted,
   overlayText,
   sleep,
-  storedCollection,
   waitForItems,
   waitInOverlay,
 } from './overlay-helpers'
@@ -99,14 +98,16 @@ describe('element mode', () => {
     },
   )
 
-  it('cancels with Escape, then leaves element mode with a second Escape', async () => {
+  it('closes with Escape, keeping a draft, then leaves element mode with a second Escape', async () => {
     await markElement(session, 'h1')
     await session.page.keyboard.press('Escape')
     await waitInOverlay(session, '[data-testid="overlay-popover"]', false)
     await waitInOverlay(session, '[data-testid="overlay-glass"]')
     await session.page.keyboard.press('Escape')
     await waitInOverlay(session, '[data-testid="overlay-glass"]', false)
-    expect(await storedCollection(panel)).toBeUndefined()
+    // A pin is never lost: Esc keeps it as a draft (spec section 8).
+    const kept = await waitForItems(panel, 1)
+    expect(kept?.items[0]).toMatchObject({ comment: '', draft: true })
   })
 
   it('scrolls the container under the pointer', async () => {

@@ -35,11 +35,11 @@ export async function overlayRuns(tabId: number): Promise<boolean> {
 }
 
 /**
- * Whether the tab's overlay lets its page go: 'unsaved' while its popover holds unsaved text,
- * 'busy' when it does not answer in time.
+ * Whether the tab's overlay lets its page go: it keeps its open popover first, 'kept' when it
+ * could not, 'busy' when it does not answer in time.
  */
-export async function overlayLetsGo(tabId: number): Promise<'go' | 'unsaved' | 'busy'> {
+export async function overlayLetsGo(tabId: number): Promise<'go' | 'kept' | 'busy'> {
   const reply = await ask(tabId, { type: 'overlay:leave' })
   if (reply === LATE) return 'busy'
-  return isObject(reply) && reply.ok === false ? 'unsaved' : 'go'
+  return isObject(reply) && reply.ok === false ? 'kept' : 'go'
 }

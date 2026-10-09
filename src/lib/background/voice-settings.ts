@@ -36,7 +36,7 @@ export async function setVoice(message: VoiceSettingsMessage): Promise<Reply | K
   switch (message.type) {
     case 'voice:set':
       await browser.storage.local.set({
-        [VOICE_KEY]: { model: message.model, language: message.language },
+        [VOICE_KEY]: { model: message.model, language: message.language, limit: message.limit },
       })
       return { ok: true }
     case 'voice:key:save':

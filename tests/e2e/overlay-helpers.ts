@@ -59,6 +59,16 @@ export async function overlayText(s: Session, selector: string): Promise<string 
   )
 }
 
+/** The text in the comment popover's field, or '' without one. */
+export async function contentField(s: Session): Promise<string> {
+  const realm = await contentRealm(s)
+  return realm.evaluate(
+    () =>
+      (globalThis.__webdevOverlay?.shadow?.querySelector('textarea') as HTMLTextAreaElement | null)
+        ?.value ?? '',
+  )
+}
+
 /** Waits until `selector` exists (or not) inside the overlay. */
 export async function waitInOverlay(s: Session, selector: string, present = true) {
   const realm = await contentRealm(s)
@@ -91,6 +101,7 @@ export interface StoredItem {
   status: 'open' | 'done' | 'deleted'
   pageKey: string
   target: never
+  draft?: true
 }
 
 /**

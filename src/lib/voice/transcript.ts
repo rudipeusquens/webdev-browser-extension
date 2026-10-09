@@ -1,9 +1,8 @@
-// Where a dictated text goes in the comment field (spec section 9): at the caret, replacing a
-// selection, with one space where words would otherwise run together, and never beyond the
-// comment limit.
+// Where a dictated text goes in a comment (spec section 9): at the end of what the pin holds,
+// with one space where words would otherwise run together, and never beyond the comment limit.
 
-import { LIMITS } from '@/lib/collection/model'
-import { codePoints } from '@/lib/collection/validate'
+import { LIMITS } from '../collection/model'
+import { codePoints } from '../collection/validate'
 
 /** What needs no space before it: whitespace and closing punctuation. */
 const CLOSES = /[\s.,;:!?)\]}…]/

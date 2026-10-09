@@ -13,7 +13,8 @@ import { markElement, overlayMounted, sleep, waitForItems } from './overlay-help
 import { setKey } from './voice-helpers'
 
 // Rec end to end (spec sections 8 and 12): a dictation in the panel without a pin, with
-// Chrome's fake microphone and the shipped build pointed at a local fake OpenRouter. The
+// Chrome's fake microphone and the shipped build pointed at a local fake OpenRouter. Stopped,
+// it becomes a Rec note above the pages; its text goes to the clipboard once it is there. The
 // clipboard is written with the extension's own clipboardWrite permission: the tests grant
 // reading it only.
 const KEY = 'test-key-e2e-1234'
@@ -46,10 +47,18 @@ describe('Rec in the panel', () => {
     fake.reset()
     await setMicrophone(s, 'granted')
     await setKey(s, KEY)
+    // No notes from the last test.
+    const worker = await serviceWorker(s)
+    await worker.evaluate(async () => {
+      const { storage } = (
+        globalThis as unknown as {
+          chrome: { storage: { local: { remove(k: string): Promise<void> } } }
+        }
+      ).chrome
+      await storage.local.remove('notes')
+    })
+    await panel.waitForSelector('[data-testid="notes"]', { hidden: true })
   })
-
-  const dictation = () =>
-    panel.$eval('[data-testid="rec"]', (el) => (el as HTMLElement).dataset.dictation)
 
   async function waitForDictation(state: string) {
     await panel.waitForSelector(`[data-testid="rec"][data-dictation="${state}"]`)
@@ -77,6 +86,11 @@ describe('Rec in the panel', () => {
     })
   }
 
+  const noteTexts = () =>
+    panel.$$eval('[data-testid="note"]', (notes) =>
+      notes.map((li) => li.querySelector('[data-testid="note-text"]')?.textContent ?? ''),
+    )
+
   /** Records for `ms` from a click on Rec. */
   async function record(ms = 1200) {
     await panel.click('[data-testid="rec"]')
@@ -84,12 +98,13 @@ describe('Rec in the panel', () => {
     await sleep(ms)
   }
 
-  it('copies the transcript as it is, also once the developer moved on to the page', async () => {
+  it('keeps the text as a note above the pages and copies it, also once the developer moved on', async () => {
     // The answer comes after the developer left the panel: its document has no focus then.
     fake.reply(200, { text: FAKE_TEXT }, 1500)
     await record()
     await panel.click('[data-testid="rec"]')
-    await waitForDictation('transcribing')
+    await panel.waitForSelector('[data-testid="note-transcribing"]')
+    await waitForDictation('idle')
     await s.page.bringToFront()
     await s.page.click('body')
     expect(await panel.evaluate(() => document.hasFocus())).toBe(false)
@@ -98,7 +113,7 @@ describe('Rec in the panel', () => {
         document.querySelector('[data-testid="copy-status"]')?.textContent === 'Copied dictation',
     )
     expect(await clipboard()).toBe(FAKE_TEXT)
-    expect(await dictation()).toBe('done')
+    expect(await noteTexts()).toEqual([FAKE_TEXT])
     // Nothing of the page goes along, and nothing became a pin.
     const [request] = fake.transcriptions()
     expect(fake.transcriptions()).toHaveLength(1)
@@ -108,6 +123,7 @@ describe('Rec in the panel', () => {
       'provider',
     ])
     expect(await panel.$eval('[data-testid="filter-all"]', (el) => el.textContent)).toContain('0')
+    for (let i = 0; i < 30 && (await offscreenDocuments()) > 0; i++) await sleep(100)
     expect(await offscreenDocuments()).toBe(0)
   })
 
@@ -119,7 +135,7 @@ describe('Rec in the panel', () => {
     fake.reply(200, { text: FAKE_TEXT }, 1500)
     await record(600)
     await panel.click('[data-testid="rec"]')
-    await waitForDictation('transcribing')
+    await panel.waitForSelector('[data-testid="note-transcribing"]')
     await panel.click('[data-testid="copy-prompt"]')
     await panel.waitForSelector('::-p-text(Copied 1 pin)')
     const offered = await panel.waitForSelector('[data-testid="copy-fallback-text"]')
@@ -135,6 +151,39 @@ describe('Rec in the panel', () => {
     await panel.waitForSelector('[data-testid="copy-fallback-text"]', { hidden: true })
     expect(await clipboard()).toContain('> Pin text')
     expect(await status()).toBe('Copied 1 pin')
+    // The note keeps it, and the footer's buttons leave the note alone.
+    expect(await noteTexts()).toEqual([FAKE_TEXT])
+    await panel.click('[data-testid="clear-all"]')
+    await panel.waitForSelector('::-p-text(Moved 1 pin to Deleted)')
+    expect(await noteTexts()).toEqual([FAKE_TEXT])
+  })
+
+  it('copies and deletes a note with its own buttons', async () => {
+    await record(600)
+    await panel.click('[data-testid="rec"]')
+    await panel.waitForFunction(
+      () =>
+        document.querySelector('[data-testid="copy-status"]')?.textContent === 'Copied dictation',
+    )
+    await panel.evaluate(() => navigator.clipboard.writeText('Something else'))
+    await panel.click('[data-testid="note-copy"]')
+    await panel.waitForSelector('::-p-text(Copied note)')
+    expect(await clipboard()).toBe(FAKE_TEXT)
+    await panel.click('[data-testid="note-delete"]')
+    await panel.waitForSelector('[data-testid="notes"]', { hidden: true })
+  })
+
+  it('fills its note when the panel closes while it is transcribed', async () => {
+    fake.reply(200, { text: FAKE_TEXT }, 1500)
+    await record(600)
+    await panel.click('[data-testid="rec"]')
+    await panel.waitForSelector('[data-testid="note-transcribing"]')
+    await panel.evaluate(() => window.close())
+    await sleep(2500)
+    await s.page.bringToFront()
+    panel = await clickAction(s)
+    await panel.waitForSelector('[data-testid="note-text"]')
+    expect(await noteTexts()).toEqual([FAKE_TEXT])
   })
 
   it('starts and stops on Alt+V, and Escape cancels: nothing is sent', async () => {
@@ -149,6 +198,7 @@ describe('Rec in the panel', () => {
     await sleep(1000)
     expect(fake.transcriptions()).toHaveLength(0)
     expect(await offscreenDocuments()).toBe(0)
+    expect(await noteTexts()).toEqual([])
   })
 
   it('says when there is no key, and opens the settings', async () => {
@@ -164,7 +214,7 @@ describe('Rec in the panel', () => {
     await panel.click('[data-testid="close-settings"]')
   })
 
-  it('needs no overlay on the tab', async () => {
+  it('needs no overlay on the tab, and lists its notes there too', async () => {
     await s.page.goto('about:blank')
     await panel.waitForSelector('[data-testid="tab-status"]')
     await record(600)
@@ -174,9 +224,10 @@ describe('Rec in the panel', () => {
         document.querySelector('[data-testid="copy-status"]')?.textContent === 'Copied dictation',
     )
     expect(await clipboard()).toBe(FAKE_TEXT)
+    expect(await noteTexts()).toEqual([FAKE_TEXT])
   })
 
-  it('ends the recording when the panel closes', async () => {
+  it('ends the recording when the panel closes before the stop', async () => {
     await record(600)
     expect(await offscreenDocuments()).toBe(1)
     await panel.evaluate(() => window.close())

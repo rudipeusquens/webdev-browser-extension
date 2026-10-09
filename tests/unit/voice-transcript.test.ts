@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { insertTranscript } from '@/entrypoints/overlay.content/transcript'
+import { insertTranscript } from '@/lib/voice/transcript'
 
 describe('insertTranscript', () => {
   it('fills an empty field', () => {

@@ -2,146 +2,35 @@ import { mount } from '@vue/test-utils'
 import { nextTick } from 'vue'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { fakeBrowser } from 'wxt/testing/fake-browser'
-import type { Status } from '@/lib/collection/model'
 import CommentPopover from '@/entrypoints/overlay.content/CommentPopover.vue'
-import { type FakePort, fakePort } from './helpers/fake-ports'
+import type { Status } from '@/lib/collection/model'
+import type { JobView } from '@/lib/voice/jobs'
+import type { RecordingState } from '@/lib/voice/protocol'
 
 const rect = { x: 10, y: 10, width: 100, height: 20 }
+const IDLE: RecordingState = { state: 'idle' }
 
-describe('CommentPopover', () => {
-  afterEach(() => {
-    vi.unstubAllGlobals()
-  })
+interface Props {
+  rect?: typeof rect
+  label?: string
+  initial?: string
+  number?: number
+  status?: Status
+  draft?: boolean
+  error?: string
+  busy?: boolean
+  nudge?: number
+  voice?: RecordingState
+  clock?: string
+  job?: JobView
+}
 
-  it('moves when it grows and would no longer fit below its target', async () => {
-    let resized: (() => void) | undefined
-    vi.stubGlobal(
-      'ResizeObserver',
-      class {
-        constructor(callback: () => void) {
-          resized = callback
-        }
-        observe() {}
-        disconnect() {}
-      },
-    )
-    const low = { x: 10, y: 500, width: 100, height: 20 }
-    const wrapper = mount(CommentPopover, { props: { rect: low, label: 'button' } })
-    await nextTick()
-    await nextTick()
-    const card = wrapper.get('[data-testid="overlay-popover"]')
-    expect(card.attributes('style')).toContain(`top: ${500 + 20 + 8}px`)
-    Object.defineProperty(card.element, 'offsetHeight', { value: 300, configurable: true })
-    resized?.()
-    await nextTick()
-    expect(card.attributes('style')).toContain(`top: ${500 - 8 - 300}px`)
-  })
-
-  it('disables Save until there is a comment', () => {
-    const empty = mount(CommentPopover, { props: { rect, label: 'button' } })
-    expect(empty.get('[data-testid="overlay-save"]').attributes('disabled')).toBeDefined()
-    const blank = mount(CommentPopover, { props: { rect, label: 'button', initial: '  ' } })
-    expect(blank.get('[data-testid="overlay-save"]').attributes('disabled')).toBeDefined()
-    const filled = mount(CommentPopover, { props: { rect, label: 'button', initial: 'Wider' } })
-    expect(filled.get('[data-testid="overlay-save"]').attributes('disabled')).toBeUndefined()
-  })
-
-  // A synthetic input event is exactly what a page-driven edit looks like to the field:
-  // no trusted beforeinput announced it.
-  it('restores the text and warns after an edit nobody announced', async () => {
-    const wrapper = mount(CommentPopover, { props: { rect, label: 'button', initial: 'Mine' } })
-    await wrapper.get('textarea').setValue('Theirs')
-    expect((wrapper.get('textarea').element as HTMLTextAreaElement).value).toBe('Mine')
-    expect(wrapper.get('[data-testid="overlay-warning"]').text()).toContain(
-      'This page tried to change your comment',
-    )
-  })
-
-  it('prefills an existing comment and names the pin', () => {
-    const wrapper = mount(CommentPopover, {
-      props: { rect, label: 'button', initial: 'Old text', number: 3, status: 'open' },
-    })
-    expect((wrapper.get('textarea').element as HTMLTextAreaElement).value).toBe('Old text')
-    expect(wrapper.text()).toContain('Pin 3')
-    expect(wrapper.text()).not.toContain('Item')
-    expect(wrapper.get('[role="dialog"]').attributes('aria-label')).toBe('Edit pin 3')
-    expect(wrapper.get('[data-testid="overlay-delete"]').attributes('aria-label')).toBe(
-      'Delete pin 3',
-    )
-  })
-
-  it('calls a new one New pin, and Restore names the pin', () => {
-    const fresh = mount(CommentPopover, { props: { rect, label: 'button' } })
-    expect(fresh.text()).toContain('New pin')
-    expect(fresh.text()).not.toContain('Comment')
-    expect(fresh.get('[role="dialog"]').attributes('aria-label')).toBe('New pin')
-    const deleted = mount(CommentPopover, {
-      props: { rect, label: 'button', number: 4, status: 'deleted' },
-    })
-    expect(deleted.get('[data-testid="overlay-restore"]').attributes('aria-label')).toBe(
-      'Restore pin 4',
-    )
-  })
-
-  it('shows an error and keeps the text', () => {
-    const wrapper = mount(CommentPopover, {
-      props: { rect, label: 'button', initial: 'Keep me', error: 'Could not save.' },
-    })
-    expect(wrapper.text()).toContain('Could not save.')
-    expect((wrapper.get('textarea').element as HTMLTextAreaElement).value).toBe('Keep me')
-  })
-
-  // The ellipsis takes the color of the element that cuts the text.
-  it('cuts a long target with an ellipsis in the color of the target', () => {
-    const label = `"${'very long selected text '.repeat(3)}"`
-    const wrapper = mount(CommentPopover, { props: { rect, label } })
-    const cut = wrapper.findAll('*').filter((w) => w.classes().includes('truncate'))
-    expect(cut).toHaveLength(1)
-    expect(cut[0]?.text()).toBe(label)
-    expect(cut[0]?.classes()).toContain('text-muted-foreground')
-    expect(wrapper.text()).toContain('New pin')
-  })
-
-  it('reports unsaved text: any for a new pin, a change for an existing one', async () => {
-    const fresh = mount(CommentPopover, { props: { rect, label: 'button' } })
-    await nextTick()
-    expect(fresh.emitted('unsaved')?.at(-1)).toEqual([false])
-    await type(fresh.get('textarea').element as HTMLTextAreaElement, 'insertText', ' ')
-    expect(fresh.emitted('unsaved')?.at(-1)).toEqual([false])
-    await type(fresh.get('textarea').element as HTMLTextAreaElement, 'insertText', 'W')
-    expect(fresh.emitted('unsaved')?.at(-1)).toEqual([true])
-
-    const edit = mount(CommentPopover, { props: { rect, label: 'button', initial: 'Old' } })
-    await nextTick()
-    const field = edit.get('textarea').element as HTMLTextAreaElement
-    expect(edit.emitted('unsaved')?.at(-1)).toEqual([false])
-    await type(field, 'insertText', ' ')
-    expect(edit.emitted('unsaved')?.at(-1)).toEqual([false])
-    await type(field, 'insertText', '!')
-    expect(edit.emitted('unsaved')?.at(-1)).toEqual([true])
-    await type(field, 'deleteContentBackward', null)
-    expect(field.value).toBe('Old ')
-    expect(edit.emitted('unsaved')?.at(-1)).toEqual([false])
-  })
-
-  it('takes the focus back when nudged', async () => {
-    const wrapper = mount(CommentPopover, {
-      props: { rect, label: 'button', initial: 'Mine' },
-      attachTo: document.body,
-    })
-    await nextTick()
-    await nextTick()
-    ;(wrapper.get('[data-testid="overlay-save"]').element as HTMLElement).focus()
-    await wrapper.setProps({ nudge: 1 })
-    expect(document.activeElement).toBe(wrapper.get('textarea').element)
-    wrapper.unmount()
-  })
-
-  it('renders the target label as text', () => {
-    const wrapper = mount(CommentPopover, { props: { rect, label: '<img src=x>' } })
-    expect(wrapper.find('img').exists()).toBe(false)
-    expect(wrapper.text()).toContain('<img src=x>')
-  })
+const props = (extra: Props = {}) => ({
+  rect,
+  label: 'button',
+  voice: IDLE,
+  clock: '0:00',
+  ...extra,
 })
 
 /** Synthetic events are never trusted; the popover acts on trusted ones only. */
@@ -163,33 +52,169 @@ async function type(field: HTMLTextAreaElement, inputType: string, data: string 
   await nextTick()
 }
 const click = (el: Element) => el.dispatchEvent(trusted(new MouseEvent('click', { bubbles: true })))
-const press = (el: Element, init: KeyboardEventInit) =>
-  el.dispatchEvent(
-    trusted(new KeyboardEvent('keydown', { bubbles: true, cancelable: true, ...init })),
-  )
-/** The user moves the caret with a key; the browser moves it after the key (fake timers). */
-async function placeCaret(field: HTMLTextAreaElement, at: number) {
-  await nextTick()
-  press(field, { key: 'ArrowLeft' })
-  field.setSelectionRange(at, at)
-  vi.advanceTimersByTime(0)
+const press = (el: Element, init: KeyboardEventInit) => {
+  const event = trusted(new KeyboardEvent('keydown', { bubbles: true, cancelable: true, ...init }))
+  el.dispatchEvent(event)
+  return event
 }
 
-describe('CommentPopover: dictation', () => {
-  let port: FakePort | undefined
+describe('CommentPopover', () => {
+  afterEach(() => {
+    vi.unstubAllGlobals()
+  })
+
+  it('moves when it grows and would no longer fit below its target', async () => {
+    let resized: (() => void) | undefined
+    vi.stubGlobal(
+      'ResizeObserver',
+      class {
+        constructor(callback: () => void) {
+          resized = callback
+        }
+        observe() {}
+        disconnect() {}
+      },
+    )
+    const low = { x: 10, y: 500, width: 100, height: 20 }
+    const wrapper = mount(CommentPopover, { props: props({ rect: low }) })
+    await nextTick()
+    await nextTick()
+    const card = wrapper.get('[data-testid="overlay-popover"]')
+    expect(card.attributes('style')).toContain(`top: ${500 + 20 + 8}px`)
+    Object.defineProperty(card.element, 'offsetHeight', { value: 300, configurable: true })
+    resized?.()
+    await nextTick()
+    expect(card.attributes('style')).toContain(`top: ${500 - 8 - 300}px`)
+  })
+
+  it('disables Save until there is a comment, or a dictation runs', () => {
+    const save = (extra: Props) =>
+      mount(CommentPopover, { props: props(extra) })
+        .get('[data-testid="overlay-save"]')
+        .attributes('disabled')
+    expect(save({})).toBeDefined()
+    expect(save({ initial: '  ' })).toBeDefined()
+    expect(save({ initial: 'Wider' })).toBeUndefined()
+    expect(save({ voice: { state: 'recording', limit: 300_000, elapsed: 0 } })).toBeUndefined()
+    expect(save({ initial: 'Wider', job: { state: 'transcribing' } })).toBeDefined()
+  })
+
+  // A synthetic input event is exactly what a page-driven edit looks like to the field:
+  // no trusted beforeinput announced it.
+  it('restores the text and warns after an edit nobody announced', async () => {
+    const wrapper = mount(CommentPopover, { props: props({ initial: 'Mine' }) })
+    await wrapper.get('textarea').setValue('Theirs')
+    expect((wrapper.get('textarea').element as HTMLTextAreaElement).value).toBe('Mine')
+    expect(wrapper.get('[data-testid="overlay-warning"]').text()).toContain(
+      'This page tried to change your comment',
+    )
+  })
+
+  it('hands over its own text, not what a page put into the field', () => {
+    const wrapper = mount(CommentPopover, { props: props({ initial: 'Mine' }) })
+    const field = wrapper.get('textarea').element as HTMLTextAreaElement
+    field.value = 'Theirs'
+    expect((wrapper.vm as unknown as { snapshot(): string }).snapshot()).toBe('Mine')
+    expect(field.value).toBe('Mine')
+  })
+
+  it('prefills an existing comment and names the pin, a draft as such', () => {
+    const wrapper = mount(CommentPopover, {
+      props: props({ initial: 'Old text', number: 3, status: 'open' }),
+    })
+    expect((wrapper.get('textarea').element as HTMLTextAreaElement).value).toBe('Old text')
+    expect(wrapper.text()).toContain('Pin 3')
+    expect(wrapper.text()).not.toContain('Draft')
+    expect(wrapper.get('[role="dialog"]').attributes('aria-label')).toBe('Edit pin 3')
+    expect(wrapper.get('[data-testid="overlay-delete"]').attributes('aria-label')).toBe(
+      'Delete pin 3',
+    )
+    const draft = mount(CommentPopover, {
+      props: props({ number: 4, status: 'open', draft: true }),
+    })
+    expect(draft.text()).toContain('Pin 4· Draft')
+  })
+
+  it('calls a new one New pin, and Restore names the pin', () => {
+    const fresh = mount(CommentPopover, { props: props() })
+    expect(fresh.text()).toContain('New pin')
+    expect(fresh.get('[role="dialog"]').attributes('aria-label')).toBe('New pin')
+    const deleted = mount(CommentPopover, { props: props({ number: 4, status: 'deleted' }) })
+    expect(deleted.get('[data-testid="overlay-restore"]').attributes('aria-label')).toBe(
+      'Restore pin 4',
+    )
+  })
+
+  it('shows an error and keeps the text', () => {
+    const wrapper = mount(CommentPopover, {
+      props: props({ initial: 'Keep me', error: 'Could not save.' }),
+    })
+    expect(wrapper.text()).toContain('Could not save.')
+    expect((wrapper.get('textarea').element as HTMLTextAreaElement).value).toBe('Keep me')
+  })
+
+  // The ellipsis takes the color of the element that cuts the text.
+  it('cuts a long target with an ellipsis in the color of the target', () => {
+    const label = `"${'very long selected text '.repeat(3)}"`
+    const wrapper = mount(CommentPopover, { props: props({ label }) })
+    const cut = wrapper.findAll('*').filter((w) => w.classes().includes('truncate'))
+    expect(cut).toHaveLength(1)
+    expect(cut[0]?.text()).toBe(label)
+    expect(cut[0]?.classes()).toContain('text-muted-foreground')
+  })
+
+  it('takes the focus back when nudged', async () => {
+    const wrapper = mount(CommentPopover, {
+      props: props({ initial: 'Mine' }),
+      attachTo: document.body,
+    })
+    await nextTick()
+    await nextTick()
+    ;(wrapper.get('[data-testid="overlay-save"]').element as HTMLElement).focus()
+    await wrapper.setProps({ nudge: 1 })
+    expect(document.activeElement).toBe(wrapper.get('textarea').element)
+    wrapper.unmount()
+  })
+
+  it('renders the target label as text', () => {
+    const wrapper = mount(CommentPopover, { props: props({ label: '<img src=x>' }) })
+    expect(wrapper.find('img').exists()).toBe(false)
+    expect(wrapper.text()).toContain('<img src=x>')
+  })
+
+  it('adds what a dictation appended to an edit of its own', async () => {
+    const wrapper = mount(CommentPopover, { props: props({ initial: 'Old' }) })
+    const field = wrapper.get('textarea').element as HTMLTextAreaElement
+    field.setSelectionRange(3, 3)
+    await type(field, 'insertText', ' foo')
+    await wrapper.setProps({ initial: 'Old and dictated.' })
+    expect(field.value).toBe('Old foo and dictated.')
+    expect((wrapper.vm as unknown as { snapshot(): string }).snapshot()).toBe(
+      'Old foo and dictated.',
+    )
+  })
+
+  it('follows the stored comment while the field holds no edit of its own', async () => {
+    const wrapper = mount(CommentPopover, { props: props({ initial: 'Typed' }) })
+    const field = wrapper.get('textarea').element as HTMLTextAreaElement
+    await wrapper.setProps({ initial: 'Typed and dictated.' })
+    expect(field.value).toBe('Typed and dictated.')
+    await type(field, 'insertText', '!')
+    await wrapper.setProps({ initial: 'Something else.' })
+    expect(field.value).toBe('Typed and dictated.!')
+  })
+})
+
+describe('CommentPopover: keys and buttons', () => {
   let sendMessage: ReturnType<typeof vi.spyOn>
 
   beforeEach(() => {
     vi.useFakeTimers()
     fakeBrowser.reset()
-    port = undefined
-    vi.spyOn(fakeBrowser.runtime, 'connect').mockImplementation((() => {
-      port = fakePort('voice', {})
-      return port
-    }) as never)
     sendMessage = vi
       .spyOn(fakeBrowser.runtime, 'sendMessage')
-      .mockResolvedValue({ ok: true } as never)
+      .mockImplementation((async (message: { type: string }) =>
+        message.type === 'voice:ready' ? { ok: true, ready: true } : { ok: true }) as never)
   })
 
   afterEach(() => {
@@ -198,336 +223,240 @@ describe('CommentPopover: dictation', () => {
     document.body.innerHTML = ''
   })
 
-  function open(props: { initial?: string; number?: number; status?: Status } = {}) {
-    const wrapper = mount(CommentPopover, {
-      props: { rect, label: 'button', ...props },
-      attachTo: document.body,
-    })
+  async function open(extra: Props = {}) {
+    const wrapper = mount(CommentPopover, { props: props(extra), attachTo: document.body })
+    await vi.advanceTimersByTimeAsync(0)
+    await nextTick()
     const get = (id: string) => wrapper.get(`[data-testid="${id}"]`)
+    const has = (id: string) => wrapper.find(`[data-testid="${id}"]`).exists()
     const field = () => wrapper.get('textarea').element as HTMLTextAreaElement
-    const receive = async (state: unknown) => {
-      port?.receive(state)
-      await nextTick()
-    }
-    return { wrapper, get, field, receive }
+    return { wrapper, get, has, field }
   }
 
-  it('offers Delete for an existing item, Restore for a deleted one, neither for a new one', () => {
-    const shown = (props: object) => {
-      const { wrapper } = open(props)
-      const result = ['overlay-delete', 'overlay-restore'].filter((id) =>
-        wrapper.find(`[data-testid="${id}"]`).exists(),
-      )
+  const RECORDING: RecordingState = { state: 'recording', limit: 300_000, elapsed: 0 }
+
+  it('offers Delete for a pin or a new one, Restore for a deleted one, neither while it records', async () => {
+    const shown = async (extra: Props) => {
+      const { wrapper, has } = await open(extra)
+      const result = ['overlay-delete', 'overlay-restore'].filter(has)
       wrapper.unmount()
       return result
     }
-    expect(shown({})).toEqual([])
-    expect(shown({ number: 3, status: 'open' })).toEqual(['overlay-delete'])
-    expect(shown({ number: 3, status: 'done' })).toEqual(['overlay-delete'])
-    expect(shown({ number: 3, status: 'deleted' })).toEqual(['overlay-restore'])
+    expect(await shown({})).toEqual(['overlay-delete'])
+    expect(await shown({ number: 3, status: 'open' })).toEqual(['overlay-delete'])
+    expect(await shown({ number: 3, status: 'done' })).toEqual(['overlay-delete'])
+    expect(await shown({ number: 3, status: 'deleted' })).toEqual(['overlay-restore'])
+    expect(await shown({ number: 3, status: 'open', voice: RECORDING })).toEqual([])
   })
 
-  it('no longer says Enter to save', () => {
-    const { wrapper } = open({ number: 3, status: 'open' })
-    expect(wrapper.text()).not.toContain('Enter to save')
-    const { wrapper: fresh } = open()
-    expect(fresh.text()).not.toContain('Enter to save')
-  })
-
-  it('deletes and restores on trusted clicks only', async () => {
-    const { wrapper, get } = open({ number: 3, status: 'open' })
-    await get('overlay-delete').trigger('click')
-    expect(wrapper.emitted('remove')).toBeUndefined()
-    click(get('overlay-delete').element)
-    expect(wrapper.emitted('remove')).toHaveLength(1)
-    const deleted = open({ number: 4, status: 'deleted' })
-    await deleted.get('overlay-restore').trigger('click')
-    expect(deleted.wrapper.emitted('restore')).toBeUndefined()
+  it('deletes a pin, discards a new one, restores and closes on trusted clicks only', async () => {
+    const pin = await open({ number: 3, status: 'open' })
+    await pin.get('overlay-delete').trigger('click')
+    expect(pin.wrapper.emitted('remove')).toBeUndefined()
+    click(pin.get('overlay-delete').element)
+    expect(pin.wrapper.emitted('remove')).toHaveLength(1)
+    const fresh = await open()
+    click(fresh.get('overlay-delete').element)
+    expect(fresh.wrapper.emitted('discard')).toHaveLength(1)
+    expect(fresh.wrapper.emitted('remove')).toBeUndefined()
+    const deleted = await open({ number: 4, status: 'deleted' })
     click(deleted.get('overlay-restore').element)
     expect(deleted.wrapper.emitted('restore')).toHaveLength(1)
+    const close = fresh.wrapper.get('[aria-label="Close"]')
+    await close.trigger('click')
+    expect(fresh.wrapper.emitted('close')).toBeUndefined()
+    click(close.element)
+    expect(fresh.wrapper.emitted('close')).toHaveLength(1)
   })
 
-  it('shows the dictation instead of Delete while it runs', async () => {
-    const { wrapper, get, receive } = open({ number: 3, status: 'open', initial: 'Wider' })
-    click(get('overlay-mic').element)
-    await receive({ state: 'recording', limit: 120_000 })
-    expect(wrapper.find('[data-testid="overlay-delete"]').exists()).toBe(false)
-    expect(get('overlay-voice-status').text()).toContain('0:00')
-    await receive({ state: 'idle' })
-    expect(wrapper.find('[data-testid="overlay-delete"]').exists()).toBe(true)
-  })
-
-  it('puts the mic button right before Save', () => {
-    const { get } = open()
-    expect(get('overlay-mic').element.nextElementSibling).toBe(get('overlay-save').element)
-    expect(get('overlay-mic').attributes('aria-label')).toBe('Dictate (Alt+V)')
-  })
-
-  it('starts on a trusted click only and shows the running time', async () => {
-    const { get, wrapper, receive } = open()
-    await get('overlay-mic').trigger('click')
-    expect(port).toBeUndefined()
-    click(get('overlay-mic').element)
-    expect(port?.posted).toEqual([{ type: 'start' }])
-    await receive({ state: 'recording', limit: 120_000 })
-    expect(get('overlay-mic').attributes('aria-label')).toBe('Stop dictating (Alt+V)')
-    await vi.advanceTimersByTimeAsync(3_000)
-    expect(get('overlay-voice-status').text()).toContain('0:03')
-    click(get('overlay-mic').element)
-    expect(port?.posted.at(-1)).toEqual({ type: 'stop' })
-    expect(wrapper.emitted('cancel')).toBeUndefined()
-  })
-
-  it('keeps Save waiting while it records or transcribes', async () => {
-    const { get, receive } = open({ initial: 'Wider' })
-    const save = () => get('overlay-save').attributes('disabled')
-    expect(save()).toBeUndefined()
-    click(get('overlay-mic').element)
-    await receive({ state: 'recording', limit: 120_000 })
-    expect(save()).toBeDefined()
-    await receive({ state: 'transcribing' })
-    expect(get('overlay-voice-status').text()).toContain('Transcribing…')
-    expect(get('overlay-mic').attributes('aria-disabled')).toBe('true')
-    expect(save()).toBeDefined()
-    await receive({ state: 'done', text: 'and taller.', atLimit: false })
-    expect(save()).toBeUndefined()
-  })
-
-  it('inserts the text at the caret, focuses the field and saves it', async () => {
-    const { get, field, wrapper, receive } = open({ initial: 'Fix this, please' })
-    await placeCaret(field(), 8)
-    click(get('overlay-mic').element)
-    ;(get('overlay-mic').element as HTMLElement).focus()
-    await receive({ state: 'done', text: 'and that', atLimit: false })
-    expect(field().value).toBe('Fix this and that, please')
-    expect(document.activeElement).toBe(field())
-    expect(field().selectionStart).toBe(17)
-    click(get('overlay-save').element)
-    expect(wrapper.emitted('save')).toEqual([['Fix this and that, please']])
-  })
-
-  // A page's capture listeners can move the field's selection (execCommand, Selection.modify).
-  it('puts the dictated text where the user left the caret, not where the page moved it', async () => {
-    const { get, field, receive } = open({ initial: 'Fix this, please' })
-    await placeCaret(field(), 8)
-    field().setSelectionRange(0, 16)
-    click(get('overlay-mic').element)
-    await receive({ state: 'done', text: 'and that', atLimit: false })
-    expect(field().value).toBe('Fix this and that, please')
-  })
-
-  it("puts the user's selection back before a key when the page moved it", async () => {
-    const { field } = open({ initial: 'Fix this, please' })
-    await placeCaret(field(), 8)
-    field().setSelectionRange(0, 16)
-    press(field(), { key: 'x' })
-    expect([field().selectionStart, field().selectionEnd]).toEqual([8, 8])
-    // A key that moves the selection: what it moves to is the user's.
-    press(field(), { key: 'a', ctrlKey: true })
-    field().setSelectionRange(0, 16)
-    vi.advanceTimersByTime(0)
-    press(field(), { key: 'x' })
-    expect([field().selectionStart, field().selectionEnd]).toEqual([0, 16])
-  })
-
-  it('reports a running dictation and a held recording as unsaved', async () => {
-    const { get, wrapper, receive } = open({ initial: 'Keep' })
-    await nextTick()
-    const last = () => wrapper.emitted('unsaved')?.at(-1)
-    expect(last()).toEqual([false])
-    click(get('overlay-mic').element)
-    await receive({ state: 'recording', limit: 120_000 })
-    expect(last()).toEqual([true])
-    await receive({ state: 'failed', error: 'offline', retry: true })
-    expect(last()).toEqual([true])
-    await receive({ state: 'failed', error: 'no-speech', retry: false })
-    expect(last()).toEqual([false])
-  })
-
-  it('takes the dictated text out with Ctrl+Z and back with Ctrl+Shift+Z, until it is edited', async () => {
-    const { get, field, receive, wrapper } = open({ initial: 'Fix this, please' })
-    await placeCaret(field(), 8)
-    click(get('overlay-mic').element)
-    await receive({ state: 'done', text: 'and that', atLimit: false })
-    expect(field().value).toBe('Fix this and that, please')
-    // A page cannot reach the field; still, only the developer's own keys count.
-    field().dispatchEvent(new KeyboardEvent('keydown', { key: 'z', ctrlKey: true, bubbles: true }))
-    await nextTick()
-    expect(field().value).toBe('Fix this and that, please')
-    press(field(), { key: 'z', ctrlKey: true })
-    await nextTick()
-    expect(field().value).toBe('Fix this, please')
-    expect(field().selectionStart).toBe(8)
-    press(field(), { key: 'Z', ctrlKey: true, shiftKey: true })
-    await nextTick()
-    expect(field().value).toBe('Fix this and that, please')
-    expect(field().selectionStart).toBe(17)
-    click(get('overlay-save').element)
-    expect(wrapper.emitted('save')).toEqual([['Fix this and that, please']])
-    // Typed after it: the field's own undo is the browser's again.
-    await type(field(), 'insertText', '!')
-    const undo = new KeyboardEvent('keydown', { key: 'z', ctrlKey: true, cancelable: true })
-    field().dispatchEvent(trusted(undo))
-    expect(undo.defaultPrevented).toBe(false)
-    expect(field().value).toBe('Fix this and that!, please')
-  })
-
-  it('cancels a running recording on Esc and keeps the comment open', async () => {
-    const { get, wrapper, receive } = open({ initial: 'Keep me' })
-    click(get('overlay-mic').element)
-    await receive({ state: 'recording', limit: 120_000 })
-    press(get('overlay-popover').element, { key: 'Escape' })
-    expect(port?.posted.at(-1)).toEqual({ type: 'cancel' })
-    expect(wrapper.emitted('cancel')).toBeUndefined()
-    await receive({ state: 'idle' })
-    press(get('overlay-popover').element, { key: 'Escape' })
-    expect(wrapper.emitted('cancel')).toHaveLength(1)
-  })
-
-  it('starts and stops on Alt+V', async () => {
-    const { get, receive } = open()
-    const card = get('overlay-popover').element
-    press(card, { key: 'v', code: 'KeyV', altKey: true })
-    expect(port?.posted).toEqual([{ type: 'start' }])
-    await receive({ state: 'recording', limit: 120_000 })
-    press(card, { key: '√', code: 'KeyV', altKey: true })
-    expect(port?.posted.at(-1)).toEqual({ type: 'stop' })
-  })
-
-  // A disabled button loses the focus to the page, where Escape closes the whole comment.
-  it('keeps the focus on the mic button while it starts and transcribes', async () => {
-    const { get, receive } = open()
-    const mic = get('overlay-mic').element as HTMLButtonElement
-    // The popover focuses its field a tick after it opens.
-    await nextTick()
-    await nextTick()
-    mic.focus()
-    click(mic)
-    await nextTick()
-    expect(mic.disabled).toBe(false)
-    expect(mic.getAttribute('aria-disabled')).toBe('true')
-    await receive({ state: 'recording', limit: 120_000 })
-    await receive({ state: 'transcribing' })
-    expect(mic.disabled).toBe(false)
-    expect(document.activeElement).toBe(mic)
-    click(mic)
-    expect(port?.posted).toEqual([{ type: 'start' }])
-  })
-
-  it('moves the focus to the field when Retry goes away', async () => {
-    const { get, field, receive } = open()
-    click(get('overlay-mic').element)
-    await receive({ state: 'failed', error: 'offline', retry: true })
-    const retry = get('overlay-voice-retry').element as HTMLElement
-    retry.focus()
-    click(retry)
-    await nextTick()
-    expect(document.activeElement).toBe(field())
-  })
-
-  it('saves on Enter in the field, but lets Enter press a focused button', async () => {
-    const { get, field, wrapper, receive } = open({ initial: 'Typed text' })
-    click(get('overlay-mic').element)
-    await receive({ state: 'failed', error: 'offline', retry: true })
-    const retry = get('overlay-voice-retry').element
-    const onButton = trusted(
-      new KeyboardEvent('keydown', { key: 'Enter', bubbles: true, cancelable: true }),
-    )
-    retry.dispatchEvent(onButton)
+  it('saves on Enter in the field, trimmed, but lets Enter press a focused button', async () => {
+    const { wrapper, field } = await open({ initial: '  Typed text ' })
+    const button = wrapper.get('[aria-label="Close"]').element
+    const onButton = press(button, { key: 'Enter' })
     expect(onButton.defaultPrevented).toBe(false)
     expect(wrapper.emitted('save')).toBeUndefined()
     press(field(), { key: 'Enter' })
     expect(wrapper.emitted('save')).toEqual([['Typed text']])
   })
 
-  it('tells screen readers what changes, not every second of the clock', async () => {
-    const { get, wrapper, receive } = open()
-    const spoken = () =>
-      wrapper
-        .findAll('[aria-live], [role="status"], [role="alert"]')
-        .map((el) => el.text())
-        .join(' | ')
-    click(get('overlay-mic').element)
-    await receive({ state: 'recording', limit: 120_000 })
-    await vi.advanceTimersByTimeAsync(2_000)
-    expect(get('overlay-voice-status').text()).toContain('0:02')
-    expect(spoken()).not.toMatch(/\d:\d\d/)
-    expect(spoken()).toContain('Recording')
-    await receive({ state: 'transcribing' })
-    expect(spoken()).toContain('Transcribing')
+  it('saves on Enter while a dictation records, also with an empty field: it stops first', async () => {
+    const { wrapper, field } = await open({ voice: RECORDING })
+    press(field(), { key: 'Enter' })
+    expect(wrapper.emitted('save')).toEqual([['']])
   })
 
-  it('offers Retry after a failed request', async () => {
-    const { get, wrapper, receive } = open()
+  it('closes on Esc, or ends a running dictation first', async () => {
+    const { wrapper, field } = await open({ initial: 'Keep' })
+    press(field(), { key: 'Escape' })
+    expect(wrapper.emitted('close')).toHaveLength(1)
+    await wrapper.setProps({ voice: RECORDING })
+    press(field(), { key: 'Escape' })
+    await wrapper.setProps({ voice: { state: 'starting' } })
+    press(field(), { key: 'Escape' })
+    expect(wrapper.emitted('voice-cancel')).toHaveLength(2)
+    expect(wrapper.emitted('close')).toHaveLength(1)
+  })
+
+  it('cancels on Esc a recording that ended by itself: its audio goes out on Retry only', async () => {
+    const { wrapper, field } = await open({
+      voice: { state: 'failed', error: 'mic-lost', retry: true },
+    })
+    press(field(), { key: 'Escape' })
+    expect(wrapper.emitted('voice-cancel')).toHaveLength(1)
+    expect(wrapper.emitted('close')).toBeUndefined()
+  })
+
+  it('dictates on Alt+V, but not while the pin is transcribed', async () => {
+    const { wrapper, field } = await open()
+    press(field(), { key: 'v', code: 'KeyV', altKey: true })
+    expect(wrapper.emitted('dictate')).toHaveLength(1)
+    await wrapper.setProps({ job: { state: 'transcribing' } })
+    press(field(), { key: 'v', code: 'KeyV', altKey: true })
+    expect(wrapper.emitted('dictate')).toHaveLength(1)
+  })
+
+  describe('Space', () => {
+    it('starts a dictation in an empty field once it knows a key is saved', async () => {
+      const { wrapper, field, get } = await open()
+      expect(sendMessage).toHaveBeenCalledWith({ type: 'voice:ready' })
+      expect(get('overlay-popover').attributes('data-voice-ready')).toBe('')
+      const space = press(field(), { key: ' ', code: 'Space' })
+      expect(space.defaultPrevented).toBe(true)
+      expect(wrapper.emitted('dictate')).toHaveLength(1)
+    })
+
+    it('types a space without a key, in a field with text, or while the pin is transcribed', async () => {
+      sendMessage.mockImplementation((async () => ({ ok: true, ready: false })) as never)
+      const noKey = await open()
+      expect(noKey.get('overlay-popover').attributes('data-voice-ready')).toBeUndefined()
+      expect(press(noKey.field(), { key: ' ' }).defaultPrevented).toBe(false)
+      sendMessage.mockImplementation((async () => ({ ok: true, ready: true })) as never)
+      const typed = await open({ initial: 'Some' })
+      expect(press(typed.field(), { key: ' ' }).defaultPrevented).toBe(false)
+      const busy = await open({ job: { state: 'transcribing' } })
+      expect(press(busy.field(), { key: ' ' }).defaultPrevented).toBe(false)
+      for (const each of [noKey, typed, busy])
+        expect(each.wrapper.emitted('dictate')).toBeUndefined()
+    })
+
+    it('stops a recording while the field is still empty, and types once text was typed', async () => {
+      const { wrapper, field } = await open({ voice: RECORDING })
+      press(field(), { key: ' ' })
+      expect(wrapper.emitted('dictate')).toHaveLength(1)
+      await type(field(), 'insertText', 'Note')
+      expect(press(field(), { key: ' ' }).defaultPrevented).toBe(false)
+      expect(wrapper.emitted('dictate')).toHaveLength(1)
+    })
+
+    it('is swallowed while the microphone starts', async () => {
+      const { wrapper, field } = await open({ voice: { state: 'starting' } })
+      expect(press(field(), { key: ' ' }).defaultPrevented).toBe(true)
+      expect(wrapper.emitted('dictate')).toBeUndefined()
+    })
+  })
+
+  it('puts the mic button right before Save, and dictates on a trusted click only', async () => {
+    const { wrapper, get } = await open()
+    expect(get('overlay-mic').element.nextElementSibling).toBe(get('overlay-save').element)
+    expect(get('overlay-mic').attributes('aria-label')).toBe('Dictate (Alt+V)')
+    await get('overlay-mic').trigger('click')
+    expect(wrapper.emitted('dictate')).toBeUndefined()
     click(get('overlay-mic').element)
-    await receive({ state: 'failed', error: 'invalid-key', retry: true })
-    expect(get('overlay-voice-message').text()).toContain('Invalid API key.')
-    expect(wrapper.find('[data-testid="overlay-voice-grant"]').exists()).toBe(false)
-    await get('overlay-voice-retry').trigger('click')
-    expect(port?.posted.at(-1)).toEqual({ type: 'start' })
+    expect(wrapper.emitted('dictate')).toHaveLength(1)
+  })
+
+  it('shows the running time, and which key stops it', async () => {
+    const { wrapper, get, field } = await open({ voice: RECORDING, clock: '0:03' })
+    expect(get('overlay-mic').attributes('aria-label')).toBe('Stop dictating (Alt+V)')
+    expect(get('overlay-voice-status').text()).toContain('0:03')
+    expect(get('overlay-voice-status').text()).toContain('Space to stop')
+    await type(field(), 'insertText', 'Note')
+    expect(get('overlay-voice-status').text()).toContain('Alt+V to stop')
+    void wrapper
+  })
+
+  it('asks at the limit: Keep goes on, Stop hands it over', async () => {
+    const { wrapper, get } = await open({
+      voice: { state: 'paused', elapsed: 300_000 },
+      clock: '5:00',
+    })
+    expect(get('overlay-voice-limit').text()).toContain('Paused at 5:00. Keep recording?')
+    click(get('overlay-voice-keep').element)
+    expect(wrapper.emitted('resume')).toHaveLength(1)
+    click(get('overlay-voice-stop').element)
+    expect(wrapper.emitted('dictate')).toHaveLength(1)
+  })
+
+  it('waits while the pin is transcribed: the field is read-only, the mic only looks disabled', async () => {
+    const { get, field } = await open({ initial: 'Typed', job: { state: 'transcribing' } })
+    expect(field().readOnly).toBe(true)
+    expect(get('overlay-voice-status').text()).toContain('Transcribing…')
+    const mic = get('overlay-mic').element as HTMLButtonElement
+    expect(mic.disabled).toBe(false)
+    expect(mic.getAttribute('aria-disabled')).toBe('true')
+    expect(get('overlay-save').attributes('disabled')).toBeDefined()
+  })
+
+  it("shows a failed transcription with Retry and Dismiss, and OpenRouter's reason as text", async () => {
+    const { wrapper, get } = await open({
+      job: { state: 'failed', error: 'rejected', detail: '<b>Unknown model</b>', retry: true },
+    })
+    expect(get('overlay-voice-message').text()).toContain(
+      'Transcription failed: <b>Unknown model</b>',
+    )
+    expect(wrapper.find('b').exists()).toBe(false)
     click(get('overlay-voice-retry').element)
-    expect(port?.posted.at(-1)).toEqual({ type: 'retry' })
-  })
-
-  it('opens the settings when there is no key', async () => {
-    const { get, receive } = open()
-    click(get('overlay-mic').element)
-    await receive({ state: 'failed', error: 'no-key', retry: false })
-    expect(get('overlay-voice-message').text()).toContain('Add an OpenRouter API key in settings.')
-    await get('overlay-voice-settings').trigger('click')
-    expect(sendMessage).not.toHaveBeenCalled()
+    expect(wrapper.emitted('job-retry')).toHaveLength(1)
+    click(get('overlay-voice-dismiss').element)
+    expect(wrapper.emitted('job-dismiss')).toHaveLength(1)
     click(get('overlay-voice-settings').element)
     expect(sendMessage).toHaveBeenCalledWith({ type: 'voice:settings' })
   })
 
-  it('opens the settings when OpenRouter refuses the request, such as an unknown model', async () => {
-    const { get, receive } = open()
-    click(get('overlay-mic').element)
-    await receive({ state: 'failed', error: 'rejected', detail: 'Unknown model', retry: true })
-    expect(get('overlay-voice-message').text()).toContain('Transcription failed: Unknown model')
-    click(get('overlay-voice-settings').element)
-    expect(sendMessage).toHaveBeenCalledWith({ type: 'voice:settings' })
+  it('says when the dictation was too long for the pin', async () => {
+    const { wrapper, get } = await open({ initial: 'Long', job: { state: 'cut' } })
+    expect(get('overlay-voice-notice').text()).toContain('the full text is in Rec')
+    click(get('overlay-voice-dismiss').element)
+    expect(wrapper.emitted('job-dismiss')).toHaveLength(1)
   })
 
-  it.each(['mic-not-granted', 'mic-blocked'])('offers Grant for %s', async (error) => {
-    const { get, receive } = open()
-    click(get('overlay-mic').element)
-    await receive({ state: 'failed', error, retry: false })
-    await get('overlay-voice-grant').trigger('click')
-    expect(sendMessage).not.toHaveBeenCalled()
+  it('hands over a recording that ended by itself on Retry', async () => {
+    const { wrapper, get, field } = await open({
+      voice: { state: 'failed', error: 'mic-lost', retry: true },
+    })
+    const retry = get('overlay-voice-retry').element as HTMLElement
+    retry.focus()
+    click(retry)
+    expect(wrapper.emitted('dictate')).toHaveLength(1)
+    await nextTick()
+    expect(document.activeElement).toBe(field())
+  })
+
+  it.each(['mic-not-granted', 'mic-blocked'] as const)('offers Grant for %s', async (error) => {
+    const { get } = await open({ voice: { state: 'failed', error, retry: false } })
     click(get('overlay-voice-grant').element)
     expect(sendMessage).toHaveBeenCalledWith({ type: 'voice:grant' })
   })
 
-  it("shows OpenRouter's reason as text", async () => {
-    const { get, wrapper, receive } = open()
-    click(get('overlay-mic').element)
-    await receive({ state: 'failed', error: 'rejected', detail: '<img src=x> nope', retry: true })
-    expect(get('overlay-voice-message').text()).toContain('Transcription failed: <img src=x> nope')
-    expect(wrapper.find('img').exists()).toBe(false)
+  it('opens the settings when there is no key', async () => {
+    const { get } = await open({ voice: { state: 'failed', error: 'no-key', retry: false } })
+    expect(get('overlay-voice-message').text()).toContain('Add an OpenRouter API key in settings.')
+    await get('overlay-voice-settings').trigger('click')
+    expect(sendMessage).not.toHaveBeenCalledWith({ type: 'voice:settings' })
+    click(get('overlay-voice-settings').element)
+    expect(sendMessage).toHaveBeenCalledWith({ type: 'voice:settings' })
   })
 
-  it('says when the recording stopped at its limit', async () => {
-    const { get, receive } = open()
-    click(get('overlay-mic').element)
-    await receive({ state: 'done', text: 'Long story.', atLimit: true })
-    expect(get('overlay-voice-notice').text()).toContain('Recording stopped after 2 minutes.')
-  })
-
-  it('says when the dictation did not fit', async () => {
-    const { get, field, receive } = open({ initial: 'x'.repeat(4995) })
-    await placeCaret(field(), 4995)
-    click(get('overlay-mic').element)
-    await receive({ state: 'done', text: 'more words than fit', atLimit: false })
-    expect([...field().value]).toHaveLength(5000)
-    expect(get('overlay-voice-notice').text()).toContain('did not fit')
-  })
-
-  it('lets go of the line when it closes', async () => {
-    const { get, wrapper, receive } = open()
-    click(get('overlay-mic').element)
-    await receive({ state: 'recording', limit: 120_000 })
-    wrapper.unmount()
-    expect(port?.disconnected).toBe(true)
+  it('tells screen readers what changes, not every second of the clock', async () => {
+    const { wrapper } = await open({ voice: RECORDING, clock: '0:02' })
+    const spoken = () =>
+      wrapper
+        .findAll('[aria-live]')
+        .map((el) => el.text())
+        .join(' | ')
+    expect(spoken()).toBe('Recording. Alt+V stops it.')
+    await wrapper.setProps({ voice: { state: 'paused', elapsed: 300_000 } })
+    expect(spoken()).toContain('Keep recording?')
+    expect(spoken()).not.toMatch(/\d:\d\d/)
   })
 })

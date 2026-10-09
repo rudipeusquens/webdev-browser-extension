@@ -6,11 +6,13 @@ import { LIMITS } from './collection/model'
 import { isSite } from './collection/site'
 import { isOption, isSiteOrigin, type Option } from './settings'
 import { type Filter, isFilter } from './view'
+import { isLimit } from './voice/protocol'
 import { isApiKey, isLanguage, isModelId } from './voice/settings'
 import {
   hasKeys,
   isAnnotationId,
   isComment,
+  isDraftComment,
   isIdList as isIdSet,
   isObject,
   isPageInfo,
@@ -27,8 +29,20 @@ export const MODES: readonly Mode[] = ['browse', 'element', 'area']
  * the site whose collection it changes; `annotation:add` takes it from its page.
  */
 export type CollectionMessage =
-  | { type: 'annotation:add'; id: string; page: PageInfo; target: Target; comment: string }
-  | { type: 'annotation:update'; site: string; id: string; comment: string }
+  /** A new pin; `draft` when its popover closed without Save (the comment may be empty). */
+  | {
+      type: 'annotation:add'
+      id: string
+      page: PageInfo
+      target: Target
+      comment: string
+      draft?: true
+    }
+  /**
+   * A new comment. Saved, a draft becomes a pin once it has a comment; kept (`keep`, the
+   * popover closed without Save), a draft stays one and a pin keeps its status.
+   */
+  | { type: 'annotation:update'; site: string; id: string; comment: string; keep?: true }
   /** Marks the item deleted; only "Clear all" removes items. */
   | { type: 'annotation:remove'; site: string; id: string }
   /** Deleted → open. */
@@ -78,7 +92,7 @@ export type FailedMessage = { type: 'overlay:failed' }
 
 /** Side panel → background: the voice settings and the OpenRouter key (spec section 9). */
 export type VoiceSettingsMessage =
-  | { type: 'voice:set'; model: string; language: string }
+  | { type: 'voice:set'; model: string; language: string; limit: number }
   | { type: 'voice:key:save'; key: string }
   | { type: 'voice:key:remove' }
   | { type: 'voice:key:test' }
@@ -88,6 +102,23 @@ export type VoiceSettingsMessage =
  * (Grant), or the panel on its settings (Open settings).
  */
 export type VoiceRequestMessage = { type: 'voice:grant' } | { type: 'voice:settings' }
+
+/** Overlay → background: whether a key is saved, so `Space` may start a dictation. */
+export type VoiceReadyMessage = { type: 'voice:ready' }
+export type VoiceReadyReply = { ok: true; ready: boolean }
+
+/**
+ * Panel or the pin's page → background: a pin's dictation that failed is sent again with the
+ * audio the recorder holds (Retry), or its state goes (Dismiss).
+ */
+export type DictationMessage = {
+  type: 'dictation:retry' | 'dictation:dismiss'
+  site: string
+  id: string
+}
+
+/** Panel → background: a Rec note's dictation is sent again, or the note goes. */
+export type NoteMessage = { type: 'note:retry' | 'note:delete'; id: string }
 
 /**
  * `storage.session` entry the background writes for **Open settings**: the panel of that window
@@ -109,6 +140,9 @@ export type BackgroundMessage =
   | FailedMessage
   | VoiceSettingsMessage
   | VoiceRequestMessage
+  | VoiceReadyMessage
+  | DictationMessage
+  | NoteMessage
 
 /** Most ids one `anchors:report` lists in each of its lists. */
 const MAX_REPORTED = 1000
@@ -121,8 +155,9 @@ export const MAX_ORIGIN_SELECTORS = LIMITS.areaElements + 1
 
 /**
  * Side panel → overlay of the active tab; `overlay:status` and `overlay:leave` also come from
- * the background. `overlay:reveal` and `overlay:leave` are refused while the open popover holds
- * unsaved text: Go to asks with `overlay:leave` before the tab navigates.
+ * the background. For `overlay:reveal` and `overlay:leave` the open popover closes and keeps
+ * its pin first; they are refused only when it cannot be stored. Go to asks with
+ * `overlay:leave` before the tab navigates.
  */
 export type OverlayMessage =
   | { type: 'overlay:status' }
@@ -191,8 +226,11 @@ export interface OverlayStatus {
 
 export type Reply = { ok: true } | { ok: false; error: string }
 
-/** Why the overlay keeps its popover: the panel shows it when Go to or a click is refused. */
-export const UNSAVED_PIN = 'Save or cancel the open pin first.'
+/**
+ * Why the overlay keeps its popover open: its pin could not be stored. The panel shows it when
+ * Go to or a click is refused; the popover says the reason itself.
+ */
+export const PIN_NOT_KEPT = 'The open pin could not be kept: its popover says why.'
 
 /** Background → side panels: the key was saved or removed; read it again (never its value). */
 export type KeyChanged = { type: 'voice:key:changed' }
@@ -215,18 +253,21 @@ export function isBackgroundMessage(x: unknown): x is BackgroundMessage {
   switch (x.type) {
     case 'annotation:add':
       return (
-        hasKeys(x, ['type', 'id', 'page', 'target', 'comment']) &&
+        hasKeys(x, ['type', 'id', 'page', 'target', 'comment'], ['draft']) &&
         isAnnotationId(x.id) &&
         isPageInfo(x.page) &&
         isTarget(x.target) &&
-        isComment(x.comment)
+        (x.draft === undefined || x.draft === true) &&
+        (x.draft ? isDraftComment(x.comment) : isComment(x.comment))
       )
     case 'annotation:update':
+      // An empty comment saves nothing on a pin (ops.ts); a draft may stay empty.
       return (
-        hasKeys(x, ['type', 'site', 'id', 'comment']) &&
+        hasKeys(x, ['type', 'site', 'id', 'comment'], ['keep']) &&
         isSite(x.site) &&
         isAnnotationId(x.id) &&
-        isComment(x.comment)
+        (x.keep === undefined || x.keep === true) &&
+        isDraftComment(x.comment)
       )
     case 'annotation:remove':
     case 'annotation:restore':
@@ -247,10 +288,20 @@ export function isBackgroundMessage(x: unknown): x is BackgroundMessage {
     case 'voice:key:test':
     case 'voice:grant':
     case 'voice:settings':
+    case 'voice:ready':
       return hasKeys(x, ['type'])
+    case 'dictation:retry':
+    case 'dictation:dismiss':
+      return hasKeys(x, ['type', 'site', 'id']) && isSite(x.site) && isAnnotationId(x.id)
+    case 'note:retry':
+    case 'note:delete':
+      return hasKeys(x, ['type', 'id']) && isAnnotationId(x.id)
     case 'voice:set':
       return (
-        hasKeys(x, ['type', 'model', 'language']) && isModelId(x.model) && isLanguage(x.language)
+        hasKeys(x, ['type', 'model', 'language', 'limit']) &&
+        isModelId(x.model) &&
+        isLanguage(x.language) &&
+        isLimit(x.limit)
       )
     case 'voice:key:save':
       return hasKeys(x, ['type', 'key']) && isApiKey(x.key)

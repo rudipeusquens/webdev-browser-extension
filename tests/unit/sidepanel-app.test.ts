@@ -9,7 +9,8 @@ import type { Collection } from '@/lib/collection/model'
 import { addAnnotation, emptyCollection, markCopied, pick, setStatus } from '@/lib/collection/ops'
 import { collectionKey } from '@/lib/collection/store'
 import { formatCollection } from '@/lib/format/markdown'
-import { type OverlayStatus, UNSAVED_PIN } from '@/lib/messages'
+import { type OverlayStatus, PIN_NOT_KEPT } from '@/lib/messages'
+import { jobsKey } from '@/lib/voice/jobs'
 import { elementInput, page, snapshot } from './helpers/collection'
 import { fakeSites } from './helpers/fake-sites'
 
@@ -152,6 +153,95 @@ describe('side panel', () => {
     await flushPromises()
     expect(writeText).toHaveBeenCalledWith(formatCollection(c))
     expect(byTestId('copy-status').textContent).toBe('Copied 2 pins')
+  })
+
+  describe('drafts and dictations', () => {
+    /** Two pins on B: b1 saved, d1 a draft; and their dictations. */
+    async function withDraft(jobs: Record<string, unknown> = {}) {
+      let c = addAnnotation(emptyCollection(SITE), elementInput('b1', B, 'Saved'), 'T')
+      c = addAnnotation(c, { ...elementInput('d1', B, ''), draft: true }, 'T')
+      await fakeBrowser.storage.local.set({ [jobsKey(SITE)]: jobs })
+      await render(c)
+      return c
+    }
+    const entry = (id: string) =>
+      document.querySelector<HTMLElement>(`[data-testid="item"][data-item-id="${id}"]`)!
+
+    it('shows a draft grey, counts it as open, and Copy as prompt leaves it out', async () => {
+      overlayReply = active
+      const c = await withDraft()
+      expect(entry('d1').dataset.tone).toBe('draft')
+      expect(entry('d1').querySelector('[data-testid="item-number"]')?.className).toContain(
+        'bg-zinc-500',
+      )
+      expect(entry('d1').textContent).toContain('No comment yet')
+      expect(entry('d1').querySelector('[data-testid="item-copy"]')).toBeNull()
+      expect(byTestId('filter-open').textContent).toContain('2')
+      byTestId('copy-prompt').click()
+      await flushPromises()
+      expect(writeText).toHaveBeenCalledWith(formatCollection(pick(c, new Set(['b1']))))
+      expect(byTestId('copy-status').textContent).toBe(
+        'Copied 1 pin. 1 left out: drafts and pins still transcribed',
+      )
+      expect(vi.mocked(fakeBrowser.runtime.sendMessage)).toHaveBeenCalledWith({
+        type: 'collection:copied',
+        site: SITE,
+        ids: ['b1'],
+      })
+    })
+
+    it('has nothing to copy when only drafts are open', async () => {
+      overlayReply = active
+      await render(
+        addAnnotation(emptyCollection(SITE), { ...elementInput('d1', B, 'x'), draft: true }, 'T'),
+      )
+      expect(byTestId('copy-prompt').hasAttribute('disabled')).toBe(true)
+    })
+
+    it('shows a pin that is transcribed, and leaves it out of Copy as prompt', async () => {
+      overlayReply = active
+      await withDraft({ b1: { state: 'transcribing' } })
+      expect(entry('b1').querySelector('[data-testid="item-transcribing"]')?.textContent).toContain(
+        'Transcribing…',
+      )
+      expect(entry('b1').querySelector('[data-testid="item-copy"]')).toBeNull()
+      expect(byTestId('copy-prompt').hasAttribute('disabled')).toBe(true)
+    })
+
+    it("offers Retry and Dismiss on a pin's failed dictation, and Dismiss on a cut one", async () => {
+      overlayReply = active
+      await withDraft({
+        d1: { state: 'failed', error: 'rate-limited', retry: true },
+        b1: { state: 'cut' },
+      })
+      const failed = entry('d1').querySelector<HTMLElement>('[data-testid="item-job"]')!
+      expect(failed.textContent).toContain('Rate limited, try again.')
+      failed.querySelector<HTMLElement>('[data-testid="item-job-retry"]')!.click()
+      await flushPromises()
+      expect(vi.mocked(fakeBrowser.runtime.sendMessage)).toHaveBeenCalledWith({
+        type: 'dictation:retry',
+        site: SITE,
+        id: 'd1',
+      })
+      const cut = entry('b1').querySelector<HTMLElement>('[data-testid="item-job"]')!
+      expect(cut.textContent).toContain('the full text is in Rec')
+      cut.querySelector<HTMLElement>('[data-testid="item-job-dismiss"]')!.click()
+      await flushPromises()
+      expect(vi.mocked(fakeBrowser.runtime.sendMessage)).toHaveBeenCalledWith({
+        type: 'dictation:dismiss',
+        site: SITE,
+        id: 'b1',
+      })
+    })
+
+    it("follows the site's dictations as they change", async () => {
+      overlayReply = active
+      await withDraft()
+      expect(entry('d1').querySelector('[data-testid="item-transcribing"]')).toBeNull()
+      await fakeBrowser.storage.local.set({ [jobsKey(SITE)]: { d1: { state: 'transcribing' } } })
+      await flushPromises()
+      expect(entry('d1').querySelector('[data-testid="item-transcribing"]')).not.toBeNull()
+    })
   })
 
   it('offers the text for manual copying when the clipboard fails', async () => {
@@ -578,11 +668,13 @@ describe('side panel', () => {
       ports[0]?.receive({ type: 'pins:pointed', hovered: null, open: null, popover: true })
       vi.mocked(fakeBrowser.tabs.sendMessage).mockImplementation((async (_: number, m: unknown) =>
         (m as { type: string }).type === 'overlay:reveal'
-          ? { ok: false, error: UNSAVED_PIN }
+          ? { ok: false, error: PIN_NOT_KEPT }
           : active) as never)
       entry('On B')?.querySelector<HTMLElement>('button')?.click()
       await flushPromises()
-      expect(byTestId('panel-error').textContent).toContain('Save or cancel the open pin first.')
+      expect(byTestId('panel-error').textContent).toContain(
+        'The open pin could not be kept: its popover says why.',
+      )
       ports[0]?.receive({ type: 'pins:pointed', hovered: null, open: null, popover: false })
       await flushPromises()
       expect(document.querySelector('[data-testid="panel-error"]')).toBeNull()
@@ -663,11 +755,13 @@ describe('side panel', () => {
       await render(twoPages())
       vi.mocked(fakeBrowser.tabs.sendMessage).mockImplementation((async (_: number, m: unknown) =>
         (m as { type: string }).type === 'overlay:reveal'
-          ? { ok: false, error: UNSAVED_PIN }
+          ? { ok: false, error: PIN_NOT_KEPT }
           : active) as never)
       entry('On B')?.querySelector<HTMLElement>('button')?.click()
       await flushPromises()
-      expect(byTestId('panel-error').textContent).toContain('Save or cancel the open pin first.')
+      expect(byTestId('panel-error').textContent).toContain(
+        'The open pin could not be kept: its popover says why.',
+      )
       // Once the popover is saved or cancelled, the next click opens the pin.
       vi.mocked(fakeBrowser.tabs.sendMessage).mockImplementation((async (_: number, m: unknown) =>
         (m as { type: string }).type === 'overlay:reveal' ? { ok: true } : active) as never)
@@ -681,11 +775,13 @@ describe('side panel', () => {
       await render(twoPages())
       vi.mocked(fakeBrowser.runtime.sendMessage).mockImplementation((async (m: unknown) =>
         (m as { type: string }).type === 'tab:go'
-          ? { ok: false, error: UNSAVED_PIN }
+          ? { ok: false, error: PIN_NOT_KEPT }
           : { ok: true }) as never)
       entry('First on A')?.querySelector<HTMLElement>('button')?.click()
       await flushPromises()
-      expect(byTestId('panel-error').textContent).toContain('Save or cancel the open pin first.')
+      expect(byTestId('panel-error').textContent).toContain(
+        'The open pin could not be kept: its popover says why.',
+      )
       // The page changes later on its own: the refused jump does not open the pin there.
       overlayReply = { ...active, pageKey: A, instance: 'two' }
       await fakeBrowser.tabs.onActivated.trigger({ tabId: 1, windowId: 1 })
@@ -701,7 +797,7 @@ describe('side panel', () => {
       await render(twoPages())
       vi.mocked(fakeBrowser.runtime.sendMessage).mockImplementation((async (m: unknown) =>
         (m as { type: string }).type === 'tab:go'
-          ? { ok: false, error: UNSAVED_PIN }
+          ? { ok: false, error: PIN_NOT_KEPT }
           : { ok: true }) as never)
       byTestId('page-link').click()
       await flushPromises()
@@ -710,7 +806,9 @@ describe('side panel', () => {
         tabId: 1,
         pageKey: A,
       })
-      expect(byTestId('panel-error').textContent).toContain('Save or cancel the open pin first.')
+      expect(byTestId('panel-error').textContent).toContain(
+        'The open pin could not be kept: its popover says why.',
+      )
     })
 
     it('gives the jump up when something else is clicked, or after 30 seconds', async () => {
@@ -1142,6 +1240,7 @@ describe('side panel', () => {
         '↓',
         'Enter',
         'Shift+Enter',
+        'Space',
         'Alt+V',
         'Ctrl+drag',
       ]) {

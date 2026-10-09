@@ -80,7 +80,7 @@ describe('everything clickable shows the pointer', () => {
     await waitInOverlay(session, '[data-testid="overlay-popover"]')
     const popover = await realm.evaluate(cursorsIn(shadow))
     expectPointers(popover as Clickable[])
-    expect((popover as Clickable[]).some((b) => b.name === 'Cancel')).toBe(true)
+    expect((popover as Clickable[]).some((b) => b.name === 'Close')).toBe(true)
   })
 })
 
@@ -309,6 +309,48 @@ describe("the panel's layout", () => {
       full: el.scrollWidth,
     }))
     expect(cut.shown).toBeLessThan(cut.full)
+  })
+
+  it('puts Rec notes above the pages, two lines each, without widening a narrow panel', async () => {
+    const long = `${'A dictated note that goes on and on '.repeat(12)}endsHereWithAVeryLongWordThatHasNoBreakAtAll`
+    await panel.setViewport({ width: 320, height: 800 })
+    await panel.evaluate(
+      async (key, value) => chrome.storage.local.set({ [key]: value }),
+      'notes',
+      {
+        version: 1,
+        items: [
+          { id: 'n1', text: long, createdAt: '2026-10-09T10:00:00.000Z' },
+          {
+            id: 'n2',
+            text: '',
+            createdAt: '2026-10-09T10:01:00.000Z',
+            job: { state: 'transcribing' },
+          },
+        ],
+      },
+    )
+    await panel.waitForSelector('[data-testid="note-transcribing"]')
+    const layout = await panel.evaluate(() => {
+      const list = document.querySelector('[data-testid="list-area"]') as HTMLElement
+      const notes = document.querySelector('[data-testid="notes"]') as HTMLElement
+      const group = document.querySelector('[data-testid="page-group"]') as HTMLElement
+      const text = document.querySelector('[data-testid="note-text"]') as HTMLElement
+      return {
+        scroll: list.scrollWidth,
+        client: list.clientWidth,
+        notesAbove: notes.getBoundingClientRect().bottom <= group.getBoundingClientRect().top,
+        lines: Math.round(
+          text.getBoundingClientRect().height / parseFloat(getComputedStyle(text).lineHeight),
+        ),
+      }
+    })
+    expect(layout.scroll).toBe(layout.client)
+    expect(layout.notesAbove).toBe(true)
+    expect(layout.lines).toBe(2)
+    await panel.evaluate(() => chrome.storage.local.set({ notes: { version: 1, items: [] } }))
+    await panel.waitForSelector('[data-testid="notes"]', { hidden: true })
+    await panel.setViewport({ width: 400, height: 800 })
   })
 
   it('leaves room between the sections of Settings', async () => {

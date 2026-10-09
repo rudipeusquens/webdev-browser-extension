@@ -168,6 +168,7 @@ describe('side panel: voice settings', () => {
         type: 'voice:set',
         model: 'openai/whisper-large-v3-turbo',
         language: 'auto',
+        limit: 300_000,
       })
     })
 
@@ -186,6 +187,7 @@ describe('side panel: voice settings', () => {
         type: 'voice:set',
         model: 'qwen/qwen3-asr-flash-2026-02-10',
         language: 'auto',
+        limit: 300_000,
       })
     })
 
@@ -201,7 +203,46 @@ describe('side panel: voice settings', () => {
       await fakeBrowser.storage.local.set({ [VOICE_KEY]: { model: 'a/b', language: 'auto' } })
       await openSettings()
       await choose('voice-language', 'de')
-      expect(sendMessage).toHaveBeenCalledWith({ type: 'voice:set', model: 'a/b', language: 'de' })
+      expect(sendMessage).toHaveBeenCalledWith({
+        type: 'voice:set',
+        model: 'a/b',
+        language: 'de',
+        limit: 300_000,
+      })
+    })
+  })
+
+  describe('the recording limit', () => {
+    it('offers 1 to 15 minutes, 5 by default, and saves the choice with the rest', async () => {
+      await fakeBrowser.storage.local.set({ [VOICE_KEY]: { model: 'a/b', language: 'de' } })
+      await openSettings()
+      const select = byTestId('voice-limit') as HTMLSelectElement
+      expect(select.value).toBe('300000')
+      expect([...select.options].map((o) => o.text.trim())).toEqual([
+        '1 minute',
+        '2 minutes',
+        '3 minutes',
+        '5 minutes',
+        '10 minutes',
+        '15 minutes',
+      ])
+      await choose('voice-limit', '600000')
+      expect(sendMessage).toHaveBeenCalledWith({
+        type: 'voice:set',
+        model: 'a/b',
+        language: 'de',
+        limit: 600_000,
+      })
+    })
+
+    it('shows a limit set elsewhere as its own choice', async () => {
+      await fakeBrowser.storage.local.set({
+        [VOICE_KEY]: { model: 'a/b', language: 'de', limit: 10_000 },
+      })
+      await openSettings()
+      const select = byTestId('voice-limit') as HTMLSelectElement
+      expect(select.value).toBe('10000')
+      expect(select.selectedOptions[0]?.text.trim()).toBe('10 seconds')
     })
   })
 

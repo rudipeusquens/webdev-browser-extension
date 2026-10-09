@@ -1,5 +1,10 @@
 import { describe, expect, it } from 'vitest'
-import { pageShortcut, popoverKey } from '@/entrypoints/overlay.content/keys'
+import {
+  pageShortcut,
+  popoverKey,
+  type SpaceState,
+  spaceKey,
+} from '@/entrypoints/overlay.content/keys'
 
 // Synthetic events are never trusted, so key handling is tested on plain objects; real key
 // presses are covered by the E2E tests.
@@ -142,5 +147,53 @@ describe('pageShortcut', () => {
     expect(pageShortcut(key('e', { altKey: true }), idle)).toBeNull()
     expect(pageShortcut(key('e', { isTrusted: false }), idle)).toBeNull()
     expect(pageShortcut(key('Escape', { isTrusted: false }), picking)).toBeNull()
+  })
+})
+
+describe('spaceKey', () => {
+  const idle: SpaceState = {
+    empty: true,
+    ready: true,
+    recording: false,
+    starting: false,
+    blocked: false,
+  }
+  const space = (extra: Partial<KeyboardEvent> = {}) => key(' ', { code: 'Space', ...extra })
+
+  it('starts a dictation in an empty field, and stops it while the field stays empty', () => {
+    expect(spaceKey(space(), idle)).toBe('dictate')
+    expect(spaceKey(space(), { ...idle, recording: true })).toBe('dictate')
+  })
+
+  it('types a space in a field with text, also while a dictation runs', () => {
+    expect(spaceKey(space(), { ...idle, empty: false })).toBeNull()
+    expect(spaceKey(space(), { ...idle, empty: false, recording: true })).toBeNull()
+  })
+
+  it('types a space without a key, or while the pin is transcribed', () => {
+    expect(spaceKey(space(), { ...idle, ready: false })).toBeNull()
+    expect(spaceKey(space(), { ...idle, blocked: true })).toBeNull()
+  })
+
+  it('swallows it while the microphone starts, and its repeats while it records', () => {
+    expect(spaceKey(space(), { ...idle, starting: true })).toBe('swallow')
+    expect(spaceKey(space({ repeat: true }), { ...idle, starting: true })).toBe('swallow')
+    expect(spaceKey(space({ repeat: true }), { ...idle, recording: true })).toBe('swallow')
+    expect(spaceKey(space({ repeat: true }), idle)).toBeNull()
+  })
+
+  it('leaves Space with a modifier, during IME composition and from a page alone', () => {
+    for (const extra of [
+      { ctrlKey: true },
+      { altKey: true },
+      { metaKey: true },
+      { shiftKey: true },
+      { isComposing: true },
+      { keyCode: 229 },
+      { isTrusted: false },
+    ]) {
+      expect(spaceKey(space(extra), idle)).toBeNull()
+    }
+    expect(spaceKey(key('a'), idle)).toBeNull()
   })
 })

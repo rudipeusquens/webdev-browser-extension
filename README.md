@@ -95,7 +95,7 @@ nothing syncs.
 4. Type the comment and press `Enter` (`Shift+Enter` for a new line), or dictate it. The mark
    gets a numbered pin, and the panel lists it.
 
-   <img src="docs/images/comment.png" width="336" alt="A link marked in element mode, with its comment popover: the tag, the component and the size, a comment field, the mic button and Save">
+   <img src="docs/images/comment.png" width="336" alt="A link marked in element mode, with its comment popover: the tag, the component and the size, a comment field, Delete, the mic button and Save">
 
 5. Go on, on this page and others of the same site. Then click **Copy as prompt** in the
    panel and paste into your agent.
@@ -112,6 +112,10 @@ pins stay.
 - **Copy again** copies the pins of the last copy once more, when a paste went wrong.
 - **Copy** on an entry copies that one pin. A click on a pin or an entry opens its comment;
   saving a changed comment reopens a done pin.
+- Nothing you write is lost: `Esc`, the X, or a click on another pin or entry closes a
+  comment and keeps it. A new pin you never saved stays grey, a **draft**, until you save it
+  with `Enter`; **Copy as prompt** leaves drafts out. **Delete** in a new comment throws it
+  away.
 - **Delete** moves a pin to Deleted, red, and **Restore** brings it back. **Clear all** moves
   every open and done pin of the site to Deleted. **Empty bin** removes deleted pins for good.
 - **Undo** and **Redo** in the panel's title row (`Ctrl+Z`, `Ctrl+Shift+Z`) take back up to
@@ -145,46 +149,63 @@ OpenRouter, with your own key; OpenRouter bills it to your account.
    **OpenRouter API key**, click **Save**, then **Test**.
 3. Under **Microphone**, click **Grant**: Chrome asks once, in a tab. On macOS, the system may
    ask whether the browser may use the microphone, too.
-4. In a comment, click the mic button next to **Save** or press `Alt+V`, speak, and stop the
-   same way. The text goes in where the caret was; edit it, then save. `Esc` cancels.
+4. In an empty comment, press `Space`, speak, and press `Space` again. The mic button next to
+   **Save** and `Alt+V` start and stop too, also in a comment that already has text, where
+   `Space` types a space. `Enter` stops and saves; `Esc` cancels, and nothing is sent.
 
-**Model** (default `openai/gpt-4o-mini-transcribe`) and **Language** (default: detect
-automatically) are in the same section.
+The stop saves the pin and closes the comment at once; you can mark the next thing while the
+text is transcribed. The panel shows "Transcribing…" at the pin's entry, and the text is added
+to the end of the comment a moment later. **Undo** in the panel takes it out again.
+
+A recording pauses at the limit, 5 minutes by default, and asks **Keep recording?**: **Keep**
+goes on, **Stop** ends it, and without an answer it stops after a minute. If a transcription
+fails, the entry says why, with **Retry**, which sends the same recording again within ten
+minutes. Text too long for a pin goes whole into a Rec note (below).
+
+**Model** (default `openai/gpt-4o-mini-transcribe`), **Language** (default: detect
+automatically) and **Recording limit** are in the same section.
 
 **Rec** is dictation without a pin, for anything you want to tell the agent in your own
 words. Click **Rec** at the top of the panel (or press `Alt+V` there), speak, and click it
-again: the text goes to the clipboard as it is, nothing added, also when you have switched to
-the agent's window in the meantime. Paste it wherever you like. It works on any tab, also
-where the overlay is not running, and it changes no pin.
+again: the text is kept as a note at the top of the panel's list and goes to the clipboard as
+it is, nothing added, also when you have switched to the agent's window in the meantime.
+Paste it wherever you like. It works on any tab, also where the overlay is not running, and
+it changes no pin. If you close the panel before the text is there, the note still gets it.
+
+The notes are the same on every site, the newest first, the last 50 of them. Each has its own
+**Copy** and **Delete**; **Copy as prompt**, **Copy again** and **Clear all** leave them
+alone.
 
 Rec and **Copy as prompt** each copy their own text; the clipboard holds whichever you did
-last. If you copy pins while Rec is still running and don't stop it yourself afterwards, the
-pins stay on the clipboard and the panel shows the dictated text for copying by hand.
+last. If you copy pins or a note while Rec is still running or its text is on the way, and
+don't stop it yourself afterwards, what you copied stays on the clipboard and the panel shows
+the dictated text for copying by hand.
 
 ## Keys
 
 The toolbar shortcut, `Ctrl+Shift+K` (`⇧⌘K` on macOS), opens and closes the panel; change it
 at `chrome://extensions/shortcuts`. Settings lists every key, as Chrome assigned it.
 
-| Where         | Keys                       | Action                             |
-| ------------- | -------------------------- | ---------------------------------- |
-| On the page   | `E`                        | Element mode                       |
-| On the page   | `A`                        | Area mode                          |
-| On the page   | `Esc`                      | Browse mode                        |
-| On the page   | `P`                        | Show or hide the pins              |
-| Browse mode   | `Ctrl+drag`                | Select text, also in a link        |
-| Element mode  | `↑`                        | Outline the parent                 |
-| Element mode  | `↓`                        | Outline the child again            |
-| Element mode  | `Enter`                    | Pin the outlined element           |
-| Area mode     | `Esc`                      | Cancel the drag                    |
-| In a pin      | `Enter`                    | Save                               |
-| In a pin      | `Shift+Enter`              | New line                           |
-| In a pin      | `Esc`                      | Cancel (a running dictation first) |
-| In a pin      | `Alt+V`                    | Start or stop dictation            |
-| In this panel | `Ctrl+Z`                   | Undo                               |
-| In this panel | `Ctrl+Shift+Z` or `Ctrl+Y` | Redo                               |
-| In this panel | `Alt+V`                    | Start or stop Rec                  |
-| In this panel | `Esc`                      | Cancel Rec                         |
+| Where         | Keys                       | Action                                             |
+| ------------- | -------------------------- | -------------------------------------------------- |
+| On the page   | `E`                        | Element mode                                       |
+| On the page   | `A`                        | Area mode                                          |
+| On the page   | `Esc`                      | Browse mode                                        |
+| On the page   | `P`                        | Show or hide the pins                              |
+| Browse mode   | `Ctrl+drag`                | Select text, also in a link                        |
+| Element mode  | `↑`                        | Outline the parent                                 |
+| Element mode  | `↓`                        | Outline the child again                            |
+| Element mode  | `Enter`                    | Pin the outlined element                           |
+| Area mode     | `Esc`                      | Cancel the drag                                    |
+| In a pin      | `Enter`                    | Save (stops a dictation first; its text follows)   |
+| In a pin      | `Shift+Enter`              | New line                                           |
+| In a pin      | `Space`                    | Start or stop dictation (empty comment)            |
+| In a pin      | `Alt+V`                    | Start or stop dictation                            |
+| In a pin      | `Esc`                      | Close and keep the pin (cancels a dictation first) |
+| In this panel | `Ctrl+Z`                   | Undo                                               |
+| In this panel | `Ctrl+Shift+Z` or `Ctrl+Y` | Redo                                               |
+| In this panel | `Alt+V`                    | Start or stop Rec                                  |
+| In this panel | `Esc`                      | Cancel Rec                                         |
 
 The keys on the page work while no field of the page has the focus. `Ctrl+drag` works while
 the panel is open: it selects text where a drag would move a link or an image, and the click
@@ -199,20 +220,22 @@ The gear in the panel:
 - **General:** **Show page titles** shows each page's title next to its path in the list.
   **Annotate this page in the context menu** adds the entry to the page's right-click menu
   (off by default).
-- **Voice:** the key, the model, the language and the microphone (see Dictation).
+- **Voice:** the key, the model, the language, the recording limit and the microphone (see
+  Dictation).
 - **Sites:** every site with pins or access, with its number of open pins; **Auto** marks
   the sites where the overlay loads by itself, with **Forget**.
 - **Keyboard shortcuts:** the list above, and **Change** for the toolbar shortcut.
 
 ## Privacy
 
-- **Page data stays in your browser.** Pins, comments and what was captured from the pages
-  are stored in the extension's local storage. They leave only through the clipboard, when
+- **Page data stays in your browser.** Pins, comments, Rec notes and what was captured from
+  the pages are stored in the extension's local storage. They leave only through the clipboard, when
   you copy. No analytics, no telemetry, no remote logging.
-- **Dictation is the one exception, and only when you use it.** After you stop a recording,
-  the audio goes to `openrouter.ai` with your key and with data collection turned off;
-  nothing from the page goes with it. The key stays in this browser, is never synced, and is
-  shown masked once saved.
+- **Dictation is the one exception, and only when you use it.** When a recording ends, by
+  your stop or because you moved on (another pin, another page), the audio goes to
+  `openrouter.ai` with your key and with data collection turned off; nothing from the page
+  goes with it. `Esc` cancels a recording, and nothing is sent. The key stays in this
+  browser, is never synced, and is shown masked once saved.
 - **No access until you ask.** The extension runs on a tab only after you start it there, and
   on the sites you chose with **Always enable here**.
 - **The page counts as hostile.** Text from the page enters the prompt marked as data, and
@@ -239,6 +262,11 @@ The gear in the panel:
   commenting on their page. Do not type secrets into a comment on a site you do not trust.
 - A pin whose target is gone from its page is marked **Not found** in the panel and the prompt,
   and keeps what was captured when it was marked.
+- A long recording is sent in parts of at most five minutes, cut in a pause of your speech:
+  a model answers with a limited length, and a longer part would lose its end.
+- If the browser stops the extension's background while a text is transcribed (rare), that
+  text is lost: the pin or the note says "The transcription was interrupted."
+- An update of the extension while a comment is open loses what is not saved in it.
 
 ## Development
 

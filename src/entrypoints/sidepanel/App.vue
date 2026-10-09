@@ -28,13 +28,14 @@ import {
   MODES,
   type OverlayMessage,
   type Reply,
-  UNSAVED_PIN,
+  PIN_NOT_KEPT,
 } from '@/lib/messages'
 import { isSiteOrigin, originPattern } from '@/lib/settings'
 import EmptyBinDialog from './EmptyBinDialog.vue'
 import CopyFallbackDialog, { type Fallback } from './CopyFallbackDialog.vue'
 import ForgetSiteDialog from './ForgetSiteDialog.vue'
 import ItemList from './ItemList.vue'
+import NoteList from './NoteList.vue'
 import RecButton from './RecButton.vue'
 import SitePill from './SitePill.vue'
 import SettingsView from './SettingsView.vue'
@@ -47,6 +48,9 @@ import { useOverlayLines } from './use-overlay-lines'
 import { usePanelToggle } from './use-panel-toggle'
 import { useSettings } from './use-settings'
 import { useShortcut } from './use-shortcut'
+import { useStored } from './use-stored'
+import { NOTES_KEY, parseNotes } from '@/lib/notes/model'
+import { jobsKey, parseJobs } from '@/lib/voice/jobs'
 import { useSiteCollection } from '@/composables/use-site-collection'
 import { emptyCollection, pick } from '@/lib/collection/ops'
 import { type Filter, shows } from '@/lib/view'
@@ -66,6 +70,14 @@ const site = computed(() => {
   }
 })
 const { collection: stored, loading } = useSiteCollection(site)
+/** Rec's notes, the same on every site (spec section 8). */
+const storedNotes = useStored(ref(NOTES_KEY), parseNotes).value
+const notes = computed(() => storedNotes.value.items)
+/** The active site's pins whose dictation is not done; Copy as prompt waits until it is read. */
+const { value: jobs, loaded: jobsLoaded } = useStored(
+  computed(() => (site.value ? jobsKey(site.value) : null)),
+  parseJobs,
+)
 /** What the panel lists: the active site's collection, empty without one. */
 const collection = computed(() => stored.value ?? emptyCollection(site.value ?? 'file://'))
 usePanelToggle(windowId)
@@ -123,16 +135,24 @@ onBeforeUnmount(() => {
   cancelJump()
 })
 const items = computed(() => collection.value.items)
+/** Open pins whose comment is complete: no drafts, nothing transcribed (spec section 8). */
 const openIds = computed(() =>
   items.value
-    .filter((item) => item.status === 'open')
+    .filter(
+      (item) =>
+        item.status === 'open' && !item.draft && jobs.value[item.id]?.state !== 'transcribing',
+    )
     .sort((a, b) => a.number - b.number)
     .map((item) => item.id),
 )
-/** Open items: what the next Copy as prompt copies. */
-const count = computed(() => openIds.value.length)
+/** What the next Copy as prompt copies: nothing until the site's dictations are read. */
+const count = computed(() => (jobsLoaded.value ? openIds.value.length : 0))
+/** Open items it leaves out: drafts, and pins still transcribed. */
+const leftOut = computed(
+  () => items.value.filter((item) => item.status === 'open').length - count.value,
+)
 const counts = computed(() => ({
-  open: count.value,
+  open: items.value.filter((item) => item.status === 'open').length,
   all: items.value.filter((item) => shows(item, 'all')).length,
   deleted: items.value.filter((item) => item.status === 'deleted').length,
 }))
@@ -252,7 +272,7 @@ function toOverlay(message: OverlayMessage) {
  */
 async function writePrompt(ids: string[], done: string): Promise<boolean> {
   const text = formatCollection(pick(collection.value, new Set(ids)), { missing: missing.value })
-  const settle = dictation.copyingPins()
+  const settle = dictation.copyingOther()
   try {
     await navigator.clipboard.writeText(text)
   } catch {
@@ -265,19 +285,38 @@ async function writePrompt(ids: string[], done: string): Promise<boolean> {
   return true
 }
 
-const dictation = useDictation({
-  write: writeClipboard,
-  copied: (atLimit) =>
-    say(atLimit ? 'Copied dictation. The recording stopped after 2 minutes.' : 'Copied dictation'),
-  offer: (text, refused) => fallbacks.value.push({ text, kind: refused ? 'dictation' : 'outdone' }),
-})
+const dictation = useDictation(
+  {
+    write: writeClipboard,
+    copied: () => say('Copied dictation'),
+    offer: (text, refused) =>
+      fallbacks.value.push({ text, kind: refused ? 'dictation' : 'outdone' }),
+  },
+  notes,
+)
 /** What screen readers hear of Rec: its changes, not every second of its clock. */
 const recSpoken = computed(() => {
   const now = dictation.state.value.state
   if (now === 'recording') return `Recording. ${recShortcut} stops it.`
-  if (now === 'transcribing') return 'Transcribing.'
+  if (now === 'paused') return 'Rec paused at the limit. Keep recording?'
   return ''
 })
+
+/** A note's text as it is, from its own Copy. */
+function copyNote(id: string) {
+  const text = notes.value.find((note) => note.id === id)?.text
+  if (!text) return
+  const settle = dictation.copyingOther()
+  const written = writeClipboard(text)
+  settle(written)
+  if (written) say('Copied note')
+  else fallbacks.value.push({ text, kind: 'dictation' })
+}
+
+function retryNote(id: string) {
+  dictation.retried(id)
+  void change({ type: 'note:retry', id })
+}
 
 function grantMicrophone() {
   void browser.tabs.create({ url: browser.runtime.getURL('/mic-permission.html') })
@@ -287,8 +326,9 @@ function grantMicrophone() {
 async function copy() {
   const ids = openIds.value
   const current = site.value
-  if (!current || ids.length === 0) return
-  await writePrompt(ids, `Copied ${plural(ids.length, 'pin')}`)
+  if (!current || ids.length === 0 || !jobsLoaded.value) return
+  const left = leftOut.value ? `. ${leftOut.value} left out: drafts and pins still transcribed` : ''
+  await writePrompt(ids, `Copied ${plural(ids.length, 'pin')}${left}`)
   await change(
     { type: 'collection:copied', site: current, ids },
     (error) => `Copied, but the pins could not be marked done: ${error}`,
@@ -375,7 +415,7 @@ const { pointed } = useOverlayLines(tabId, status)
 watch(
   () => pointed.value.popover,
   (open) => {
-    if (!open && panelError.value === UNSAVED_PIN) panelError.value = ''
+    if (!open && panelError.value === PIN_NOT_KEPT) panelError.value = ''
   },
 )
 
@@ -416,7 +456,7 @@ async function showPin(id: string) {
   const reply: unknown = await browser.tabs
     .sendMessage(tabId.value, message, { frameId: 0 })
     .catch(() => undefined)
-  if (isObject(reply) && reply.ok === false) panelError.value = UNSAVED_PIN
+  if (isObject(reply) && reply.ok === false) panelError.value = PIN_NOT_KEPT
   else if (isObject(reply) && reply.ok === true) panelError.value = ''
 }
 
@@ -644,14 +684,20 @@ function setMode(next: unknown) {
       :shortcut="shortcut"
       @forget="(origin) => (forgetting = origin)"
     />
-    <section v-else data-testid="list-area" class="flex-1 overflow-y-auto">
+    <section v-else data-testid="list-area" class="flex flex-1 flex-col overflow-y-auto">
+      <!-- Rec's notes come first, on every site and also without one. -->
+      <NoteList
+        v-if="notes.length"
+        :notes="notes"
+        @copy="copyNote"
+        @remove="(id) => change({ type: 'note:delete', id })"
+        @retry="retryNote"
+        @settings="showSettings = true"
+      />
       <!-- A new site's pins are being read: neither the last site's list nor an empty state. -->
       <template v-if="site && loading" />
       <!-- Empty states sit in the middle of the list area. -->
-      <div
-        v-else-if="!site || !shown.length"
-        class="flex min-h-full items-center justify-center p-6"
-      >
+      <div v-else-if="!site || !shown.length" class="flex flex-1 items-center justify-center p-6">
         <div data-testid="empty-state" class="max-w-72 space-y-3 text-center text-muted-foreground">
           <template v-if="!site">
             <p data-testid="tab-status">
@@ -679,6 +725,10 @@ function setMode(next: unknown) {
         :missing="missing"
         :pointed="pointed"
         :page-titles="settings.pageTitles"
+        :jobs="jobs"
+        @job-retry="(id) => site && change({ type: 'dictation:retry', site, id })"
+        @job-dismiss="(id) => site && change({ type: 'dictation:dismiss', site, id })"
+        @settings="showSettings = true"
         @remove="(id) => changeItem('annotation:remove', id)"
         @restore="(id) => changeItem('annotation:restore', id)"
         @reopen="(id) => changeItem('annotation:reopen', id)"
@@ -693,12 +743,28 @@ function setMode(next: unknown) {
     <footer v-if="!showSettings" class="relative border-t p-3">
       <!-- Above the buttons, so the footer's padding is the same on every side. -->
       <div
-        v-if="panelError || dictation.failure.value || copyStatus"
+        v-if="panelError || dictation.failure.value || dictation.paused.value || copyStatus"
         class="mb-2 space-y-1 text-xs"
       >
         <p v-if="panelError" data-testid="panel-error" role="alert" class="text-destructive">
           {{ panelError }}
         </p>
+        <div
+          v-if="dictation.paused.value"
+          data-testid="rec-limit"
+          role="alert"
+          class="flex flex-wrap items-center gap-x-2 gap-y-1"
+        >
+          <span class="min-w-0 flex-1 basis-40"
+            >Rec paused at {{ dictation.clock.value }}. Keep recording?</span
+          >
+          <Button data-testid="rec-keep" variant="outline" size="xs" @click="dictation.resume()">
+            Keep
+          </Button>
+          <Button data-testid="rec-stop" variant="outline" size="xs" @click="dictation.toggle()">
+            Stop
+          </Button>
+        </div>
         <div
           v-if="dictation.failure.value"
           data-testid="rec-message"
@@ -729,7 +795,7 @@ function setMode(next: unknown) {
             data-testid="rec-retry"
             variant="outline"
             size="xs"
-            @click="dictation.retry()"
+            @click="dictation.toggle()"
           >
             Retry
           </Button>

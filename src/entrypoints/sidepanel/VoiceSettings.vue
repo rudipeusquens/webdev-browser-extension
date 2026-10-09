@@ -7,7 +7,7 @@ import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { NativeSelect, NativeSelectOption } from '@/components/ui/native-select'
 import type { KeyTestReply, Reply, VoiceSettingsMessage } from '@/lib/messages'
-import { isApiKey, isModelId, LANGUAGES, MODELS } from '@/lib/voice/settings'
+import { isApiKey, isModelId, LANGUAGES, LIMIT_CHOICES, MODELS } from '@/lib/voice/settings'
 import { useVoiceSettings } from './use-voice-settings'
 
 // Settings → Voice (spec section 8). The panel reads the key only to show it masked; every
@@ -69,8 +69,8 @@ function removeKey() {
   void send({ type: 'voice:key:remove' })
 }
 
-function setVoice(model: string, language: string) {
-  void send({ type: 'voice:set', model, language })
+function setVoice(model: string, language: string, limit = voice.value.limit) {
+  void send({ type: 'voice:set', model, language, limit })
 }
 
 const modelChoice = computed({
@@ -98,6 +98,21 @@ const language = computed({
   set: (value: unknown) => setVoice(voice.value.model, String(value)),
 })
 
+/** The limits of the list, and the stored one when it is not among them (set elsewhere). */
+const limits = computed(() =>
+  LIMIT_CHOICES.includes(voice.value.limit) ? LIMIT_CHOICES : [...LIMIT_CHOICES, voice.value.limit],
+)
+const minutes = (ms: number) =>
+  ms % 60_000 === 0
+    ? `${ms / 60_000} minute${ms === 60_000 ? '' : 's'}`
+    : `${Math.round(ms / 1000)} seconds`
+
+const limit = computed({
+  get: () => String(voice.value.limit),
+  set: (value: unknown) =>
+    setVoice(voice.value.model, voice.value.language, Number.parseInt(String(value), 10)),
+})
+
 function grant() {
   void browser.tabs.create({ url: browser.runtime.getURL('/mic-permission.html') })
 }
@@ -108,9 +123,9 @@ function grant() {
     <div class="space-y-1">
       <h3 class="text-xs font-medium text-muted-foreground">Voice</h3>
       <p class="text-xs text-muted-foreground">
-        Dictate a comment with the mic button next to Save, or Alt+V; anything else with Rec, which
-        copies the text. Only the recording leaves the browser: it goes to OpenRouter with your own
-        key, with data collection turned off.
+        Dictate a comment with Space in an empty comment, Alt+V or the mic button; anything else
+        with Rec, which keeps the text as a note and copies it. Only the recording leaves the
+        browser: it goes to OpenRouter with your own key, with data collection turned off.
       </p>
     </div>
 
@@ -224,6 +239,19 @@ function grant() {
           {{ option.label }}
         </NativeSelectOption>
       </NativeSelect>
+    </div>
+
+    <div class="space-y-1.5 [&_[data-slot=native-select-wrapper]]:w-full">
+      <Label for="voice-limit" class="text-xs">Recording limit</Label>
+      <NativeSelect id="voice-limit" v-model="limit" data-testid="voice-limit" class="h-8 text-xs">
+        <NativeSelectOption v-for="ms in limits" :key="ms" :value="String(ms)">
+          {{ minutes(ms) }}
+        </NativeSelectOption>
+      </NativeSelect>
+      <p class="text-xs text-muted-foreground">
+        A recording pauses there and asks whether to go on; without an answer it stops after a
+        minute.
+      </p>
     </div>
 
     <div data-testid="voice-mic" class="space-y-1.5">

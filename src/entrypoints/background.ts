@@ -1,6 +1,8 @@
 import { browser, type Browser } from 'wxt/browser'
 import { defineBackground } from 'wxt/utils/define-background'
 import { createAnchorStore, forgetMissing } from '@/lib/background/anchor-status'
+import { createDictations } from '@/lib/background/dictations'
+import { createNotes } from '@/lib/background/notes'
 import { overlayLetsGo, overlayRuns } from '@/lib/background/ask-overlay'
 import { goTo } from '@/lib/background/go-to'
 import { readOrigins } from '@/lib/background/origins'
@@ -21,21 +23,25 @@ import {
   type PanelToggle,
   type PanelView,
   type Reply,
-  UNSAVED_PIN,
+  PIN_NOT_KEPT,
+  type VoiceReadyReply,
 } from '@/lib/messages'
 import { isSiteOrigin, loadSettings, originPattern } from '@/lib/settings'
 import { VIEW_KEY } from '@/lib/view'
+import { loadKey } from '@/lib/voice/key'
 
 /** The page's context menu entry: it activates the extension like the toolbar icon. */
 const MENU_ENTRY = 'annotate'
 
 export default defineBackground(() => {
-  const { write, migrate, undo, redo } = createWriter()
+  const { write, fill, migrate, undo, redo } = createWriter()
   // Queued before any write: the collection of milestones 2–5 becomes one per site.
   void migrate()
   const recordAnchors = createAnchorStore()
   const sites = createSites()
-  const voice = createVoice()
+  const voice = createVoice({ fill, notes: createNotes(), dictations: createDictations() })
+  // Queued before any dictation: what an earlier background left transcribing is lost.
+  void voice.recover()
 
   const inject = (tabId: number) =>
     browser.scripting.executeScript({ target: { tabId }, files: [`/${OVERLAY_SCRIPT}`] })
@@ -210,9 +216,9 @@ export default defineBackground(() => {
     if (!page || !origin || !isSiteOrigin(origin)) {
       return { ok: false, error: 'This page cannot be opened from here.' }
     }
-    // Not over a popover's unsaved text: the overlay keeps it and says so.
+    // The open popover is kept first; the page stays when it cannot be (the popover says why).
     const leave = await overlayLetsGo(tabId)
-    if (leave === 'unsaved') return { ok: false, error: UNSAVED_PIN }
+    if (leave === 'kept') return { ok: false, error: PIN_NOT_KEPT }
     if (leave === 'busy') return { ok: false, error: 'The page is busy. Try again in a moment.' }
     return goTo(tabId, page.url, await sites.isRemembered(origin))
   }
@@ -317,6 +323,31 @@ export default defineBackground(() => {
           return { ok: false, error: 'Voice is set up in the panel.' } satisfies Reply
         }
         return setVoice(message)
+      case 'voice:ready':
+        // Only whether a key is saved: `Space` starts a dictation then (spec section 8).
+        if (sender.tab?.id === undefined || sender.frameId !== 0) {
+          return { ok: false, error: 'Only a comment popover asks for this.' } satisfies Reply
+        }
+        return loadKey().then((key) => ({ ok: true, ready: !!key }) satisfies VoiceReadyReply)
+      case 'dictation:retry':
+      case 'dictation:dismiss':
+        if (pageSite(sender) !== message.site && !isPanelSender(sender)) {
+          return {
+            ok: false,
+            error: 'Dictations are retried on their site or in the panel.',
+          } satisfies Reply
+        }
+        return message.type === 'dictation:retry'
+          ? voice.retryPin(message.site, message.id)
+          : voice.dismissPin(message.site, message.id)
+      case 'note:retry':
+      case 'note:delete':
+        if (!isPanelSender(sender)) {
+          return { ok: false, error: 'Notes are buttons of the panel.' } satisfies Reply
+        }
+        return message.type === 'note:retry'
+          ? voice.retryNote(message.id)
+          : voice.deleteNote(message.id)
       case 'voice:grant':
       case 'voice:settings': {
         const { tab } = sender

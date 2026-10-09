@@ -652,13 +652,13 @@ describe('background: go to a page of the collection', () => {
     expect(await going).toEqual({ ok: true })
   })
 
-  it('stays on the page while its overlay holds unsaved text', async () => {
+  it('stays on the page when its overlay cannot keep the open pin', async () => {
     const asked = vi
       .spyOn(fakeBrowser.tabs, 'sendMessage')
       .mockResolvedValue({ ok: false, error: '<b>anything</b>' } as never)
     expect(await send({ type: 'tab:go', tabId: 9, pageKey: page }, panel)).toEqual({
       ok: false,
-      error: 'Save or cancel the open pin first.',
+      error: 'The open pin could not be kept: its popover says why.',
     })
     expect(asked).toHaveBeenCalledWith(9, { type: 'overlay:leave' }, { frameId: 0 })
     expect(fakeBrowser.tabs.update).not.toHaveBeenCalled()
@@ -680,7 +680,10 @@ describe('background: go to a page of the collection', () => {
       const late = send({ type: 'tab:go', tabId: 9, pageKey: page }, panel)
       await vi.advanceTimersByTimeAsync(1500)
       answer({ ok: false, error: 'unsaved' })
-      expect(await late).toEqual({ ok: false, error: 'Save or cancel the open pin first.' })
+      expect(await late).toEqual({
+        ok: false,
+        error: 'The open pin could not be kept: its popover says why.',
+      })
       const never = send({ type: 'tab:go', tabId: 9, pageKey: page }, panel)
       await vi.advanceTimersByTimeAsync(10_000)
       expect(await never).toEqual({ ok: false, error: 'The page is busy. Try again in a moment.' })
