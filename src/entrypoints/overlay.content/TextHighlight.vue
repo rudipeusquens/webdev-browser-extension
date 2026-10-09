@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed } from 'vue'
-import type { Rect, Status } from '@/lib/collection/model'
-import { STATUS_MARK } from '@/lib/status'
+import type { Rect } from '@/lib/collection/model'
+import { STATUS_MARK, type Tone } from '@/lib/status'
 
 // The lines of the text being commented, measured beforehand (pins.ts, linesOf): measuring
 // here, while the overlay is being written, would force a layout on every frame. Saved texts
@@ -10,8 +10,8 @@ const props = withDefaults(
   defineProps<{
     /** The lines to shade, in viewport coordinates. */
     boxes: Rect[]
-    /** The status of the pin being edited: its color. A new one is open. */
-    status?: Status
+    /** The tone of the pin being edited: its color. A new one is open. */
+    status?: Tone
   }>(),
   { status: 'open' },
 )

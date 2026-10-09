@@ -1,6 +1,7 @@
 // Pure operations on a collection. They never mutate their input; an operation that changes
 // nothing returns the collection it was given.
 
+import { insertTranscript } from '../voice/transcript'
 import type { Annotation, Collection, PageInfo, Status, Target } from './model'
 import { pageKey } from './page-key'
 import { siteOf } from './site'
@@ -10,6 +11,15 @@ export interface NewAnnotation {
   page: PageInfo
   target: Target
   comment: string
+  /** Kept without Save: a draft (spec section 8). */
+  draft?: true
+}
+
+/** The item without its draft flag: the key goes, it is not set to undefined. */
+function saved(item: Annotation): Annotation {
+  const rest = { ...item }
+  delete rest.draft
+  return rest
 }
 
 export interface PageGroup {
@@ -44,6 +54,7 @@ export function addAnnotation(c: Collection, input: NewAnnotation, now: string):
     updatedAt: now,
     status: 'open',
     target: input.target,
+    ...(input.draft ? { draft: true as const } : {}),
   }
   return {
     ...c,
@@ -55,18 +66,55 @@ export function addAnnotation(c: Collection, input: NewAnnotation, now: string):
 }
 
 /**
- * A new comment; a done item whose comment changes is open again (spec section 5). The same
- * collection for an unknown id or the same text.
+ * A new comment (spec sections 5 and 8). Saved: a draft becomes a pin once it has a comment,
+ * and a done item whose comment changes is open again. Kept (`keep`, the popover closed
+ * without Save): a draft stays one, a pin keeps its status. A pin's comment is never emptied.
+ * The same collection for an unknown id or nothing to change.
  */
-export function updateComment(c: Collection, id: string, comment: string, now: string): Collection {
+export function updateComment(
+  c: Collection,
+  id: string,
+  comment: string,
+  now: string,
+  { keep = false }: { keep?: boolean } = {},
+): Collection {
   const found = c.items.find((item) => item.id === id)
-  if (!found || found.comment === comment) return c
-  const status = found.status === 'done' ? 'open' : found.status
+  if (!found || (!found.draft && comment.trim() === '')) return c
+  const draft = found.draft && (keep || comment.trim() === '')
+  if (found.comment === comment && !!found.draft === !!draft) return c
+  const status =
+    !keep && found.status === 'done' && found.comment !== comment ? 'open' : found.status
+  const next: Annotation = { ...saved(found), comment, status, updatedAt: now }
   return {
     ...c,
     items: c.items.map((item) =>
-      item === found ? { ...item, comment, status, updatedAt: now } : item,
+      item === found ? (draft ? { ...next, draft: true } : next) : item,
     ),
+  }
+}
+
+/**
+ * A dictation's text, after what the item holds (spec section 9): a draft becomes a pin, a
+ * done item is open again, a deleted one stays deleted. `rest` is the whole text when it did
+ * not all go in (the item is gone, or the comment limit cut it), so nothing of it is lost.
+ */
+export function fillTranscript(
+  c: Collection,
+  id: string,
+  text: string,
+  now: string,
+): { collection: Collection; rest?: string } {
+  const found = c.items.find((item) => item.id === id)
+  if (!found) return { collection: c, rest: text }
+  if (text.trim() === '') return { collection: c }
+  const end = found.comment.length
+  const { value, cut } = insertTranscript(found.comment, end, end, text.trim())
+  if (value === found.comment && !found.draft) return { collection: c, rest: text }
+  const status = found.status === 'done' ? 'open' : found.status
+  const next: Annotation = { ...saved(found), comment: value, status, updatedAt: now }
+  return {
+    collection: { ...c, items: c.items.map((item) => (item === found ? next : item)) },
+    ...(cut ? { rest: text } : {}),
   }
 }
 
@@ -86,8 +134,11 @@ export function setStatus(c: Collection, id: string, status: Status, now: string
  */
 export function markCopied(c: Collection, ids: readonly string[], now: string): Collection {
   const copied = new Set(ids)
-  const lastCopy = ids.filter((id) => c.items.some((item) => item.id === id))
-  const opens = c.items.filter((item) => copied.has(item.id) && item.status === 'open')
+  // Drafts are never copied (spec section 8).
+  const lastCopy = ids.filter((id) => c.items.some((item) => item.id === id && !item.draft))
+  const opens = c.items.filter(
+    (item) => copied.has(item.id) && item.status === 'open' && !item.draft,
+  )
   if (opens.length === 0 && lastCopy.join() === c.lastCopy.join()) return c
   return {
     ...c,

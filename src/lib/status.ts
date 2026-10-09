@@ -1,19 +1,29 @@
 // How a status looks, in the panel and on the page (spec section 8). White numbers keep at
 // least 4.5:1 contrast on each of these.
 
-import type { Status } from './collection/model'
+import { type Annotation, type Status, STATUSES } from './collection/model'
 
-export const STATUS_NAME: Record<Status, string> = {
+/** A status as it looks: an open draft is grey (spec section 8). */
+export type Tone = Status | 'draft'
+export const TONES: readonly Tone[] = [...STATUSES, 'draft']
+
+export function toneOf(item: Pick<Annotation, 'status' | 'draft'>): Tone {
+  return item.status === 'open' && item.draft ? 'draft' : item.status
+}
+
+export const STATUS_NAME: Record<Tone, string> = {
   open: 'Open',
   done: 'Done',
   deleted: 'Deleted',
+  draft: 'Draft',
 }
 
 /** Tailwind classes of a numbered badge or pin. */
-export const STATUS_BADGE: Record<Status, string> = {
+export const STATUS_BADGE: Record<Tone, string> = {
   open: 'bg-blue-600',
   done: 'bg-green-700',
   deleted: 'bg-red-600',
+  draft: 'bg-zinc-500',
 }
 
 /**
@@ -22,7 +32,7 @@ export const STATUS_BADGE: Record<Status, string> = {
  * lines of a text being edited. A new pin is open: blue.
  */
 export const STATUS_MARK: Record<
-  Status,
+  Tone,
   { line: string; fill: string; soft: string; label: string; lines: string }
 > = {
   open: {
@@ -45,5 +55,12 @@ export const STATUS_MARK: Record<
     soft: 'bg-red-600/5',
     label: 'bg-red-600',
     lines: 'bg-red-600/25',
+  },
+  draft: {
+    line: 'outline-zinc-500',
+    fill: 'bg-zinc-500/10',
+    soft: 'bg-zinc-500/5',
+    label: 'bg-zinc-500',
+    lines: 'bg-zinc-500/25',
   },
 }

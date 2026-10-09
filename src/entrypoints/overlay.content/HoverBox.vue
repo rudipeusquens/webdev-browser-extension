@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed } from 'vue'
-import type { Rect, Status } from '@/lib/collection/model'
-import { STATUS_MARK } from '@/lib/status'
+import type { Rect } from '@/lib/collection/model'
+import { STATUS_MARK, type Tone } from '@/lib/status'
 
 const props = withDefaults(
   defineProps<{
@@ -9,8 +9,8 @@ const props = withDefaults(
     label?: string
     /** hover: outlined element; selected: the item being commented; area: a dragged area. */
     tone?: 'hover' | 'selected' | 'area'
-    /** The status of the pin it marks: its color. Without one (a new target), open. */
-    status?: Status
+    /** The tone of the pin it marks: its color. Without one (a new target), open. */
+    status?: Tone
     testid?: string
   }>(),
   { label: undefined, tone: 'hover', status: 'open', testid: 'overlay-hover' },

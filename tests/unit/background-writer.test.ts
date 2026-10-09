@@ -282,3 +282,57 @@ describe('the split of the old collection', () => {
     ])
   })
 })
+
+describe('drafts and dictations', () => {
+  beforeEach(() => fakeBrowser.reset())
+
+  const draft = (id: string, comment = ''): CollectionMessage => ({
+    type: 'annotation:add',
+    ...elementInput(id, URL_A, comment),
+    draft: true,
+  })
+
+  it('stores a draft, keeps it a draft, and makes it a pin when saved; each an undo step', async () => {
+    const { write } = createWriter(() => 'T1')
+    const labels: string[] = []
+    const step = async (msg: CollectionMessage) => {
+      expect(await write(SITE, msg)).toEqual({ ok: true })
+      labels.push((await loadLabels(SITE)).undo ?? '')
+    }
+    await step(draft('d1'))
+    expect((await loadSite(SITE)).items[0]).toMatchObject({ comment: '', draft: true })
+    await step({ type: 'annotation:update', site: SITE, id: 'd1', comment: 'Later', keep: true })
+    expect((await loadSite(SITE)).items[0]).toMatchObject({ comment: 'Later', draft: true })
+    await step({ type: 'annotation:update', site: SITE, id: 'd1', comment: 'Later' })
+    expect(Object.keys((await loadSite(SITE)).items[0] ?? {})).not.toContain('draft')
+    expect(labels).toEqual(['Add draft 1', 'Edit draft 1', 'Save pin 1'])
+  })
+
+  it('fills a dictation into its pin as one undo step', async () => {
+    const { write, fill } = createWriter(() => 'T1')
+    await write(SITE, draft('d1', 'Typed'))
+    expect(await fill(SITE, 'd1', 'and dictated.')).toEqual({ ok: true })
+    const item = (await loadSite(SITE)).items[0]
+    expect(item?.comment).toBe('Typed and dictated.')
+    expect(Object.keys(item ?? {})).not.toContain('draft')
+    expect((await loadLabels(SITE)).undo).toBe('Dictation into pin 1')
+  })
+
+  it('gives the text back when its pin is gone or the site is full, and writes nothing', async () => {
+    const { write, fill } = createWriter(() => 'T1', { siteBudget: 3_000 })
+    expect(await fill(SITE, 'gone', 'Lost words.')).toEqual({ ok: true, rest: 'Lost words.' })
+    await write(SITE, add('a1', 'Short.'))
+    const before = await loadSite(SITE)
+    const long = 'word '.repeat(600).trim()
+    expect(await fill(SITE, 'a1', long)).toEqual({ ok: true, rest: long })
+    expect(await loadSite(SITE)).toEqual(before)
+  })
+
+  it('gives the whole text back when the comment limit cut it', async () => {
+    const { write, fill } = createWriter(() => 'T1')
+    await write(SITE, draft('d1'))
+    const long = 'word '.repeat(1200).trim()
+    expect(await fill(SITE, 'd1', long)).toEqual({ ok: true, rest: long })
+    expect([...((await loadSite(SITE)).items[0]?.comment ?? '')].length).toBeLessThanOrEqual(5000)
+  })
+})

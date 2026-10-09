@@ -147,6 +147,27 @@ describe('isCollection', () => {
   it.each([null, undefined, 'x', 1, [], {}])('rejects %j', (value) => {
     expect(isCollection(value)).toBe(false)
   })
+
+  it('accepts drafts, also with an empty comment', () => {
+    expect(
+      isCollection(mutated((c) => c.items[0] && Object.assign(c.items[0], { draft: true }))),
+    ).toBe(true)
+    expect(
+      isCollection(
+        mutated((c) => c.items[0] && Object.assign(c.items[0], { draft: true, comment: '' })),
+      ),
+    ).toBe(true)
+  })
+
+  it.each([
+    ['an empty comment on a pin', (c: Collection) => c.items[0] && (c.items[0].comment = ' ')],
+    [
+      'a draft flag that is not true',
+      (c: Collection) => c.items[0] && Object.assign(c.items[0], { draft: false }),
+    ],
+  ])('rejects %s', (_, change) => {
+    expect(isCollection(mutated(change))).toBe(false)
+  })
 })
 
 describe('isLegacyCollection', () => {

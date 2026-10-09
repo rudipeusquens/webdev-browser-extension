@@ -169,18 +169,26 @@ export function isComment(x: unknown): x is string {
   return isText(x, LIMITS.comment) && (x as string).trim() !== ''
 }
 
+/** A draft's comment, which may still be empty (spec section 8). */
+export const isDraftComment = (x: unknown): x is string => isText(x, LIMITS.comment)
+
 const isTimestamp = (x: unknown): x is string => isText(x, 40, 1)
 
 const ITEM_KEYS = ['id', 'number', 'pageKey', 'comment', 'createdAt', 'updatedAt', 'target']
 
-/** An item without its status, as milestones 2–5 stored it. */
-function isItem(x: unknown, keys: string[]): x is Omit<Annotation, 'status'> {
+/** An item without its status, as milestones 2–5 stored it; `optional` keys may follow. */
+function isItem(
+  x: unknown,
+  keys: string[],
+  optional: string[] = [],
+): x is Omit<Annotation, 'status'> {
   return (
-    hasKeys(x, keys) &&
+    hasKeys(x, keys, optional) &&
     isAnnotationId(x.id) &&
     isCount(x.number, 1) &&
     isText(x.pageKey, LIMITS.url, 1) &&
-    isComment(x.comment) &&
+    (x.draft === undefined || x.draft === true) &&
+    (x.draft ? isDraftComment(x.comment) : isComment(x.comment)) &&
     isTimestamp(x.createdAt) &&
     isTimestamp(x.updatedAt) &&
     isTarget(x.target)
@@ -190,7 +198,7 @@ function isItem(x: unknown, keys: string[]): x is Omit<Annotation, 'status'> {
 export const isStatus = (x: unknown): x is Status => STATUSES.includes(x as Status)
 
 export function isAnnotation(x: unknown): x is Annotation {
-  return isItem(x, [...ITEM_KEYS, 'status']) && isStatus((x as Fields).status)
+  return isItem(x, [...ITEM_KEYS, 'status'], ['draft']) && isStatus((x as Fields).status)
 }
 
 export function isIdList(x: unknown, max: number): x is string[] {

@@ -24,6 +24,11 @@ describe('isMessage', () => {
   it.each([
     add,
     { type: 'annotation:update', site: 'http://localhost:3000', id: 'a1', comment: 'x' },
+    { ...add, comment: '', draft: true },
+    { ...add, draft: true },
+    { type: 'annotation:update', site: S, id: 'a1', comment: 'x', keep: true },
+    { type: 'annotation:update', site: S, id: 'a1', comment: '', keep: true },
+    { type: 'annotation:update', site: S, id: 'a1', comment: '' },
     { type: 'annotation:remove', site: 'file://', id: 'a1' },
     { type: 'collection:clear', site: 'https://example.com' },
     { type: 'annotation:restore', site: S, id: 'a1' },
@@ -66,7 +71,12 @@ describe('isMessage', () => {
     ['an unknown type', { type: 'annotation:delete', id: 'a1' }],
     ['a missing id', { type: 'annotation:remove', site: S }],
     ['a long id', { type: 'annotation:remove', site: S, id: 'a'.repeat(65) }],
-    ['an empty comment', { type: 'annotation:update', site: S, id: 'a1', comment: '  \n ' }],
+    ['an empty pin', { ...add, comment: '  \n ' }],
+    ['a draft flag that is not true', { ...add, draft: false }],
+    [
+      'a keep that is not true',
+      { type: 'annotation:update', site: S, id: 'a1', comment: 'x', keep: 1 },
+    ],
     [
       'a comment over 5000',
       { type: 'annotation:update', site: S, id: 'a1', comment: 'x'.repeat(5001) },

@@ -7,24 +7,25 @@
 // The page can see and remove them: that only removes the shading, the pins stay. Text inside
 // the page's own shadow roots is not shaded, since the rules do not reach into them.
 
-import { STATUSES, type Status } from '@/lib/collection/model'
+import { type Tone, TONES } from '@/lib/status'
 
-/** The status colors of the pins (src/lib/status.ts): blue-600, green-700, red-600. */
-const COLORS: Record<Status, string> = {
+/** The colors of the pins (src/lib/status.ts): blue-600, green-700, red-600, zinc-500. */
+const COLORS: Record<Tone, string> = {
   open: '37 99 235',
   done: '21 128 61',
   deleted: '220 38 38',
+  draft: '113 113 122',
 }
-const name = (status: Status, strong: boolean) => `webdev-pins-${status}${strong ? '-strong' : ''}`
-const NAMES = STATUSES.flatMap((status) => [name(status, false), name(status, true)])
-const RULES = STATUSES.map(
+const name = (status: Tone, strong: boolean) => `webdev-pins-${status}${strong ? '-strong' : ''}`
+const NAMES = TONES.flatMap((status) => [name(status, false), name(status, true)])
+const RULES = TONES.map(
   (status) =>
     `::highlight(${name(status, false)}) { background-color: rgb(${COLORS[status]} / 0.15); }\n` +
     `::highlight(${name(status, true)}) { background-color: rgb(${COLORS[status]} / 0.3); }`,
 ).join('\n')
 
-/** Pinned texts by status: `strong` ones are drawn stronger (their pin is hovered). */
-export type Marks = Partial<Record<Status, { normal: Range[]; strong: Range[] }>>
+/** Pinned texts by tone: `strong` ones are drawn stronger (their pin is hovered). */
+export type Marks = Partial<Record<Tone, { normal: Range[]; strong: Range[] }>>
 
 /** What the marks use of the page; tests pass plain objects. */
 export interface MarkSurface {
@@ -66,7 +67,7 @@ export function createTextMarks(surface: MarkSurface | undefined): TextMarks {
   return {
     set(marks) {
       try {
-        const empty = STATUSES.every(
+        const empty = TONES.every(
           (status) => !marks[status]?.normal.length && !marks[status]?.strong.length,
         )
         if (empty) return clear()
@@ -75,7 +76,7 @@ export function createTextMarks(surface: MarkSurface | undefined): TextMarks {
         if (!doc.adoptedStyleSheets.includes(sheet)) {
           doc.adoptedStyleSheets = [...doc.adoptedStyleSheets, sheet]
         }
-        for (const status of STATUSES) {
+        for (const status of TONES) {
           const { normal = [], strong = [] } = marks[status] ?? {}
           for (const [ranges, strongly] of [
             [normal, false],

@@ -11,6 +11,7 @@ import {
   hasKeys,
   isAnnotationId,
   isComment,
+  isDraftComment,
   isIdList as isIdSet,
   isObject,
   isPageInfo,
@@ -27,8 +28,20 @@ export const MODES: readonly Mode[] = ['browse', 'element', 'area']
  * the site whose collection it changes; `annotation:add` takes it from its page.
  */
 export type CollectionMessage =
-  | { type: 'annotation:add'; id: string; page: PageInfo; target: Target; comment: string }
-  | { type: 'annotation:update'; site: string; id: string; comment: string }
+  /** A new pin; `draft` when its popover closed without Save (the comment may be empty). */
+  | {
+      type: 'annotation:add'
+      id: string
+      page: PageInfo
+      target: Target
+      comment: string
+      draft?: true
+    }
+  /**
+   * A new comment. Saved, a draft becomes a pin once it has a comment; kept (`keep`, the
+   * popover closed without Save), a draft stays one and a pin keeps its status.
+   */
+  | { type: 'annotation:update'; site: string; id: string; comment: string; keep?: true }
   /** Marks the item deleted; only "Clear all" removes items. */
   | { type: 'annotation:remove'; site: string; id: string }
   /** Deleted → open. */
@@ -215,18 +228,21 @@ export function isBackgroundMessage(x: unknown): x is BackgroundMessage {
   switch (x.type) {
     case 'annotation:add':
       return (
-        hasKeys(x, ['type', 'id', 'page', 'target', 'comment']) &&
+        hasKeys(x, ['type', 'id', 'page', 'target', 'comment'], ['draft']) &&
         isAnnotationId(x.id) &&
         isPageInfo(x.page) &&
         isTarget(x.target) &&
-        isComment(x.comment)
+        (x.draft === undefined || x.draft === true) &&
+        (x.draft ? isDraftComment(x.comment) : isComment(x.comment))
       )
     case 'annotation:update':
+      // An empty comment saves nothing on a pin (ops.ts); a draft may stay empty.
       return (
-        hasKeys(x, ['type', 'site', 'id', 'comment']) &&
+        hasKeys(x, ['type', 'site', 'id', 'comment'], ['keep']) &&
         isSite(x.site) &&
         isAnnotationId(x.id) &&
-        isComment(x.comment)
+        (x.keep === undefined || x.keep === true) &&
+        isDraftComment(x.comment)
       )
     case 'annotation:remove':
     case 'annotation:restore':

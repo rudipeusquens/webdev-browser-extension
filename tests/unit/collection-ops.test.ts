@@ -5,6 +5,7 @@ import {
   clearAll,
   emptyBin,
   emptyCollection,
+  fillTranscript,
   groupByPage,
   markCopied,
   type NewAnnotation,
@@ -236,5 +237,117 @@ describe('groupByPage', () => {
     const shuffled = { ...c, items: [...c.items].reverse() }
     expect(groupByPage(shuffled)[0]?.items.map((i) => i.id)).toEqual(['a1', 'a2'])
     expect(shuffled.items.map((i) => i.id)).toEqual(['a2', 'a1'])
+  })
+})
+
+describe('drafts', () => {
+  const draft = (id: string, comment = ''): NewAnnotation => ({
+    ...elementInput(id, A, comment),
+    draft: true,
+  })
+
+  it('are open items with the flag, also without a comment', () => {
+    const c = build(draft('d1'))
+    expect(c.items[0]).toMatchObject({ id: 'd1', number: 1, status: 'open', draft: true })
+    expect(c.items[0]?.comment).toBe('')
+  })
+
+  it('carry no flag key at all when they are not drafts', () => {
+    const c = build(elementInput('a1', A))
+    expect(Object.keys(c.items[0] ?? {})).not.toContain('draft')
+  })
+
+  it('stay drafts when kept, and become pins when saved', () => {
+    const c = build(draft('d1', 'First words'))
+    const kept = updateComment(c, 'd1', 'More words', T2, { keep: true })
+    expect(kept.items[0]).toMatchObject({ comment: 'More words', draft: true })
+    const saved = updateComment(kept, 'd1', 'More words', T2)
+    expect(saved.items[0]?.comment).toBe('More words')
+    expect(Object.keys(saved.items[0] ?? {})).not.toContain('draft')
+  })
+
+  it('stay drafts when saved without a comment: the dictation brings it', () => {
+    const c = build(draft('d1'))
+    expect(updateComment(c, 'd1', '', T2)).toBe(c)
+  })
+
+  it('keeps an existing pin a pin, and its status, when kept', () => {
+    const done = setStatus(build(elementInput('a1', A)), 'a1', 'done', T1)
+    const kept = updateComment(done, 'a1', 'Changed', T2, { keep: true })
+    expect(kept.items[0]).toMatchObject({ comment: 'Changed', status: 'done' })
+    expect(Object.keys(kept.items[0] ?? {})).not.toContain('draft')
+  })
+
+  it('never empties the comment of a pin', () => {
+    const c = build(elementInput('a1', A))
+    expect(updateComment(c, 'a1', '', T2, { keep: true })).toBe(c)
+    expect(updateComment(c, 'a1', '', T2)).toBe(c)
+  })
+
+  it('are left alone by Copy as prompt, also when named', () => {
+    const c = build(elementInput('a1', A), draft('d1', 'Not yet'))
+    const copied = markCopied(c, ['a1', 'd1'], T2)
+    expect(copied.items.map((i) => i.status)).toEqual(['done', 'open'])
+    expect(copied.lastCopy).toEqual(['a1'])
+  })
+
+  it('go to Deleted with Clear all and come back as drafts', () => {
+    const cleared = clearAll(build(draft('d1', 'Later')), T2)
+    expect(cleared.items[0]).toMatchObject({ status: 'deleted', draft: true })
+    expect(setStatus(cleared, 'd1', 'open', T2).items[0]).toMatchObject({
+      status: 'open',
+      draft: true,
+    })
+  })
+})
+
+describe('fillTranscript', () => {
+  const draft = (id: string, comment = ''): NewAnnotation => ({
+    ...elementInput(id, A, comment),
+    draft: true,
+  })
+
+  it('appends the text with a space, and a draft becomes a pin', () => {
+    const c = build(draft('d1', 'Typed first'))
+    const { collection, rest } = fillTranscript(c, 'd1', 'then dictated.', T2)
+    expect(rest).toBeUndefined()
+    expect(collection.items[0]).toMatchObject({
+      comment: 'Typed first then dictated.',
+      updatedAt: T2,
+    })
+    expect(Object.keys(collection.items[0] ?? {})).not.toContain('draft')
+  })
+
+  it('fills an empty draft', () => {
+    const { collection } = fillTranscript(build(draft('d1')), 'd1', 'Make it blue.', T2)
+    expect(collection.items[0]?.comment).toBe('Make it blue.')
+  })
+
+  it('reopens a done pin and leaves a deleted one deleted', () => {
+    const done = setStatus(build(elementInput('a1', A)), 'a1', 'done', T1)
+    expect(fillTranscript(done, 'a1', 'More.', T2).collection.items[0]?.status).toBe('open')
+    const deleted = setStatus(done, 'a1', 'deleted', T1)
+    expect(fillTranscript(deleted, 'a1', 'More.', T2).collection.items[0]?.status).toBe('deleted')
+  })
+
+  it('gives back the whole text when the pin is gone', () => {
+    const c = build(elementInput('a1', A))
+    const { collection, rest } = fillTranscript(c, 'gone', 'Lost words.', T2)
+    expect(collection).toBe(c)
+    expect(rest).toBe('Lost words.')
+  })
+
+  it('cuts at the comment limit and gives back the whole text', () => {
+    const long = 'word '.repeat(1200).trim()
+    const { collection, rest } = fillTranscript(build(draft('d1', 'Start')), 'd1', long, T2)
+    const comment = collection.items[0]?.comment ?? ''
+    expect([...comment].length).toBeLessThanOrEqual(5000)
+    expect(comment.startsWith('Start word word')).toBe(true)
+    expect(rest).toBe(long)
+  })
+
+  it('changes nothing for an empty text', () => {
+    const c = build(draft('d1'))
+    expect(fillTranscript(c, 'd1', '   ', T2).collection).toBe(c)
   })
 })

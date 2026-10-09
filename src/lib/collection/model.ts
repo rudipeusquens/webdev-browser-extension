@@ -64,6 +64,12 @@ export interface Annotation {
   updatedAt: string
   status: Status
   target: Target
+  /**
+   * Never saved by the developer (spec section 8): kept when its popover closed without Save,
+   * or waiting for its dictation. Grey, and left out of Copy as prompt; the comment may be
+   * empty. The key is absent on every other item.
+   */
+  draft?: true
 }
 
 /** The items of one site (spec section 5), stored under `collection:<site>`. */

@@ -18,7 +18,7 @@ import {
 } from '@/lib/capture/text'
 import type { PageInfo, Rect, Status, Target } from '@/lib/collection/model'
 import { siteOf } from '@/lib/collection/site'
-import { STATUS_BADGE } from '@/lib/status'
+import { STATUS_BADGE, type Tone, toneOf } from '@/lib/status'
 import { type Filter, loadView, shows, watchView } from '@/lib/view'
 import { truncate } from '@/lib/text'
 import {
@@ -106,7 +106,7 @@ interface Draft {
   /** The page a new item was marked on: the app may navigate while the comment is written. */
   page?: PageInfo
   /** An existing item being edited. */
-  edit?: { id: string; number: number; comment: string; status: Status }
+  edit?: { id: string; number: number; comment: string; status: Status; draft?: true }
 }
 
 // This overlay, for the panel: a new injection (after an update, or where this one did not
@@ -291,16 +291,17 @@ const pins = computed(() => {
   return pinPositions(onPage).map(({ id, x, y }) => ({
     id,
     number: items.get(id)?.number,
-    tone: STATUS_BADGE[items.get(id)?.status ?? 'open'],
+    tone: STATUS_BADGE[toneOf(items.get(id) ?? { status: 'open' })],
     left: `${x}px`,
     top: `${y}px`,
   }))
 })
-/** Outline colors by status: drawn fully while its pin is hovered. */
-const OUTLINE: Record<Status, { normal: string; strong: string }> = {
+/** Outline colors by tone: drawn fully while its pin is hovered. */
+const OUTLINE: Record<Tone, { normal: string; strong: string }> = {
   open: { normal: 'border-blue-600/70', strong: 'border-blue-600' },
   done: { normal: 'border-green-700/70', strong: 'border-green-700' },
   deleted: { normal: 'border-red-600/70', strong: 'border-red-600' },
+  draft: { normal: 'border-zinc-500/70', strong: 'border-zinc-500' },
 }
 // A pin that goes away under the pointer (hidden, scrolled out of its box) gets no mouseleave.
 watch(pins, (current) => {
@@ -331,15 +332,15 @@ const outlines = computed(() => {
       borderBottomWidth: side(box.sides.bottom),
       borderLeftWidth: side(box.sides.left),
     }
-    const tone = OUTLINE[item.status][strong ? 'strong' : 'normal']
+    const tone = OUTLINE[toneOf(item)][strong ? 'strong' : 'normal']
     return [{ id: item.id, strong, tone, dashed: item.target.kind === 'area', style }]
   })
 })
-/** The status of the pin being edited, now: the panel may change it while its popover is open. */
-const editStatus = computed(() => {
+/** The tone of the pin being edited, now: the panel may change it while its popover is open. */
+const editStatus = computed((): Tone | undefined => {
   const edit = draft.value?.edit
   if (!edit) return undefined
-  return collection.value?.items.find((item) => item.id === edit.id)?.status ?? edit.status
+  return toneOf(collection.value?.items.find((item) => item.id === edit.id) ?? edit)
 })
 const highlight = computed(() => {
   void frame.value
@@ -348,7 +349,7 @@ const highlight = computed(() => {
   const rect = placement?.rect()
   // A target without a box (not rendered) has nothing to outline.
   if (!item || !rect || rect.width === 0 || rect.height === 0) return null
-  return { rect, label: `Pin ${item.number}`, status: item.status }
+  return { rect, label: `Pin ${item.number}`, status: toneOf(item) }
 })
 
 // Pinned texts are shaded by the browser: set again when what is pinned, hovered or edited
@@ -364,7 +365,7 @@ watch(
         const range = placements.value.get(item.id)?.range
         // A text not found again has its pin at its container, and no shading.
         if (!range || item.id === editing) continue
-        const tone = (marks[item.status] ??= { normal: [], strong: [] })
+        const tone = (marks[toneOf(item)] ??= { normal: [], strong: [] })
         ;(item.id === hoveredPin.value ? tone.strong : tone.normal).push(range)
       }
     }
@@ -585,7 +586,13 @@ function openEdit(id: string): boolean {
     rect,
     range,
     label: labelOf(item.target, el),
-    edit: { id, number: item.number, comment: item.comment, status: item.status },
+    edit: {
+      id,
+      number: item.number,
+      comment: item.comment,
+      status: item.status,
+      ...(item.draft ? { draft: true as const } : {}),
+    },
   })
   return true
 }
