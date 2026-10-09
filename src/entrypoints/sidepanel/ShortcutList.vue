@@ -10,6 +10,7 @@ defineProps<{ toolbar: string }>()
 const groups = computed(() => shortcutGroups(isMacPlatform(currentPlatform())))
 const NOTES: Record<string, string> = {
   'On the page': 'While no field of the page has the focus.',
+  'Browse mode': 'While this panel is open.',
 }
 
 function changeShortcut() {
