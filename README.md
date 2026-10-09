@@ -95,7 +95,7 @@ nothing syncs.
 4. Type the comment and press `Enter` (`Shift+Enter` for a new line), or dictate it. The mark
    gets a numbered pin, and the panel lists it.
 
-   <img src="docs/images/comment.png" width="336" alt="A link marked in element mode, with its comment popover: the tag, the component and the size, a comment field, the mic button and Save">
+   <img src="docs/images/comment.png" width="336" alt="A link marked in element mode, with its comment popover: the tag, the component and the size, a comment field, Delete, the mic button and Save">
 
 5. Go on, on this page and others of the same site. Then click **Copy as prompt** in the
    panel and paste into your agent.
