@@ -34,7 +34,7 @@ describe('queries', () => {
     expect(queryFirst(document, '#save')?.textContent).toBe('Save')
   })
 
-  it('search inside an element whose named controls shadow the query methods', () => {
+  it('search inside an element whose named control shadows the query method', () => {
     const form = document.querySelector('form') as HTMLFormElement
     shadow(form, 'querySelector')
     expect(queryFirst(form, 'p')?.textContent).toBe('Text')
