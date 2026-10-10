@@ -34,6 +34,11 @@ import { loadKey } from '@/lib/voice/key'
 /** The page's context menu entry: it activates the extension like the toolbar icon. */
 const MENU_ENTRY = 'annotate'
 
+/** A refusal: its shape is the same in every reply type of the background. */
+const refuse = (error: string): Extract<Reply, { ok: false }> => ({ ok: false, error })
+/** Done, with nothing more to say. */
+const ok = (): Reply => ({ ok: true })
+
 export default defineBackground(() => {
   const { write, fill, migrate, undo, redo } = createWriter()
   // Queued before any write: the collection of milestones 2–5 becomes one per site.
@@ -84,13 +89,10 @@ export default defineBackground(() => {
     try {
       if (!(await overlayRuns(tabId))) await inject(tabId)
     } catch {
-      return {
-        ok: false,
-        error: 'Chrome does not let the extension on this page yet: click the toolbar icon.',
-      }
+      return refuse('Chrome does not let the extension on this page yet: click the toolbar icon.')
     }
     await clearBlocked(tabId).catch(() => undefined)
-    return { ok: true }
+    return ok()
   }
 
   /** The context menu entry only ever opens the panel and starts the overlay. */
@@ -178,15 +180,15 @@ export default defineBackground(() => {
       await setMenuEntry(contextMenu)
     }).catch(() => undefined)
 
+  /** A tab that loads another page or closes: its blocked and failed marks go. */
+  const forgetTab = (tabId: number) => {
+    void clearBlocked(tabId).catch(() => undefined)
+    void clearFailed(tabId).catch(() => undefined)
+  }
   browser.tabs.onUpdated.addListener((tabId, info) => {
-    if (info.status !== 'loading') return
-    void clearBlocked(tabId).catch(() => undefined)
-    void clearFailed(tabId).catch(() => undefined)
+    if (info.status === 'loading') forgetTab(tabId)
   })
-  browser.tabs.onRemoved.addListener((tabId) => {
-    void clearBlocked(tabId).catch(() => undefined)
-    void clearFailed(tabId).catch(() => undefined)
-  })
+  browser.tabs.onRemoved.addListener((tabId) => forgetTab(tabId))
 
   // Remembered sites follow Chrome's grants, which can change in chrome://extensions, and
   // their registration is written again whenever the extension starts.
@@ -213,12 +215,12 @@ export default defineBackground(() => {
     const page = pages[pageKey]
     const origin = page && new URL(page.url).origin
     if (!page || !origin || !isSiteOrigin(origin)) {
-      return { ok: false, error: 'This page cannot be opened from here.' }
+      return refuse('This page cannot be opened from here.')
     }
     // The open popover is kept first; the page stays when it cannot be (the popover says why).
     const leave = await overlayLetsGo(tabId)
-    if (leave === 'kept') return { ok: false, error: PIN_NOT_KEPT }
-    if (leave === 'busy') return { ok: false, error: 'The page is busy. Try again in a moment.' }
+    if (leave === 'kept') return refuse(PIN_NOT_KEPT)
+    if (leave === 'busy') return refuse('The page is busy. Try again in a moment.')
     return goTo(tabId, page.url, await sites.isRemembered(origin))
   }
 
@@ -231,7 +233,7 @@ export default defineBackground(() => {
         const tabId = sender.tab?.id
         const { documentId } = sender
         if (tabId === undefined || sender.frameId !== 0 || !documentId) {
-          return { ok: false, error: 'Origins are read for a page.' } satisfies OriginReply
+          return refuse('Origins are read for a page.') satisfies OriginReply
         }
         return readOrigins(tabId, documentId, message.selectors).then(
           (origins) => ({ ok: true, origins }) satisfies OriginReply,
@@ -239,111 +241,85 @@ export default defineBackground(() => {
       }
       case 'anchors:report':
         if (pageSite(sender) !== siteOf(message.pageKey)) {
-          return { ok: false, error: 'Reports come from a page of their site.' } satisfies Reply
+          return refuse('Reports come from a page of their site.')
         }
-        return recordAnchors(message).then(() => ({ ok: true }) satisfies Reply)
+        return recordAnchors(message).then(ok)
       case 'site:remember':
       case 'site:forget':
-        if (!isPanelSender(sender))
-          return { ok: false, error: 'Sites are set in the panel.' } satisfies Reply
+        if (!isPanelSender(sender)) return refuse('Sites are set in the panel.')
         return message.type === 'site:remember'
           ? sites.remember(message.origin)
           : sites.forget(message.origin)
       case 'history:undo':
       case 'history:redo':
-        if (!isPanelSender(sender)) {
-          return { ok: false, error: 'Undo and Redo are buttons of the panel.' } satisfies Reply
-        }
+        if (!isPanelSender(sender)) return refuse('Undo and Redo are buttons of the panel.')
         return message.type === 'history:undo' ? undo(message.site) : redo(message.site)
       case 'view:set':
-        if (!isPanelSender(sender)) {
-          return { ok: false, error: 'The filter is set in the panel.' } satisfies Reply
-        }
-        return browser.storage.local
-          .set({ [VIEW_KEY]: { filter: message.filter } })
-          .then(() => ({ ok: true }) satisfies Reply)
+        if (!isPanelSender(sender)) return refuse('The filter is set in the panel.')
+        return browser.storage.local.set({ [VIEW_KEY]: { filter: message.filter } }).then(ok)
       case 'settings:set':
-        if (!isPanelSender(sender)) {
-          return { ok: false, error: 'Settings are set in the panel.' } satisfies Reply
-        }
+        if (!isPanelSender(sender)) return refuse('Settings are set in the panel.')
         return sites.setOption(message.key, message.value).then((reply) => {
           if (message.key === 'contextMenu') void syncMenuEntry()
           return reply
         })
       case 'tab:start':
-        if (!isPanelSender(sender)) {
-          return { ok: false, error: 'The overlay is started from the panel.' } satisfies Reply
-        }
+        if (!isPanelSender(sender)) return refuse('The overlay is started from the panel.')
         return startFromPanel(message.tabId)
       case 'tab:go':
-        if (!isPanelSender(sender))
-          return { ok: false, error: 'Pages are opened from the panel.' } satisfies Reply
+        if (!isPanelSender(sender)) return refuse('Pages are opened from the panel.')
         return openPage(message.tabId, message.pageKey)
       case 'annotation:add': {
         const site = siteOf(message.page.url)
-        if (pageSite(sender) !== site) {
-          return { ok: false, error: 'Pins are added from a page of their site.' } satisfies Reply
-        }
+        if (pageSite(sender) !== site) return refuse('Pins are added from a page of their site.')
         return write(site, message)
       }
       case 'annotation:update':
         if (pageSite(sender) !== message.site) {
-          return { ok: false, error: 'Pins are changed on a page of their site.' } satisfies Reply
+          return refuse('Pins are changed on a page of their site.')
         }
         return write(message.site, message)
       case 'annotation:remove':
       case 'annotation:restore':
         if (pageSite(sender) !== message.site && !isPanelSender(sender)) {
-          return {
-            ok: false,
-            error: 'Pins are deleted and restored on their site or in the panel.',
-          } satisfies Reply
+          return refuse('Pins are deleted and restored on their site or in the panel.')
         }
         return write(message.site, message)
       case 'annotation:reopen':
       case 'collection:copied':
-        if (!isPanelSender(sender)) {
-          return { ok: false, error: 'This is a button of the panel.' } satisfies Reply
-        }
+        if (!isPanelSender(sender)) return refuse('This is a button of the panel.')
         return write(message.site, message)
       case 'overlay:failed': {
         // The overlay runs in the top frame of a tab only.
         const tabId = sender.tab?.id
         if (tabId === undefined || sender.frameId !== 0) {
-          return { ok: false, error: 'Only an overlay reports its start.' } satisfies Reply
+          return refuse('Only an overlay reports its start.')
         }
-        return markFailed(tabId).then(() => ({ ok: true }) satisfies Reply)
+        return markFailed(tabId).then(ok)
       }
       case 'voice:set':
       case 'voice:key:save':
       case 'voice:key:remove':
       case 'voice:key:test':
-        if (!isPanelSender(sender)) {
-          return { ok: false, error: 'Voice is set up in the panel.' } satisfies Reply
-        }
+        if (!isPanelSender(sender)) return refuse('Voice is set up in the panel.')
         return setVoice(message)
       case 'voice:ready':
         // Only whether a key is saved: `Space` starts a dictation then (spec section 8).
         if (sender.tab?.id === undefined || sender.frameId !== 0) {
-          return { ok: false, error: 'Only a comment popover asks for this.' } satisfies Reply
+          return refuse('Only a comment popover asks for this.')
         }
         return loadKey().then((key) => ({ ok: true, ready: !!key }) satisfies VoiceReadyReply)
       case 'dictation:retry':
       case 'dictation:dismiss':
         if (pageSite(sender) !== message.site && !isPanelSender(sender)) {
-          return {
-            ok: false,
-            error: 'Dictations are retried on their site or in the panel.',
-          } satisfies Reply
+          return refuse('Dictations are retried on their site or in the panel.')
         }
         return message.type === 'dictation:retry'
           ? voice.retryPin(message.site, message.id)
           : voice.dismissPin(message.site, message.id)
       case 'note:retry':
       case 'note:delete':
-        if (!isPanelSender(sender)) {
-          return { ok: false, error: 'Notes are buttons of the panel.' } satisfies Reply
-        }
+        if (!isPanelSender(sender)) return refuse('Notes are buttons of the panel.')
         return message.type === 'note:retry'
           ? voice.retryNote(message.id)
           : voice.deleteNote(message.id)
@@ -351,7 +327,7 @@ export default defineBackground(() => {
       case 'voice:settings': {
         const { tab } = sender
         if (tab?.id === undefined || sender.frameId !== 0) {
-          return { ok: false, error: 'Only a comment popover asks for this.' } satisfies Reply
+          return refuse('Only a comment popover asks for this.')
         }
         if (message.type === 'voice:grant') {
           return browser.tabs
@@ -361,24 +337,18 @@ export default defineBackground(() => {
               index: tab.index + 1,
               openerTabId: tab.id,
             })
-            .then(() => ({ ok: true }) satisfies Reply)
+            .then(ok)
         }
         // Inside the click's gesture: nothing may be awaited before this call.
         browser.sidePanel.open({ windowId: tab.windowId }).catch(() => undefined)
         const view: PanelView = { windowId: tab.windowId, view: 'settings', at: Date.now() }
-        return browser.storage.session
-          .set({ [PANEL_VIEW_KEY]: view })
-          .then(() => ({ ok: true }) satisfies Reply)
+        return browser.storage.session.set({ [PANEL_VIEW_KEY]: view }).then(ok)
       }
       case 'collection:clear':
-        if (!isPanelSender(sender)) {
-          return { ok: false, error: 'Clear all is a button of the panel.' } satisfies Reply
-        }
+        if (!isPanelSender(sender)) return refuse('Clear all is a button of the panel.')
         return write(message.site, message)
       case 'collection:empty-bin': {
-        if (!isPanelSender(sender)) {
-          return { ok: false, error: 'Empty bin is a button of the panel.' } satisfies Reply
-        }
+        if (!isPanelSender(sender)) return refuse('Empty bin is a button of the panel.')
         const { site } = message
         // The "Not found" marks of what went go with it.
         return loadSite(site).then(async ({ items }) => {
@@ -399,7 +369,7 @@ export default defineBackground(() => {
     if (sender.id !== browser.runtime.id || !isBackgroundMessage(message)) return
     // Chrome 116 ignores promises returned from this listener: answer via sendResponse.
     void Promise.resolve(answer(message, sender)).then(sendResponse, () =>
-      sendResponse({ ok: false, error: 'Something went wrong.' } satisfies Reply),
+      sendResponse(refuse('Something went wrong.')),
     )
     return true
   })
