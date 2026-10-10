@@ -20,10 +20,7 @@ export const SEEN_FOR = 500
  * True once `target` has been seen for `SEEN_FOR`; `onCovered` is called whenever the
  * browser reports something over it.
  */
-export function useUnobscured(
-  target: Ref<Element | null>,
-  onCovered: () => void = () => undefined,
-): Ref<boolean> {
+export function useUnobscured(target: Ref<Element | null>, onCovered: () => void): Ref<boolean> {
   // Unknown until the first report: held back, as a cover might be there from the start.
   const unobscured = ref(!TRACKS_VISIBILITY)
   let observer: IntersectionObserver | undefined
