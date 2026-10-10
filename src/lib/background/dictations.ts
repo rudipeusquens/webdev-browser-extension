@@ -4,17 +4,12 @@
 import { browser } from 'wxt/browser'
 import { loadStored, setOrRemove } from '../storage'
 import { type JobView, JOBS_PREFIX, jobsKey, parseJobs } from '../voice/jobs'
+import { serial } from './serial'
 
 export type DictationsWriter = ReturnType<typeof createDictations>
 
 export function createDictations() {
-  let queue: Promise<unknown> = Promise.resolve()
-
-  function inOrder<T>(task: () => Promise<T>): Promise<T> {
-    const run = queue.then(task)
-    queue = run.catch(() => undefined)
-    return run
-  }
+  const inOrder = serial()
 
   return {
     /** The state of the pin `id` of `site`; null when its dictation is over. */

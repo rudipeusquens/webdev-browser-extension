@@ -10,6 +10,7 @@ import { createSites, OVERLAY_SCRIPT } from '@/lib/background/sites'
 import { clearBlocked, clearFailed, markBlocked, markFailed } from '@/lib/background/tab-status'
 import { createVoice } from '@/lib/background/voice'
 import { isPanelSender, pageSite } from '@/lib/background/senders'
+import { serial } from '@/lib/background/serial'
 import { setVoice } from '@/lib/background/voice-settings'
 import { createWriter } from '@/lib/background/writer'
 import { siteOf } from '@/lib/collection/site'
@@ -170,14 +171,12 @@ export default defineBackground(() => {
 
   // One update of the entry at a time, each with the option as stored when it runs: turned
   // on and off at once, the entry ends as the option does.
-  let menuQueue: Promise<void> = Promise.resolve()
-  const syncMenuEntry = () => {
-    menuQueue = menuQueue
-      .then(() => loadSettings())
-      .then(({ contextMenu }) => setMenuEntry(contextMenu))
-      .catch(() => undefined)
-    return menuQueue
-  }
+  const menuInOrder = serial()
+  const syncMenuEntry = () =>
+    menuInOrder(async () => {
+      const { contextMenu } = await loadSettings()
+      await setMenuEntry(contextMenu)
+    }).catch(() => undefined)
 
   browser.tabs.onUpdated.addListener((tabId, info) => {
     if (info.status !== 'loading') return

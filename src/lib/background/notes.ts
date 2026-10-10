@@ -12,17 +12,12 @@ import {
   parseNotes,
 } from '../notes/model'
 import { jsonBytes, loadStored, setOrRemove } from '../storage'
+import { serial } from './serial'
 
 export type NotesWriter = ReturnType<typeof createNotes>
 
 export function createNotes(now = () => new Date().toISOString()) {
-  let queue: Promise<unknown> = Promise.resolve()
-
-  function inOrder<T>(task: () => Promise<T>): Promise<T> {
-    const run = queue.then(task)
-    queue = run.catch(() => undefined)
-    return run
-  }
+  const inOrder = serial()
 
   const read = () => loadStored(NOTES_KEY, parseNotes)
 

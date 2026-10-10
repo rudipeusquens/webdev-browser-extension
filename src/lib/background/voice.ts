@@ -31,6 +31,7 @@ import type { DictationsWriter } from './dictations'
 import type { NotesWriter } from './notes'
 import type { Filled } from './writer'
 import { isPanelSender, pageSite } from './senders'
+import { serial } from './serial'
 
 type Port = Browser.runtime.Port
 
@@ -106,12 +107,7 @@ export function createVoice(deps: VoiceDeps) {
   /** Numbers the documents, so each port is matched to the document that was opened for it. */
   let documents = 0
   /** Document changes one at a time: Chrome allows a single offscreen document. */
-  let queue: Promise<unknown> = Promise.resolve()
-  const inOrder = (task: () => Promise<void>) => {
-    const run = queue.then(task)
-    queue = run.catch(() => undefined)
-    return run
-  }
+  const inOrder = serial()
 
   const hasDocument = async () =>
     (await browser.runtime.getContexts({ contextTypes: ['OFFSCREEN_DOCUMENT' as never] })).length >

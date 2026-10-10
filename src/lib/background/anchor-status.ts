@@ -8,6 +8,7 @@ import { loadSites } from '../collection/store'
 import { isAnnotationId } from '../collection/validate'
 import type { AnchorMessage } from '../messages'
 import { loadStored, watchStored } from '../storage'
+import { serial } from './serial'
 
 export const MISSING_KEY = 'missing'
 
@@ -32,9 +33,9 @@ export async function forgetMissing(ids: Iterable<string>): Promise<void> {
  * items of its own page, and ids of items that no longer exist are dropped.
  */
 export function createAnchorStore() {
-  let queue: Promise<unknown> = Promise.resolve()
-  return (report: Omit<AnchorMessage, 'type'>): Promise<void> => {
-    const run = queue.then(async () => {
+  const inOrder = serial()
+  return (report: Omit<AnchorMessage, 'type'>): Promise<void> =>
+    inOrder(async () => {
       const site = siteOf(report.pageKey)
       const sites = await loadSites()
       const items = sites.find((c) => c.site === site)?.items ?? []
@@ -48,7 +49,4 @@ export function createAnchorStore() {
       const kept = [...missing].filter((id) => existing.has(id))
       await browser.storage.session.set({ [MISSING_KEY]: kept })
     })
-    queue = run.catch(() => undefined)
-    return run
-  }
 }

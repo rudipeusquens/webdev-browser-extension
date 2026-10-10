@@ -19,6 +19,7 @@ import { jsonBytes, setOrRemove } from '../storage'
 import { isLegacyCollection } from '../collection/validate'
 import type { CollectionMessage, Reply } from '../messages'
 import { applyStep, forgetHistory, loadHistory, saveHistory, stepBetween } from './history'
+import { serial } from './serial'
 
 const GONE = 'This pin no longer exists.'
 
@@ -129,13 +130,7 @@ export function createWriter(
   now = () => new Date().toISOString(),
   { siteBudget = SITE_BUDGET }: { siteBudget?: number } = {},
 ) {
-  let queue: Promise<unknown> = Promise.resolve()
-
-  function inOrder<T>(task: () => Promise<T>): Promise<T> {
-    const run = queue.then(task)
-    queue = run.catch(() => undefined)
-    return run
-  }
+  const inOrder = serial()
 
   /** A new change: one more undo step, and nothing left to redo. */
   async function record(site: string, step: ReturnType<typeof stepBetween>): Promise<void> {
