@@ -1,5 +1,6 @@
 import { onBeforeUnmount, onMounted, type Ref, ref } from 'vue'
 import { browser } from 'wxt/browser'
+import { keepNewest } from '@/composables/use-stored'
 import type { BackgroundMessage } from '@/lib/messages'
 import { type Filter, loadView, watchView } from '@/lib/view'
 
@@ -9,23 +10,17 @@ import { type Filter, loadView, watchView } from '@/lib/view'
  */
 export function useView(): { filter: Ref<Filter>; choose: (next: Filter) => void } {
   const filter = ref<Filter>('open')
-  let changed = false
+  const set = keepNewest((next: Filter) => (filter.value = next))
   let stop: (() => void) | undefined
 
   onMounted(async () => {
-    stop = watchView((view) => {
-      changed = true
-      filter.value = view.filter
-    })
-    const loaded = await loadView()
-    // A change that arrived while loading is newer than what was loaded.
-    if (!changed) filter.value = loaded.filter
+    stop = watchView((view) => set.changed(view.filter))
+    set.loaded((await loadView()).filter)
   })
   onBeforeUnmount(() => stop?.())
 
   function choose(next: Filter) {
-    changed = true
-    filter.value = next
+    set.changed(next)
     const message: BackgroundMessage = { type: 'view:set', filter: next }
     browser.runtime.sendMessage(message).catch(() => undefined)
   }

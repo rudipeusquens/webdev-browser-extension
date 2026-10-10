@@ -11,6 +11,7 @@ import {
 } from 'vue'
 import { browser, type Browser } from 'wxt/browser'
 import { useSiteCollection } from '@/composables/use-site-collection'
+import { keepNewest } from '@/composables/use-stored'
 import { useVoice } from '@/composables/use-voice'
 import { closestOf, deepActiveElement, queryFirst, tagOf } from '@/lib/capture/dom'
 import { findText } from '@/lib/capture/find-text'
@@ -153,14 +154,9 @@ const site = siteOf(location.href)
 const { collection } = useSiteCollection(ref(site))
 // The state of the pins' dictations while they are not done (spec section 8).
 const jobs = shallowRef<SiteJobs>({})
-let jobsChanged = false
-const stopJobs = watchStored(jobsKey(site), parseJobs, (now) => {
-  jobsChanged = true
-  jobs.value = now
-})
-void loadStored(jobsKey(site), parseJobs).then((now) => {
-  if (!jobsChanged) jobs.value = now
-})
+const setJobs = keepNewest((now: SiteJobs) => (jobs.value = now))
+const stopJobs = watchStored(jobsKey(site), parseJobs, setJobs.changed)
+void loadStored(jobsKey(site), parseJobs).then(setJobs.loaded)
 // The dictation belongs to the overlay, not to a popover: it outlives the popover's changes.
 const voice = useVoice({
   // Another recording wants to start (another tab, Rec): this one is handed over, if it
@@ -174,14 +170,9 @@ const voice = useVoice({
 })
 // The panel's filter: which items have pins (spec section 8).
 const filter = ref<Filter>('open')
-let filterChanged = false
-const stopView = watchView((view) => {
-  filterChanged = true
-  filter.value = view.filter
-})
-void loadView().then((view) => {
-  if (!filterChanged) filter.value = view.filter
-})
+const setFilter = keepNewest((now: Filter) => (filter.value = now))
+const stopView = watchView((view) => setFilter.changed(view.filter))
+void loadView().then((view) => setFilter.loaded(view.filter))
 // What was marked in this session, by item id: more precise than the stored selector.
 const live = shallowReactive(new Map<string, LiveAnchor>())
 let pointed: Element | null = null

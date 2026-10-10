@@ -3,6 +3,7 @@
 
 import { onBeforeUnmount, onMounted, type Ref, ref, shallowRef } from 'vue'
 import { browser, type Browser } from 'wxt/browser'
+import { keepNewest } from '@/composables/use-stored'
 import { isKeyChanged } from '@/lib/messages'
 import { loadKey, maskKey } from '@/lib/voice/key'
 import {
@@ -23,7 +24,7 @@ export function useVoiceSettings(): {
   const voice = shallowRef<VoiceSettings>(defaultVoiceSettings())
   const maskedKey = ref<string | null>(null)
   const microphone = ref<Microphone>('unknown')
-  let changed = false
+  const set = keepNewest((next: VoiceSettings) => (voice.value = next))
   let stop: (() => void) | undefined
   let permission: PermissionStatus | undefined
 
@@ -38,15 +39,10 @@ export function useVoiceSettings(): {
   }
 
   onMounted(async () => {
-    stop = watchVoiceSettings((next) => {
-      changed = true
-      voice.value = next
-    })
+    stop = watchVoiceSettings(set.changed)
     browser.runtime.onMessage.addListener(onKey)
     void readKey()
-    const loaded = await loadVoiceSettings()
-    // A change that arrived while loading is newer than what was loaded.
-    if (!changed) voice.value = loaded
+    set.loaded(await loadVoiceSettings())
     try {
       permission = await navigator.permissions.query({ name: 'microphone' as PermissionName })
       microphone.value = permission.state
