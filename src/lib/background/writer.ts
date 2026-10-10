@@ -15,6 +15,7 @@ import {
   updateComment,
 } from '../collection/ops'
 import { collectionKey, LEGACY_KEY, readSite, unreadableKey } from '../collection/store'
+import { jsonBytes, setOrRemove } from '../storage'
 import { isLegacyCollection } from '../collection/validate'
 import type { CollectionMessage, Reply } from '../messages'
 import { applyStep, forgetHistory, loadHistory, saveHistory, stepBetween } from './history'
@@ -115,8 +116,7 @@ async function current(site: string): Promise<Collection> {
 /** An empty collection is the default: its key goes. */
 async function save(c: Collection): Promise<void> {
   const key = collectionKey(c.site)
-  if (isEmpty(c)) await browser.storage.local.remove(key)
-  else await browser.storage.local.set({ [key]: c })
+  await setOrRemove(key, c, isEmpty(c))
 }
 
 /** What became of a dictation's text (`fill`). */
@@ -124,8 +124,6 @@ export type Filled = { ok: true; rest?: string; part?: true } | { ok: false; err
 
 /** Most UTF-8 bytes one site's collection may take: each save writes all of it. */
 export const SITE_BUDGET = 4_000_000
-
-const byteSize = (c: Collection) => new TextEncoder().encode(JSON.stringify(c)).length
 
 export function createWriter(
   now = () => new Date().toISOString(),
@@ -174,7 +172,7 @@ export function createWriter(
         if (next === before) return { ok: true }
         // A new pin or a longer comment must fit the site's budget; every other change frees room.
         const grows = msg.type === 'annotation:add' || msg.type === 'annotation:update'
-        if (grows && byteSize(next) > siteBudget) {
+        if (grows && jsonBytes(next) > siteBudget) {
           return {
             ok: false,
             error: 'This site holds too much feedback: empty its bin or delete pins first.',
@@ -201,7 +199,7 @@ export function createWriter(
         const { collection: next, rest } = fillTranscript(before, id, text, now())
         if (next === before) return rest === undefined ? { ok: true } : { ok: true, rest }
         // The pin gets none of it; it says where the text went, as for a cut.
-        if (byteSize(next) > siteBudget) return { ok: true, rest: text, part: true }
+        if (jsonBytes(next) > siteBudget) return { ok: true, rest: text, part: true }
         await save(next)
         const number = next.items.find((i) => i.id === id)?.number ?? ''
         await record(site, stepBetween(before, next, `Dictation into pin ${number}`)).catch(

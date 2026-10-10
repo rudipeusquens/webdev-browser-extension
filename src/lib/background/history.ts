@@ -5,6 +5,7 @@
 
 import { browser } from 'wxt/browser'
 import type { Annotation, Collection, PageInfo } from '../collection/model'
+import { jsonBytes, loadStored } from '../storage'
 
 export const HISTORY_LIMIT = 50
 /**
@@ -118,8 +119,6 @@ const labelsKey = (site: string) => `${LABELS_PREFIX}${site}`
 /** When each site's history was last saved: the least recent goes first when all are too big. */
 const SAVED_KEY = 'historySaved'
 
-const bytes = (x: unknown) => new TextEncoder().encode(JSON.stringify(x)).length
-
 /**
  * The sites whose histories go so that `size` more bytes for `site` keep all of them within
  * HISTORY_TOTAL: the least recently saved first.
@@ -136,7 +135,7 @@ async function overBudget(
     .filter(([key]) => key.startsWith(HISTORY_PREFIX) && key !== historyKey(site))
     .map(([key, value]) => {
       const other = key.slice(HISTORY_PREFIX.length)
-      return { site: other, size: bytes(value), at: Number(saved[other]) || 0 }
+      return { site: other, size: jsonBytes(value), at: Number(saved[other]) || 0 }
     })
     .sort((a, b) => a.at - b.at)
   let total = size + others.reduce((sum, other) => sum + other.size, 0)
@@ -182,11 +181,11 @@ export async function saveHistory(site: string, h: History): Promise<void> {
     undo: h.undo.slice(-HISTORY_LIMIT),
     redo: h.redo.slice(-HISTORY_LIMIT),
   }
-  while (kept.undo.length + kept.redo.length > 0 && bytes(kept) > HISTORY_BYTES) {
+  while (kept.undo.length + kept.redo.length > 0 && jsonBytes(kept) > HISTORY_BYTES) {
     kept = withoutOldest(kept)
   }
   if (kept.undo.length + kept.redo.length === 0) return forgetHistory(site)
-  const { gone, saved } = await overBudget(site, bytes(kept))
+  const { gone, saved } = await overBudget(site, jsonBytes(kept))
   if (gone.length > 0) {
     await browser.storage.session.remove(
       gone.flatMap((other) => [historyKey(other), labelsKey(other)]),
@@ -214,13 +213,18 @@ export async function forgetHistory(site: string): Promise<void> {
 
 /** What the panel's Undo and Redo name for `site`. */
 export async function loadLabels(site: string): Promise<Labels> {
-  const stored = (await browser.storage.session.get(labelsKey(site)))[labelsKey(site)]
-  if (typeof stored !== 'object' || stored === null) return {}
-  const { undo, redo } = stored as Labels
-  return {
-    ...(typeof undo === 'string' && { undo }),
-    ...(typeof redo === 'string' && { redo }),
-  }
+  return loadStored(
+    labelsKey(site),
+    (stored) => {
+      if (typeof stored !== 'object' || stored === null) return {}
+      const { undo, redo } = stored as Labels
+      return {
+        ...(typeof undo === 'string' && { undo }),
+        ...(typeof redo === 'string' && { redo }),
+      }
+    },
+    'session',
+  )
 }
 
 /** Calls `cb` with the site's labels whenever they change; returns a function that stops. */

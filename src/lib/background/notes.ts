@@ -2,7 +2,6 @@
 // stops, fills it when the transcript arrives, and keeps what a pin could not hold; the panel
 // deletes them. Each change reads, changes and writes all of them, one after another.
 
-import { browser } from 'wxt/browser'
 import { newId } from '../ids'
 import {
   type Note,
@@ -12,9 +11,7 @@ import {
   type Notes,
   parseNotes,
 } from '../notes/model'
-import { loadStored } from '../storage'
-
-const bytes = (n: Notes) => new TextEncoder().encode(JSON.stringify(n)).length
+import { jsonBytes, loadStored, setOrRemove } from '../storage'
 
 export type NotesWriter = ReturnType<typeof createNotes>
 
@@ -30,8 +27,7 @@ export function createNotes(now = () => new Date().toISOString()) {
   const read = () => loadStored(NOTES_KEY, parseNotes)
 
   async function save(n: Notes): Promise<void> {
-    if (n.items.length === 0) await browser.storage.local.remove(NOTES_KEY)
-    else await browser.storage.local.set({ [NOTES_KEY]: n })
+    await setOrRemove(NOTES_KEY, n, n.items.length === 0)
   }
 
   /** Changes the note `id`; false when it is gone. */
@@ -59,7 +55,7 @@ export function createNotes(now = () => new Date().toISOString()) {
         const evicted: string[] = []
         while (
           items.length > 1 &&
-          (items.length > NOTE_LIMITS.count || bytes({ version: 1, items }) > NOTE_LIMITS.bytes)
+          (items.length > NOTE_LIMITS.count || jsonBytes({ version: 1, items }) > NOTE_LIMITS.bytes)
         ) {
           const gone = items.shift()
           if (gone) evicted.push(gone.id)

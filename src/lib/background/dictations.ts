@@ -2,7 +2,7 @@
 // one change at a time, an empty site's key removed.
 
 import { browser } from 'wxt/browser'
-import { loadStored } from '../storage'
+import { loadStored, setOrRemove } from '../storage'
 import { type JobView, JOBS_PREFIX, jobsKey, parseJobs } from '../voice/jobs'
 
 export type DictationsWriter = ReturnType<typeof createDictations>
@@ -24,8 +24,7 @@ export function createDictations() {
         const jobs = await loadStored(key, parseJobs)
         if (view) jobs[id] = view
         else delete jobs[id]
-        if (Object.keys(jobs).length === 0) await browser.storage.local.remove(key)
-        else await browser.storage.local.set({ [key]: jobs })
+        await setOrRemove(key, jobs, Object.keys(jobs).length === 0)
       }).catch(() => undefined)
     },
 
