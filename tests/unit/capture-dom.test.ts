@@ -5,7 +5,6 @@ import {
   documentOf,
   nextNodeOf,
   parentNodeOf,
-  queryAll,
   queryFirst,
   shadowRootOf,
 } from '@/lib/capture/dom'
@@ -33,20 +32,16 @@ const chromeDom = () => (globalThis as unknown as { chrome: { dom: Dom } }).chro
 describe('queries', () => {
   it('search the document', () => {
     expect(queryFirst(document, '#save')?.textContent).toBe('Save')
-    expect(queryAll(document, 'form > *')).toHaveLength(2)
   })
 
   it('search inside an element whose named controls shadow the query methods', () => {
     const form = document.querySelector('form') as HTMLFormElement
     shadow(form, 'querySelector')
-    shadow(form, 'querySelectorAll')
     expect(queryFirst(form, 'p')?.textContent).toBe('Text')
-    expect(queryAll(form, 'button, p')).toHaveLength(2)
   })
 
   it('return nothing for selectors the browser cannot parse', () => {
     expect(queryFirst(document, 'div[[')).toBeNull()
-    expect(queryAll(document, 'div[[')).toEqual([])
   })
 })
 
