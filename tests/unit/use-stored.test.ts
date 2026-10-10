@@ -2,7 +2,7 @@ import { flushPromises, mount } from '@vue/test-utils'
 import { describe, expect, it } from 'vitest'
 import { defineComponent, ref } from 'vue'
 import { fakeBrowser } from 'wxt/testing/fake-browser'
-import { useStored } from '@/entrypoints/sidepanel/use-stored'
+import { useStored } from '@/composables/use-stored'
 
 const parse = (value: unknown) => (typeof value === 'string' ? value : '')
 
