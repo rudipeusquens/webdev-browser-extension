@@ -5,7 +5,7 @@
 
 import { browser } from 'wxt/browser'
 import type { Reply } from '../messages'
-import { OVERLAY_SCRIPT } from './sites'
+import { injectOverlay } from './sites'
 
 /** How long a page may take to load before the overlay is started anyway. */
 export const LOAD_TIMEOUT = 30_000
@@ -34,10 +34,6 @@ export async function goTo(tabId: number, url: string, remembered: boolean): Pro
     return { ok: false, error: 'Could not open the page in this tab.' }
   }
   await ready
-  if (!remembered) {
-    await browser.scripting
-      .executeScript({ target: { tabId }, files: [`/${OVERLAY_SCRIPT}`] })
-      .catch(() => undefined)
-  }
+  if (!remembered) await injectOverlay(tabId).catch(() => undefined)
   return { ok: true }
 }

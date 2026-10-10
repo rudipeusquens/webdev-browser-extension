@@ -6,7 +6,7 @@ import { createNotes } from '@/lib/background/notes'
 import { overlayLetsGo, overlayRuns } from '@/lib/background/ask-overlay'
 import { goTo } from '@/lib/background/go-to'
 import { readOrigins } from '@/lib/background/origins'
-import { createSites, OVERLAY_SCRIPT } from '@/lib/background/sites'
+import { createSites, injectOverlay } from '@/lib/background/sites'
 import { clearBlocked, clearFailed, markBlocked, markFailed } from '@/lib/background/tab-status'
 import { createVoice } from '@/lib/background/voice'
 import { isPanelSender, pageSite } from '@/lib/background/senders'
@@ -49,9 +49,6 @@ export default defineBackground(() => {
   // Queued before any dictation: what an earlier background left transcribing is lost.
   void voice.recover()
 
-  const inject = (tabId: number) =>
-    browser.scripting.executeScript({ target: { tabId }, files: [`/${OVERLAY_SCRIPT}`] })
-
   /**
    * The icon, its shortcut and the page's context menu entry open the panel; each grants
    * `activeTab`. Chrome accepts sidePanel.open() only synchronously inside the user gesture:
@@ -70,7 +67,7 @@ export default defineBackground(() => {
   function start(tabId: number) {
     void clearFailed(tabId).catch(() => undefined)
     overlayRuns(tabId)
-      .then((runs) => (runs ? undefined : inject(tabId)))
+      .then((runs) => (runs ? undefined : injectOverlay(tabId)))
       // Restricted pages (chrome://, Web Store) refuse injection; the panel says so.
       .then(
         () => clearBlocked(tabId),
@@ -87,7 +84,7 @@ export default defineBackground(() => {
   async function startFromPanel(tabId: number): Promise<Reply> {
     await clearFailed(tabId).catch(() => undefined)
     try {
-      if (!(await overlayRuns(tabId))) await inject(tabId)
+      if (!(await overlayRuns(tabId))) await injectOverlay(tabId)
     } catch {
       return refuse('Chrome does not let the extension on this page yet: click the toolbar icon.')
     }
@@ -204,7 +201,8 @@ export default defineBackground(() => {
       // removed themselves: they get a fresh one.
       if (reason !== 'update' || origins.length === 0) return
       const tabs = await browser.tabs.query({ url: origins.map(originPattern) })
-      for (const { id } of tabs) if (id !== undefined) await inject(id).catch(() => undefined)
+      for (const { id } of tabs)
+        if (id !== undefined) await injectOverlay(id).catch(() => undefined)
     })
     void syncMenuEntry()
   })

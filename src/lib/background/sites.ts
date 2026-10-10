@@ -16,7 +16,11 @@ import {
 import { serial } from './serial'
 
 const SCRIPT_ID = 'overlay'
-export const OVERLAY_SCRIPT = 'content-scripts/overlay.js'
+const OVERLAY_SCRIPT = 'content-scripts/overlay.js'
+
+/** Starts the overlay on the tab now, in its top frame. */
+export const injectOverlay = (tabId: number) =>
+  browser.scripting.executeScript({ target: { tabId }, files: [`/${OVERLAY_SCRIPT}`] })
 
 async function register(origins: string[]) {
   const registered = await browser.scripting.getRegisteredContentScripts({ ids: [SCRIPT_ID] })
