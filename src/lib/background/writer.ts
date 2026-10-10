@@ -139,6 +139,13 @@ export function createWriter(
     await saveHistory(site, { undo: [...h.undo, step], redo: [] })
   }
 
+  /** Saves the change from `before` to `next`, then records it as one undo step. */
+  async function commit(site: string, before: Collection, next: Collection, label: string) {
+    await save(next)
+    // The change is saved; a history that cannot be kept only loses its undo.
+    await record(site, stepBetween(before, next, label)).catch(() => undefined)
+  }
+
   function move(site: string, from: 'undo' | 'redo'): Promise<Reply> {
     const to = from === 'undo' ? 'redo' : 'undo'
     return inOrder(async (): Promise<Reply> => {
@@ -173,11 +180,7 @@ export function createWriter(
             error: 'This site holds too much feedback: empty its bin or delete pins first.',
           }
         }
-        await save(next)
-        // The change is saved; a history that cannot be kept only loses its undo.
-        await record(site, stepBetween(before, next, labelOf(msg, before, next))).catch(
-          () => undefined,
-        )
+        await commit(site, before, next, labelOf(msg, before, next))
         return { ok: true }
       }).catch((): Reply => ({ ok: false, error: 'Could not save.' }))
     },
@@ -195,11 +198,8 @@ export function createWriter(
         if (next === before) return rest === undefined ? { ok: true } : { ok: true, rest }
         // The pin gets none of it; it says where the text went, as for a cut.
         if (jsonBytes(next) > siteBudget) return { ok: true, rest: text, part: true }
-        await save(next)
         const number = next.items.find((i) => i.id === id)?.number ?? ''
-        await record(site, stepBetween(before, next, `Dictation into pin ${number}`)).catch(
-          () => undefined,
-        )
+        await commit(site, before, next, `Dictation into pin ${number}`)
         return rest === undefined ? { ok: true } : { ok: true, rest, part: true }
       }).catch((): Filled => ({ ok: false, error: 'Could not save.' }))
     },
