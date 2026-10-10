@@ -7,26 +7,18 @@ import { siteOf } from '../collection/site'
 import { loadSites } from '../collection/store'
 import { isAnnotationId } from '../collection/validate'
 import type { AnchorMessage } from '../messages'
+import { loadStored, watchStored } from '../storage'
 
 export const MISSING_KEY = 'missing'
 
 const parse = (value: unknown): Set<string> =>
   new Set(Array.isArray(value) ? value.filter(isAnnotationId) : [])
 
-export async function loadMissing(): Promise<Set<string>> {
-  const stored = await browser.storage.session.get(MISSING_KEY)
-  return parse(stored[MISSING_KEY])
-}
+export const loadMissing = (): Promise<Set<string>> => loadStored(MISSING_KEY, parse, 'session')
 
 /** Calls `cb` with the new set whenever it changes; returns a function that stops. */
-export function watchMissing(cb: (missing: Set<string>) => void): () => void {
-  const listener = (changes: Record<string, { newValue?: unknown }>, area: string) => {
-    const change = changes[MISSING_KEY]
-    if (area === 'session' && change) cb(parse(change.newValue))
-  }
-  browser.storage.onChanged.addListener(listener)
-  return () => browser.storage.onChanged.removeListener(listener)
-}
+export const watchMissing = (cb: (missing: Set<string>) => void): (() => void) =>
+  watchStored(MISSING_KEY, parse, cb, 'session')
 
 /** Forgets these items, such as the items of a site that was cleared. */
 export async function forgetMissing(ids: Iterable<string>): Promise<void> {

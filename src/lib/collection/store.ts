@@ -4,6 +4,7 @@
 import { browser } from 'wxt/browser'
 import type { Annotation, Collection, PageInfo } from './model'
 import { emptyCollection } from './ops'
+import { watchStored } from '../storage'
 import { belongsTo, isAnnotation, isCollection, isIdList, isObject, isPageInfo } from './validate'
 
 export const COLLECTION_PREFIX = 'collection:'
@@ -77,15 +78,8 @@ export async function loadSite(site: string): Promise<Collection> {
 }
 
 /** Calls `cb` with the site's new collection whenever it changes; returns a function that stops. */
-export function watchSite(site: string, cb: (c: Collection) => void): () => void {
-  const key = collectionKey(site)
-  const listener = (changes: Record<string, { newValue?: unknown }>, area: string) => {
-    const change = changes[key]
-    if (area === 'local' && change) cb(parse(site, change.newValue))
-  }
-  browser.storage.onChanged.addListener(listener)
-  return () => browser.storage.onChanged.removeListener(listener)
-}
+export const watchSite = (site: string, cb: (c: Collection) => void): (() => void) =>
+  watchStored(collectionKey(site), (value) => parse(site, value), cb)
 
 /** Every stored collection with pins, by site, as far as it can be read (`parse`). */
 export async function loadSites(): Promise<Collection[]> {

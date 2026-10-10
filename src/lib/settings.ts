@@ -2,8 +2,8 @@
 // writes them. The voice settings and the API key have storage keys of their own
 // (src/lib/voice/settings.ts, src/lib/voice/key.ts).
 
-import { browser } from 'wxt/browser'
 import { isObject, isText } from './collection/validate'
+import { loadStored, watchStored } from './storage'
 
 export interface Settings {
   /** Sites whose pages load the overlay by themselves: mirrors granted host permissions. */
@@ -21,12 +21,6 @@ export const OPTIONS: readonly Option[] = ['pageTitles', 'contextMenu']
 export const SETTINGS_KEY = 'settings'
 /** Most remembered sites: one registered script lists them all. */
 export const MAX_SITES = 100
-
-export const defaultSettings = (): Settings => ({
-  rememberedOrigins: [],
-  pageTitles: false,
-  contextMenu: false,
-})
 
 /** An `http:` or `https:` origin as `URL.origin` writes it: no path, user, default port. */
 export function isSiteOrigin(x: unknown): x is string {
@@ -63,17 +57,10 @@ function parse(value: unknown): Settings {
   }
 }
 
-export async function loadSettings(): Promise<Settings> {
-  const stored = await browser.storage.local.get(SETTINGS_KEY)
-  return parse(stored[SETTINGS_KEY])
-}
+export const defaultSettings = (): Settings => parse(undefined)
+
+export const loadSettings = (): Promise<Settings> => loadStored(SETTINGS_KEY, parse)
 
 /** Calls `cb` with the new settings whenever they change; returns a function that stops. */
-export function watchSettings(cb: (settings: Settings) => void): () => void {
-  const listener = (changes: Record<string, { newValue?: unknown }>, area: string) => {
-    const change = changes[SETTINGS_KEY]
-    if (area === 'local' && change) cb(parse(change.newValue))
-  }
-  browser.storage.onChanged.addListener(listener)
-  return () => browser.storage.onChanged.removeListener(listener)
-}
+export const watchSettings = (cb: (settings: Settings) => void): (() => void) =>
+  watchStored(SETTINGS_KEY, parse, cb)

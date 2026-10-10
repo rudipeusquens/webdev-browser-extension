@@ -1,8 +1,8 @@
 // Which items the panel lists and the pages pin (spec section 5): one choice for every site,
 // kept in storage.local under its own key. The panel asks the background to write it.
 
-import { browser } from 'wxt/browser'
 import { hasKeys } from './collection/validate'
+import { loadStored, watchStored } from './storage'
 import type { Annotation } from './collection/model'
 
 export const VIEW_KEY = 'view'
@@ -23,20 +23,11 @@ export function isView(x: unknown): x is View {
 
 const parse = (value: unknown): View => (isView(value) ? value : { filter: 'open' })
 
-export async function loadView(): Promise<View> {
-  const stored = await browser.storage.local.get(VIEW_KEY)
-  return parse(stored[VIEW_KEY])
-}
+export const loadView = (): Promise<View> => loadStored(VIEW_KEY, parse)
 
 /** Calls `cb` with the new view whenever it changes; returns a function that stops. */
-export function watchView(cb: (view: View) => void): () => void {
-  const listener = (changes: Record<string, { newValue?: unknown }>, area: string) => {
-    const change = changes[VIEW_KEY]
-    if (area === 'local' && change) cb(parse(change.newValue))
-  }
-  browser.storage.onChanged.addListener(listener)
-  return () => browser.storage.onChanged.removeListener(listener)
-}
+export const watchView = (cb: (view: View) => void): (() => void) =>
+  watchStored(VIEW_KEY, parse, cb)
 
 /** Whether `filter` lists and pins `item`. */
 export function shows(item: Pick<Annotation, 'status'>, filter: Filter): boolean {

@@ -2,9 +2,9 @@
 // field falls back to its default without touching the others or the remembered sites. Only
 // the background writes them.
 
-import { browser } from 'wxt/browser'
 import { isObject } from '../collection/validate'
 import { isLimit } from './protocol'
+import { loadStored, watchStored } from '../storage'
 
 export interface VoiceSettings {
   /** OpenRouter model id, `vendor/name`. */
@@ -76,17 +76,8 @@ function parse(value: unknown): VoiceSettings {
   }
 }
 
-export async function loadVoiceSettings(): Promise<VoiceSettings> {
-  const stored = await browser.storage.local.get(VOICE_KEY)
-  return parse(stored[VOICE_KEY])
-}
+export const loadVoiceSettings = (): Promise<VoiceSettings> => loadStored(VOICE_KEY, parse)
 
 /** Calls `cb` with the new voice settings whenever they change; returns a function that stops. */
-export function watchVoiceSettings(cb: (settings: VoiceSettings) => void): () => void {
-  const listener = (changes: Record<string, { newValue?: unknown }>, area: string) => {
-    const change = changes[VOICE_KEY]
-    if (area === 'local' && change) cb(parse(change.newValue))
-  }
-  browser.storage.onChanged.addListener(listener)
-  return () => browser.storage.onChanged.removeListener(listener)
-}
+export const watchVoiceSettings = (cb: (settings: VoiceSettings) => void): (() => void) =>
+  watchStored(VOICE_KEY, parse, cb)
