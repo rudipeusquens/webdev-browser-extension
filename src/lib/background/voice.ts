@@ -25,6 +25,7 @@ import {
   type RecordingState,
   VOICE_PORT,
   type VoiceState,
+  voiceErrorText,
 } from '../voice/protocol'
 import { loadVoiceSettings } from '../voice/settings'
 import type { DictationsWriter } from './dictations'
@@ -64,6 +65,11 @@ interface Session {
 }
 
 type Target = { kind: 'pin'; site: string; id: string } | { kind: 'note'; id: string }
+
+/** Whether a job is for this pin, or for this note. */
+const isPin = (site: string, id: string) => (t: Target) =>
+  t.kind === 'pin' && t.site === site && t.id === id
+const isNote = (id: string) => (t: Target) => t.kind === 'note' && t.id === id
 
 interface Job {
   target: Target
@@ -231,14 +237,8 @@ export function createVoice(deps: VoiceDeps) {
       if (view && view.state !== 'cut') await deps.notes.mark(target.id, view)
       return
     }
-    const other = [...jobs.values()].some(
-      (j) =>
-        j !== job &&
-        !j.held &&
-        j.target.kind === 'pin' &&
-        j.target.site === target.site &&
-        j.target.id === target.id,
-    )
+    const samePin = isPin(target.site, target.id)
+    const other = [...jobs.values()].some((j) => j !== job && !j.held && samePin(j.target))
     const shown =
       other && view?.state !== 'transcribing' ? { state: 'transcribing' as const } : view
     await deps.dictations.set(target.site, target.id, shown)
@@ -477,7 +477,7 @@ export function createVoice(deps: VoiceDeps) {
   async function retry(found: [string, Job] | undefined): Promise<Reply> {
     if (!found || !recorder) return { ok: false, error: GONE }
     const request = await readRequest()
-    if (!request) return { ok: false, error: 'Add an OpenRouter API key in settings.' }
+    if (!request) return { ok: false, error: voiceErrorText('no-key') }
     const [id, job] = found
     if (jobs.get(id) !== job || !recorder) return { ok: false, error: GONE }
     job.held = false
@@ -490,10 +490,6 @@ export function createVoice(deps: VoiceDeps) {
     jobs.delete(found[0])
     post(recorder, { type: 'drop', job: found[0] })
   }
-
-  const isPin = (site: string, id: string) => (t: Target) =>
-    t.kind === 'pin' && t.site === site && t.id === id
-  const isNote = (id: string) => (t: Target) => t.kind === 'note' && t.id === id
 
   return {
     onConnect(port: Port) {
