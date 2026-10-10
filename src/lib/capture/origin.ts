@@ -106,11 +106,3 @@ export function withInspectorLine(
     chain: [...origin.chain.slice(0, -1), { ...innermost, line: inspector.line }],
   }
 }
-
-/** Vue first: inside an Astro page, a Vue island knows its components best. */
-export function combineOrigin(
-  vue: CodeOrigin | undefined,
-  astro: CodeOrigin | undefined,
-): CodeOrigin | undefined {
-  return vue ?? astro
-}

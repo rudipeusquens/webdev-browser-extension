@@ -1097,15 +1097,13 @@ const onMessage: Parameters<typeof browser.runtime.onMessage.addListener>[0] = (
  * section 8).
  */
 const panels = new Set<Browser.runtime.Port>()
-/** Whether a panel holds a line to this overlay (the set itself is not reactive). */
-const panelOpen = ref(false)
 
 // Ctrl+drag (⌘+drag on macOS) selects text in Browse mode, also in a link, while the panel is
 // open; the page keeps its Ctrl+click otherwise (spec section 8).
 const linkSelect = createLinkSelect(pageSelectSurface(document, props.host), {
   host: props.host,
   mac: isMacPlatform(currentPlatform()),
-  active: () => mode.value === 'browse' && panelOpen.value,
+  active: () => mode.value === 'browse' && panels.size > 0,
   editable: (target) => isEditable(target instanceof Element ? target : null),
 })
 const onSelectDown = (e: MouseEvent) => linkSelect.down(e)
@@ -1131,7 +1129,6 @@ function tellPanels(message: PinsPointed) {
       panels.delete(port)
     }
   }
-  panelOpen.value = panels.size > 0
 }
 
 watch([hoveredPin, () => draft.value?.edit?.id ?? null, () => draft.value !== null], () =>
@@ -1141,13 +1138,11 @@ watch([hoveredPin, () => draft.value?.edit?.id ?? null, () => draft.value !== nu
 const onConnect: Parameters<typeof browser.runtime.onConnect.addListener>[0] = (port) => {
   if (port.name !== 'panel' || port.sender?.id !== browser.runtime.id) return
   panels.add(port)
-  panelOpen.value = true
   port.onMessage.addListener((message) => {
     if (isPanelAway(message)) highlighted.value = null
   })
   port.onDisconnect.addListener(() => {
     panels.delete(port)
-    panelOpen.value = panels.size > 0
     highlighted.value = null
     setMode('browse')
   })

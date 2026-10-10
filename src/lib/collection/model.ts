@@ -123,7 +123,6 @@ export const LIMITS = {
   context: 40,
   originChain: 5,
   areaElements: 10,
-  selectorDepth: 8,
   comment: 5000,
   title: 120,
   tag: 200,

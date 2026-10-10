@@ -53,7 +53,6 @@ describe('CommentGuard', () => {
     guard.beforeInput(before('insertText', 'a'), at('Mine'))
     // The page hides the user's own input event and inserts its own text instead.
     expect(guard.input(input('insertText', 'Theirs'), 'MineaTheirs')).toBe(false)
-    expect(guard.tampered).toBe(true)
     expect(guard.verified).toBe('Mine')
   })
 

@@ -13,35 +13,18 @@ const CLOSES = /[\s.,;:!?)\]}…]/
  */
 const OPENS = /(?:[([{„‚¿¡]|(?:^|\s)["'“‘«»‹›])$/u
 
-export function insertTranscript(
+export function appendTranscript(
   value: string,
-  start: number,
-  end: number,
   text: string,
   max: number = LIMITS.comment,
-): { value: string; caret: number; cut: boolean } {
-  const from = Math.min(start, value.length)
-  const to = Math.min(Math.max(end, from), value.length)
-  const before = value.slice(0, from)
-  const after = value.slice(to)
+): { value: string; cut: boolean } {
   const lead =
-    before && !/\s$/.test(before) && !OPENS.test(before) && !CLOSES.test(text[0] ?? ' ') ? ' ' : ''
-  const trail = after && !CLOSES.test(after[0] ?? ' ') && !/\s$/.test(text) ? ' ' : ''
-  const room = max - codePoints(before) - codePoints(after)
-  let piece = text
-  let cut = false
-  if (codePoints(lead + text + trail) > room) {
-    cut = true
-    piece = [...text]
-      .slice(0, Math.max(0, room - lead.length))
-      .join('')
-      .trimEnd()
-    if (!piece) return { value, caret: to, cut }
-  }
-  const inserted = `${lead}${piece}${cut ? '' : trail}`
-  return {
-    value: before + inserted + after,
-    caret: before.length + lead.length + piece.length,
-    cut,
-  }
+    value && !/\s$/.test(value) && !OPENS.test(value) && !CLOSES.test(text[0] ?? ' ') ? ' ' : ''
+  const room = max - codePoints(value)
+  if (codePoints(lead + text) <= room) return { value: value + lead + text, cut: false }
+  const piece = [...text]
+    .slice(0, Math.max(0, room - lead.length))
+    .join('')
+    .trimEnd()
+  return { value: piece ? value + lead + piece : value, cut: true }
 }

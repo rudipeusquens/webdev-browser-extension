@@ -131,18 +131,5 @@ export function queryFirst(root: Document | Element, selector: string): Element 
   }
 }
 
-/** Every match of `selector`; empty for a selector the browser cannot parse. */
-export function queryAll(root: Document | Element, selector: string): Element[] {
-  const query =
-    root instanceof Document
-      ? Document.prototype.querySelectorAll
-      : Element.prototype.querySelectorAll
-  try {
-    return [...query.call(root, selector)]
-  } catch {
-    return []
-  }
-}
-
 /** Longest walk up the tree any loop may take: a guard against cycles nobody foresaw. */
 export const MAX_DEPTH = 4096

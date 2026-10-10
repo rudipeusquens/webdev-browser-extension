@@ -90,10 +90,10 @@ export function useFieldSelection(guard: CommentGuard, mac: boolean) {
     frame = requestAnimationFrame(step)
   }
 
-  /** The selection the overlay sets itself, such as the caret at the end on opening. */
-  function set(el: HTMLTextAreaElement, start: number, end = start) {
-    el.setSelectionRange(start, end)
-    guard.select(start, end)
+  /** The caret the overlay sets itself, such as at the end on opening. */
+  function set(el: HTMLTextAreaElement, caret: number) {
+    el.setSelectionRange(caret, caret)
+    guard.select(caret, caret)
   }
 
   function stop() {

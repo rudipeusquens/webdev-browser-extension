@@ -108,11 +108,12 @@ function segment(el: Element): string {
 }
 
 /**
- * Walks up from `el` and stops at the first unique selector, usually within
- * `LIMITS.selectorDepth` levels. In self-similar trees it goes further, up to the root: a
- * selector matching the wrong element is worse than a long one.
+ * Walks up from `el` and stops at the first unique selector, usually within 8 levels. In
+ * self-similar trees it goes further, up to the root: a selector matching the wrong element
+ * is worse than a long one.
  */
-export function buildSelector(el: Element, root: ParentNode = ownerDocumentOf(el)): string {
+export function buildSelector(el: Element): string {
+  const root: ParentNode = ownerDocumentOf(el)
   const parts: string[] = []
   let node: Element | null = el
   for (let depth = 0; node && depth < MAX_DEPTH; depth++, node = parentOf(node)) {

@@ -7,14 +7,11 @@ import { deleteKey, loadKey, storeKey } from '../voice/key'
 import { checkKey, VoiceFailure } from '../voice/openrouter'
 import { VOICE_KEY } from '../voice/settings'
 
-/** A message from the extension's side panel. */
-export { isPanelSender } from './senders'
-
-export async function testKey(check = checkKey): Promise<KeyTestReply> {
+async function testKey(): Promise<KeyTestReply> {
   const key = await loadKey()
   if (!key) return { ok: false, error: 'Add an OpenRouter API key first.' }
   try {
-    return { ok: true, valid: await check(key) }
+    return { ok: true, valid: await checkKey(key) }
   } catch (error) {
     const unreachable =
       error instanceof VoiceFailure && (error.code === 'offline' || error.code === 'timeout')

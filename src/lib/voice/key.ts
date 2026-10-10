@@ -5,8 +5,6 @@
 
 import { isApiKey } from './settings'
 
-export { isApiKey }
-
 /** Where the key lives: one record in one store of one database. */
 export const KEY_DB = {
   name: 'webdev-browser-extension',
