@@ -6,7 +6,8 @@ import { loadStored, watchStored } from '@/lib/storage'
 
 /**
  * The newest of a watched value: `apply` gets every change, and what was loaded unless a change
- * came first. A value chosen here (`changed`) counts as a change.
+ * came first. A value the UI chooses itself also goes through `changed` (use-view's `choose`),
+ * so a later load cannot overwrite it.
  */
 export function keepNewest<T>(apply: (value: T) => void): {
   changed: (value: T) => void
@@ -44,14 +45,14 @@ export function useStored<T>(
       value.value = parse(undefined)
       loaded.value = !now
       if (!now) return
-      const set = keepNewest((next: T) => (value.value = next))
+      const setValue = keepNewest((next: T) => (value.value = next))
       stop = watchStored(now, parse, (next) => {
-        set.changed(next)
+        setValue.changed(next)
         loaded.value = true
       })
       void loadStored(now, parse).then((read) => {
         if (key.value !== now) return
-        set.loaded(read)
+        setValue.loaded(read)
         loaded.value = true
       })
     },

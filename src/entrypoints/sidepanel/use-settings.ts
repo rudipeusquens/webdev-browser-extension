@@ -5,11 +5,11 @@ import { defaultSettings, loadSettings, type Settings, watchSettings } from '@/l
 /** The stored settings, kept current through `storage.onChanged`. */
 export function useSettings(): { settings: Ref<Settings> } {
   const settings = shallowRef<Settings>(defaultSettings())
-  const set = keepNewest((next: Settings) => (settings.value = next))
+  const setSettings = keepNewest((next: Settings) => (settings.value = next))
   let stop: (() => void) | undefined
   onMounted(async () => {
-    stop = watchSettings(set.changed)
-    set.loaded(await loadSettings())
+    stop = watchSettings(setSettings.changed)
+    setSettings.loaded(await loadSettings())
   })
   onBeforeUnmount(() => stop?.())
   return { settings }
