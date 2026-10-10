@@ -1,6 +1,7 @@
 import { onBeforeUnmount, type Ref, ref, shallowRef, watch } from 'vue'
 import type { Collection } from '@/lib/collection/model'
 import { loadSite, watchSite } from '@/lib/collection/store'
+import { keepNewest } from './use-stored'
 
 /**
  * The stored collection of `site`, kept current through `storage.onChanged`; null while there
@@ -23,17 +24,16 @@ export function useSiteCollection(site: Ref<string | null>): {
       collection.value = null
       loading.value = !!current
       if (!current) return
-      let changed = false
+      const setCollection = keepNewest((c: Collection | null) => (collection.value = c))
       stop = watchSite(current, (c) => {
-        changed = true
         loading.value = false
-        collection.value = c
+        setCollection.changed(c)
       })
       // Unreadable: the panel shows the site as empty rather than nothing at all.
       const loaded = await loadSite(current).catch(() => null)
       // A change that arrived while loading is newer; a new site may have come meanwhile.
       if (site.value !== current) return
-      if (!changed) collection.value = loaded
+      setCollection.loaded(loaded)
       loading.value = false
     },
     { immediate: true },
