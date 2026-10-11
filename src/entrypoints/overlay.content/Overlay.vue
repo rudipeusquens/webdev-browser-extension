@@ -9,7 +9,7 @@ import {
   useTemplateRef,
   watch,
 } from 'vue'
-import { browser, type Browser } from 'wxt/browser'
+import { browser } from 'wxt/browser'
 import { useSiteCollection } from '@/composables/use-site-collection'
 import { keepNewest } from '@/composables/use-stored'
 import { useVoice } from '@/composables/use-voice'
@@ -35,11 +35,9 @@ import { truncate } from '@/lib/text'
 import {
   type BackgroundMessage,
   isOverlayMessage,
-  isPanelAway,
   type Mode,
   type OverlayStatus,
   type PanelMessage,
-  type PinsPointed,
   type Reply,
 } from '@/lib/messages'
 import { request } from '@/lib/request'
@@ -71,6 +69,7 @@ import { rectBetween } from './place'
 import SelectionChip from './SelectionChip.vue'
 import TextHighlight from './TextHighlight.vue'
 import { usePage } from './use-page'
+import { usePanelLines } from './use-panel-lines'
 import { usePins } from './use-pins'
 import { useTracking } from './use-tracking'
 
@@ -919,12 +918,7 @@ const onMessage: Parameters<typeof browser.runtime.onMessage.addListener>[0] = (
   }
 }
 
-/**
- * The panel keeps a line open to every overlay it has shown. When it moves to another tab, its
- * highlight goes; when it closes, the line goes and the page is left to work normally (spec
- * section 8).
- */
-const panels = new Set<Browser.runtime.Port>()
+const { panels, onConnect } = usePanelLines({ hoveredPin, draft, highlighted, setMode })
 
 // Ctrl+drag (⌘+drag on macOS) selects text in Browse mode, also in a link, while the panel is
 // open; the page keeps its Ctrl+click otherwise (spec section 8).
@@ -934,45 +928,6 @@ const linkSelect = createLinkSelect(pageSelectSurface(document, props.host), {
   active: () => mode.value === 'browse' && panels.size > 0,
   editable: (target) => isEditable(target instanceof Element ? target : null),
 })
-
-/** What the pins point at, by id only: the panel marks the entries (spec section 8). */
-function pointedNow(): PinsPointed {
-  return {
-    type: 'pins:pointed',
-    hovered: hoveredPin.value,
-    open: draft.value?.edit?.id ?? null,
-    popover: draft.value !== null,
-  }
-}
-
-function tellPanels(message: PinsPointed) {
-  for (const port of panels) {
-    try {
-      port.postMessage(message)
-    } catch {
-      panels.delete(port)
-    }
-  }
-}
-
-watch([hoveredPin, () => draft.value?.edit?.id ?? null, () => draft.value !== null], () =>
-  tellPanels(pointedNow()),
-)
-
-const onConnect: Parameters<typeof browser.runtime.onConnect.addListener>[0] = (port) => {
-  if (port.name !== 'panel' || port.sender?.id !== browser.runtime.id) return
-  panels.add(port)
-  port.onMessage.addListener((message) => {
-    if (isPanelAway(message)) highlighted.value = null
-  })
-  port.onDisconnect.addListener(() => {
-    panels.delete(port)
-    highlighted.value = null
-    setMode('browse')
-  })
-  const now = pointedNow()
-  if (now.hovered || now.open || now.popover) tellPanels(now)
-}
 
 const RELEASES = ['pointerup', 'mouseup', 'keyup'] as const
 // Removes the listeners on the window and the document together; the page's scripts cannot
