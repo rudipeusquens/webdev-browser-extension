@@ -16,15 +16,7 @@ import { useVoice } from '@/composables/use-voice'
 import { closestOf, deepActiveElement, tagOf } from '@/lib/capture/dom'
 import { snapshotArea } from '@/lib/capture/area'
 import { pageInfo, snapshotElement } from '@/lib/capture/snapshot'
-import {
-  type CapturedText,
-  chipAnchor,
-  firstShownCharacter,
-  rangeContainer,
-  sameRange,
-  selectionRange,
-  snapshotRange,
-} from '@/lib/capture/text'
+import { type CapturedText, sameRange, selectionRange, snapshotRange } from '@/lib/capture/text'
 import type { PageInfo, Rect, Status, Target } from '@/lib/collection/model'
 import { siteOf } from '@/lib/collection/site'
 import { type Tone, toneOf } from '@/lib/status'
@@ -50,19 +42,7 @@ import { type Origins, readOrigins, selectorsOf, withOrigins } from './origins'
 import { pageShortcut } from './keys'
 import { createLinkSelect, pageSelectSurface } from './link-select'
 import { forwardsWheel, isEditable, pickAt, TargetPath, wheelTarget } from './picker'
-import {
-  boxOf,
-  clippersOf,
-  inBounds,
-  type LiveAnchor,
-  linesOf,
-  notRendered,
-  onArea,
-  onElement,
-  onRange,
-  toRect,
-  visibleBounds,
-} from './pins'
+import { boxOf, type LiveAnchor, linesOf, notRendered, onArea, onElement, onRange } from './pins'
 import type { Layer } from './top-layer'
 import { rectBetween } from './place'
 import SelectionChip from './SelectionChip.vue'
@@ -71,6 +51,7 @@ import { useComponentNames } from './use-component-names'
 import { usePage } from './use-page'
 import { usePanelLines } from './use-panel-lines'
 import { usePins } from './use-pins'
+import { useSelectionChip } from './use-selection-chip'
 import { useTracking } from './use-tracking'
 
 const props = defineProps<{ host: HTMLElement; layer: Layer }>()
@@ -135,9 +116,6 @@ const highlighted = ref<string | null>(null)
 const pinsShown = ref(true)
 // The pin whose outline is drawn stronger: the pointer rests on it.
 const hoveredPin = ref<string | null>(null)
-// The page's selection the Pin chip offers to pin (browse mode), the character the chip sits
-// under, and the first one the selection shows.
-const chip = shallowRef<{ range: Range; anchor: Range; start: Range | null } | null>(null)
 // The rectangle being dragged in area mode, in viewport coordinates.
 const drag = shallowRef<{ from: { x: number; y: number }; to: { x: number; y: number } } | null>(
   null,
@@ -173,7 +151,6 @@ const live = shallowReactive(new Map<string, LiveAnchor>())
 let pointed: Element | null = null
 let lastPointer: { x: number; y: number } | null = null
 let drafts = 0
-let chipCheck = 0
 
 function rectOf(el: Element): Rect {
   void frame.value
@@ -211,35 +188,12 @@ const draftLabel = computed(() =>
 )
 /** The target being commented on is rendered: it gets a marking (a closed menu has none). */
 const draftShown = computed(() => !!draftRect.value && !notRendered(draftRect.value))
-// The scroll containers and clipping boxes around the chip's selection: looked up once per
-// selection, measured on every frame.
-const chipClippers = computed(() => {
-  const anchor = chip.value?.anchor
-  return anchor ? clippersOf(rangeContainer(anchor), true) : []
-})
-const chipLine = computed(() => {
-  void frame.value
-  const anchor = chip.value?.anchor
-  if (!anchor || mode.value !== 'browse' || draft.value) return null
-  const r = anchor.getBoundingClientRect()
-  const line = toRect(r)
-  // The page hid the selection's end (a menu closed): it would sit in the corner.
-  if (notRendered(line)) return null
-  // From the first character to the last: a long selection keeps its chip at the edge while
-  // any of it is in view.
-  const s = chip.value?.start?.getBoundingClientRect() ?? r
-  const x = Math.min(r.x, s.x)
-  const y = Math.min(r.y, s.y)
-  const span = {
-    x,
-    y,
-    width: Math.max(r.right, s.right) - x,
-    height: Math.max(r.bottom, s.bottom) - y,
-  }
-  const viewport = { x: 0, y: 0, width: window.innerWidth, height: window.innerHeight }
-  // Scrolled out of view or out of its box: no chip, until the selection is back.
-  const bounds = visibleBounds(chipClippers.value, viewport)
-  return bounds && inBounds(span, bounds) ? line : null
+
+const { chip, chipLine, onRelease, onSelectionChange } = useSelectionChip({
+  host: props.host,
+  mode,
+  draft,
+  frame,
 })
 
 const { pageItems, placements, pins, outlines, highlight } = usePins({
@@ -493,30 +447,6 @@ watch(placements, (placed) => {
   clearTimeout(wantedTimer)
   void reveal(id)
 })
-
-/**
- * Offers the chip for the page's selection after the user let go of the mouse or a key: a
- * selection the page makes by script gets none. The check waits a frame, until the
- * selection has settled. Releases inside the overlay reach the window as the host's and are
- * not checked, except over a pin (its own listener): a selection dragged onto a pin.
- */
-function onRelease(e: Event) {
-  if (!e.isTrusted || e.target === props.host || mode.value !== 'browse' || draft.value) return
-  cancelAnimationFrame(chipCheck)
-  chipCheck = requestAnimationFrame(() => {
-    const range = selectionRange(document)
-    const anchor = range && chipAnchor(range)
-    chip.value = range && anchor ? { range, anchor, start: firstShownCharacter(range) } : null
-  })
-}
-
-/** Hides the chip as soon as the selection it was offered for changes. */
-function onSelectionChange() {
-  const offered = chip.value
-  if (!offered) return
-  const current = selectionRange(document)
-  if (!current || !sameRange(current, offered.range)) chip.value = null
-}
 
 /** The chip was clicked: comment on the selection it was offered for. */
 function commentOnSelection() {
@@ -920,7 +850,6 @@ onBeforeUnmount(() => {
   clearTimeout(wantedTimer)
   listeners.abort()
   stopJobs()
-  cancelAnimationFrame(chipCheck)
   browser.runtime.onMessage.removeListener(onMessage)
   browser.runtime.onConnect.removeListener(onConnect)
 })
