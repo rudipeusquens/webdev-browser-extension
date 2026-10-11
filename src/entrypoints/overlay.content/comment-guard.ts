@@ -33,6 +33,8 @@ const DELETES_FORWARD = new Set([
 ])
 /** Deletions of the selection only. */
 const DELETES_SELECTION = new Set(['deleteByCut', 'deleteByDrag', 'deleteContent'])
+/** Every deletion above. */
+const DELETES = new Set([...DELETES_BACKWARD, ...DELETES_FORWARD, ...DELETES_SELECTION])
 /** Inserts that replace the selection and keep everything around it. */
 const INSERTS_AT_SELECTION = new Set(['insertText', 'insertLineBreak', 'insertFromPaste'])
 const HISTORY = new Set(['historyUndo', 'historyRedo'])
@@ -129,9 +131,7 @@ function landsWhereAnnounced(edit: Pending, value: string): boolean {
     return value.length > before.length && prefix + suffix === before.length
   }
   const backward = DELETES_BACKWARD.has(inputType)
-  if (!backward && !DELETES_FORWARD.has(inputType) && !DELETES_SELECTION.has(inputType)) {
-    return true
-  }
+  if (!DELETES.has(inputType)) return true
   const run = removedRun(before, value)
   if (!run) return false
   const startsAt = (at: number) => at >= run.from && at <= run.to
@@ -152,8 +152,7 @@ function caretAfter(edit: Pending, value: string): number {
   if (INSERTS_AT_SELECTION.has(inputType)) return value.length - (before.length - end)
   if (start === end && DELETES_BACKWARD.has(inputType))
     return start - (before.length - value.length)
-  if (DELETES_BACKWARD.has(inputType) || DELETES_FORWARD.has(inputType)) return start
-  if (DELETES_SELECTION.has(inputType)) return start
+  if (DELETES.has(inputType)) return start
   // A drop, a suggestion, undo or redo: after what changed.
   return value.length - shared(before, value).suffix
 }
