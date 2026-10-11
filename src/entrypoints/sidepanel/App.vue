@@ -54,7 +54,7 @@ import { useSiteCollection } from '@/composables/use-site-collection'
 import { useStored } from '@/composables/use-stored'
 import { emptyCollection, pick } from '@/lib/collection/ops'
 import { plural } from '@/lib/text'
-import { type Filter, shows } from '@/lib/view'
+import { isFilter, shows } from '@/lib/view'
 import { useView } from './use-view'
 import { useHistory } from './use-history'
 import { isMacPlatform, panelKey, recKey } from '@/lib/shortcuts'
@@ -459,7 +459,7 @@ function setPins(visible: boolean) {
 
 function setFilter(next: unknown) {
   // A single toggle group reports '' when the active item is clicked again.
-  if (next === 'open' || next === 'all' || next === 'with-deleted') choose(next as Filter)
+  if (isFilter(next)) choose(next)
 }
 
 function setMode(next: unknown) {
