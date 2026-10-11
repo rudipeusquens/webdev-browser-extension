@@ -369,17 +369,22 @@ const outlines = computed(() => {
     return [{ id: item.id, strong, tone, dashed: item.target.kind === 'area', style }]
   })
 })
+/** The pin being edited, as stored now. */
+const editStored = computed(() => {
+  const edit = draft.value?.edit
+  return edit && collection.value?.items.find((item) => item.id === edit.id)
+})
 /** The tone of the pin being edited, now: the panel may change it while its popover is open. */
 const editStatus = computed((): Tone | undefined => {
   const edit = draft.value?.edit
   if (!edit) return undefined
-  return toneOf(collection.value?.items.find((item) => item.id === edit.id) ?? edit)
+  return toneOf(editStored.value ?? edit)
 })
 /** The comment of the pin being edited as stored now: a dictation may fill it meanwhile. */
 const editComment = computed(() => {
   const edit = draft.value?.edit
   if (!edit) return undefined
-  return collection.value?.items.find((item) => item.id === edit.id)?.comment ?? edit.comment
+  return editStored.value?.comment ?? edit.comment
 })
 
 /** Retry or Dismiss on the open pin's dictation. */
