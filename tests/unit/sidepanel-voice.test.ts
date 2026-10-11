@@ -1,26 +1,19 @@
-import { flushPromises, mount, type VueWrapper } from '@vue/test-utils'
+import { flushPromises } from '@vue/test-utils'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { fakeBrowser } from 'wxt/testing/fake-browser'
-import App from '@/entrypoints/sidepanel/App.vue'
 import { PANEL_VIEW_KEY } from '@/lib/messages'
 import { deleteKey, storeKey } from '@/lib/voice/key'
 import { VOICE_KEY } from '@/lib/voice/settings'
+import { body, byTestId, closePanel, mountPanel, teardownPanel } from './helpers/panel'
 
 // A well-formed but fake key, assembled at runtime so this file never contains one.
 const KEY = 'sk-or-v1-' + '77ab'.repeat(16)
 const WINDOW = 7
 
-let wrapper: VueWrapper | undefined
 let sendMessage: ReturnType<typeof vi.spyOn>
 let microphone: { state: PermissionState; onchange: (() => void) | null }
 
-const body = () => document.body.textContent ?? ''
 const find = (id: string) => document.querySelector<HTMLElement>(`[data-testid="${id}"]`)
-const byTestId = (id: string) => {
-  const el = find(id)
-  if (!el) throw new Error(`no ${id}`)
-  return el
-}
 
 /** Lets IndexedDB answer: it takes a few tasks, more than one flushPromises. */
 async function settle() {
@@ -37,14 +30,8 @@ async function keyChanged(sender: object = { id: fakeBrowser.runtime.id }) {
   await settle()
 }
 
-async function render() {
-  wrapper = mount(App, { attachTo: document.body })
-  await flushPromises()
-  return wrapper
-}
-
 async function openSettings() {
-  await render()
+  await mountPanel()
   byTestId('open-settings').click()
   await settle()
 }
@@ -78,9 +65,7 @@ describe('side panel: voice settings', () => {
   })
 
   afterEach(() => {
-    wrapper?.unmount()
-    wrapper = undefined
-    document.body.innerHTML = ''
+    teardownPanel()
     vi.restoreAllMocks()
   })
 
@@ -276,7 +261,7 @@ describe('side panel: voice settings', () => {
 
     it('opens the settings of the panel it names, once', async () => {
       await fakeBrowser.storage.session.set(view(WINDOW))
-      await render()
+      await mountPanel()
       expect(find('voice-settings')).not.toBeNull()
       expect(
         (await fakeBrowser.storage.session.get(PANEL_VIEW_KEY))[PANEL_VIEW_KEY],
@@ -284,7 +269,7 @@ describe('side panel: voice settings', () => {
     })
 
     it('opens them when asked while the panel is open', async () => {
-      await render()
+      await mountPanel()
       expect(find('voice-settings')).toBeNull()
       await fakeBrowser.storage.session.set(view(WINDOW))
       await flushPromises()
@@ -293,13 +278,12 @@ describe('side panel: voice settings', () => {
 
     it('leaves other windows and old requests alone', async () => {
       await fakeBrowser.storage.session.set(view(WINDOW + 1))
-      await render()
+      await mountPanel()
       expect(find('voice-settings')).toBeNull()
       expect((await fakeBrowser.storage.session.get(PANEL_VIEW_KEY))[PANEL_VIEW_KEY]).toBeDefined()
-      wrapper?.unmount()
-      wrapper = undefined
+      closePanel()
       await fakeBrowser.storage.session.set(view(WINDOW, 60_000))
-      await render()
+      await mountPanel()
       expect(find('voice-settings')).toBeNull()
     })
   })

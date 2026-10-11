@@ -1,9 +1,8 @@
-import { flushPromises, mount, type VueWrapper } from '@vue/test-utils'
+import { flushPromises } from '@vue/test-utils'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { Browser } from 'wxt/browser'
 import { fakeBrowser } from 'wxt/testing/fake-browser'
 import { ASK_WAIT } from '@/composables/use-voice'
-import App from '@/entrypoints/sidepanel/App.vue'
 import { addAnnotation, emptyCollection } from '@/lib/collection/ops'
 import { collectionKey } from '@/lib/collection/store'
 import type { OverlayStatus } from '@/lib/messages'
@@ -12,6 +11,7 @@ import { VOICE_PORT } from '@/lib/voice/protocol'
 import { elementInput } from './helpers/collection'
 import { fakeCopyCommand } from './helpers/fake-copy'
 import { type FakePort, fakePort } from './helpers/fake-ports'
+import { byTestId, click, closePanel, mountPanel, teardownPanel } from './helpers/panel'
 
 // Rec: a dictation in the panel without a pin (spec section 8). Stopped, it becomes a Rec note
 // that waits for its text; the text then goes to the clipboard as it is. The pins are not
@@ -28,7 +28,6 @@ const active: OverlayStatus = {
 }
 const RECORDING = { state: 'recording', limit: 300_000, elapsed: 0 }
 
-let wrapper: VueWrapper | undefined
 let overlayReply: unknown
 let clipboard: ReturnType<typeof fakeCopyCommand>
 let ports: FakePort[]
@@ -42,16 +41,9 @@ async function render(withPin = false) {
     const collection = addAnnotation(emptyCollection(SITE), elementInput('a1', PAGE, 'Hi'), 'T')
     await fakeBrowser.storage.local.set({ [collectionKey(SITE)]: collection })
   }
-  wrapper = mount(App, { attachTo: document.body })
-  await flushPromises()
-  return wrapper
+  await mountPanel()
 }
 
-const byTestId = (id: string) => {
-  const el = document.querySelector<HTMLElement>(`[data-testid="${id}"]`)
-  if (!el) throw new Error(`no ${id}`)
-  return el
-}
 const all = (id: string) => [...document.querySelectorAll<HTMLElement>(`[data-testid="${id}"]`)]
 const rec = () => byTestId('rec')
 const status = () => byTestId('copy-status').textContent?.trim()
@@ -61,11 +53,6 @@ const sent = () =>
   vi
     .mocked(fakeBrowser.runtime.sendMessage)
     .mock.calls.map(([m]) => m as unknown as { type: string })
-
-async function click(id: string) {
-  byTestId(id).click()
-  await flushPromises()
-}
 
 async function press(init: KeyboardEventInit) {
   window.dispatchEvent(new KeyboardEvent('keydown', { bubbles: true, cancelable: true, ...init }))
@@ -137,9 +124,7 @@ describe('Rec in the panel', () => {
   })
 
   afterEach(() => {
-    wrapper?.unmount()
-    wrapper = undefined
-    document.body.innerHTML = ''
+    teardownPanel()
     vi.useRealTimers()
     vi.restoreAllMocks()
   })
@@ -388,8 +373,7 @@ describe('Rec in the panel', () => {
   it('ends the recording when the panel closes', async () => {
     await render()
     await recording()
-    wrapper?.unmount()
-    wrapper = undefined
+    closePanel()
     expect(line().disconnected).toBe(true)
   })
 })
@@ -405,9 +389,7 @@ describe('Rec notes in the panel', () => {
   })
 
   afterEach(() => {
-    wrapper?.unmount()
-    wrapper = undefined
-    document.body.innerHTML = ''
+    teardownPanel()
     vi.restoreAllMocks()
   })
 
