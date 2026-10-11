@@ -37,11 +37,8 @@ jobs:
       - run: pnpm lint
       - run: pnpm format:check
       - run: pnpm compile
-      - run: pnpm build
-      - run: pnpm manifest:check
-      # What ships: no source maps, eval, dev-server code or unknown hosts.
-      - run: pnpm bundle:check
-      # The installable package: built again, packed, and read back against the checked build.
+      # The one build: packed, then the manifest, the bundle (no source maps, eval, dev-server
+      # code or unknown hosts) and the zip read back against it. The E2E tests run this build.
       - run: pnpm zip
       # Explicit, idempotent: with a warm pnpm store cache, puppeteer's postinstall is skipped
       # and the fresh runner would have no Chrome for Testing.
