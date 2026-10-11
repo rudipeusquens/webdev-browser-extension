@@ -1,13 +1,14 @@
 // The recorder of the offscreen document (spec sections 5 and 9): records the microphone,
 // pauses at the limit until the developer answers (each stretch between limits is sent on its
 // own: a model's answer has a length limit, about twelve minutes of speech for the default
-// one), and turns each stopped recording into a job that it sends to OpenRouter itself (a service worker is stopped when a fetch takes
-// longer than 30 s). The next recording may start while jobs are transcribed. A failed job
-// keeps its audio for Retry, for a while. Browser APIs come in as `deps`, so the states are
-// tested without a microphone.
+// one), and turns each stopped recording into a job (recorder-jobs.ts) that it sends to
+// OpenRouter itself (a service worker is stopped when a fetch takes longer than 30 s). The next
+// recording may start while jobs are transcribed. Browser APIs come in as `deps`, so the states
+// are tested without a microphone.
 
-import { type TranscribeRequest, timeoutFor, VoiceFailure } from './openrouter'
-import { MAX_TEXT, type RecorderCommand, type RecorderMessage, type VoiceError } from './protocol'
+import type { TranscribeRequest } from './openrouter'
+import type { RecorderCommand, RecorderMessage, VoiceError } from './protocol'
+import { createJobs, type JobDeps, type Segment } from './recorder-jobs'
 
 export interface MediaRecorderLike {
   start(timeslice?: number): void
@@ -23,19 +24,14 @@ export interface LevelMonitor {
   stop(): void
 }
 
-export interface RecorderDeps {
+/** Browser APIs and the port; `transcribe` (from JobDeps) is for the jobs. */
+export interface RecorderDeps extends JobDeps {
   /** Watches the microphone's level; without it, parts are cut at PART_HARD. */
   monitor?(stream: MediaStream): LevelMonitor
   /** The extension origin's microphone permission. */
   permission(): Promise<PermissionState>
   getUserMedia(): Promise<MediaStream>
   record(stream: MediaStream): MediaRecorderLike
-  transcribe(
-    audio: Blob,
-    request: TranscribeRequest,
-    signal: AbortSignal,
-    timeout: number,
-  ): Promise<string>
   emit(message: RecorderMessage): void
 }
 
@@ -45,9 +41,6 @@ export const createMediaRecorder = (stream: MediaStream): MediaRecorderLike =>
 
 /** A chunk every second, so a stop loses nothing and the audio grows as it is recorded. */
 const TIMESLICE = 1000
-/** How long a failed job keeps its audio for Retry, and how much audio all of them keep. */
-export const HOLD_TIME = 10 * 60_000
-export const HOLD_BYTES = 20_000_000
 
 function micError(error: unknown): VoiceError {
   const name = error instanceof Error || error instanceof DOMException ? error.name : ''
@@ -57,30 +50,7 @@ function micError(error: unknown): VoiceError {
   return 'mic-failed'
 }
 
-/** At most `max` code points. */
-function cut(text: string, max: number): { text: string; cut: boolean } {
-  const points = [...text]
-  return points.length > max
-    ? { text: points.slice(0, max).join(''), cut: true }
-    : { text, cut: false }
-}
-
 type Phase = 'idle' | 'starting' | 'recording' | 'paused' | 'stopping' | 'held'
-
-/** A stretch of one recording, up to a limit: a model transcribes it in one go. */
-interface Segment {
-  audio: Blob
-  ms: number
-}
-
-interface Job {
-  segments: Segment[]
-  controller?: AbortController
-  /** A failure that keeps the audio for Retry, since `at`. */
-  held?: { at: number; error: VoiceError; detail?: string }
-}
-
-const sizeOf = (segments: Segment[]) => segments.reduce((sum, s) => sum + s.audio.size, 0)
 
 /**
  * A part is cut in the first pause after PART_SOFT, and at PART_HARD at the latest: a model
@@ -104,10 +74,9 @@ export function createRecorder(deps: RecorderDeps) {
   let media: MediaRecorderLike | undefined
   /**
    * The recording's parts in order, each slot filled once its media recorder handed over its
-   * last chunk; `pending` of them are not filled yet.
+   * last chunk.
    */
   let parts: (Segment | undefined)[] = []
-  let pending = 0
   /** When a part that was cut (not at a limit or a stop) ended. */
   const cutAt = new WeakMap<MediaRecorderLike, number>()
   let limit = 0
@@ -118,14 +87,15 @@ export function createRecorder(deps: RecorderDeps) {
   /** Recorded before the stretch that runs now, and when that stretch began. */
   let elapsed = 0
   let since = 0
+  /** Where the part that records now began, in recorded time. */
+  let partStart = 0
   /** Keep came while the part the limit ended still handed over its last chunk. */
   let resumeWaits = false
   /** Where the recording goes once every part handed over its last chunk. */
   let stopping: { job: string; request: TranscribeRequest } | undefined
   /** A start that came while the last recording still stopped: its limit. */
   let queued: number | undefined
-  const jobs = new Map<string, Job>()
-  let expiry: ReturnType<typeof setTimeout> | undefined
+  const jobs = createJobs(deps)
 
   const recorded = () => elapsed + (phase === 'recording' ? Date.now() - since : 0)
 
@@ -154,7 +124,6 @@ export function createRecorder(deps: RecorderDeps) {
     media = undefined
     release()
     parts = []
-    pending = 0
     stopping = undefined
     resumeWaits = false
     quietSince = undefined
@@ -162,9 +131,22 @@ export function createRecorder(deps: RecorderDeps) {
     phase = 'idle'
   }
 
-  function armLimit() {
+  /** The microphone went: the recording is held until a stop sends it (Retry) or a cancel. */
+  function hold() {
+    clearTimeout(limitTimer)
+    release()
+    phase = 'held'
+    deps.emit({ state: 'failed', error: 'mic-lost', retry: true })
+  }
+
+  /** Records on from `elapsed`: a whole limit from now, parts cut in pauses, and says so. */
+  function go() {
+    phase = 'recording'
+    since = Date.now()
     clearTimeout(limitTimer)
     limitTimer = setTimeout(pause, limit)
+    watchParts()
+    deps.emit({ state: 'recording', limit, elapsed })
   }
 
   /** Cuts a part in the first pause after PART_SOFT, at PART_HARD at the latest. */
@@ -173,8 +155,7 @@ export function createRecorder(deps: RecorderDeps) {
     quietSince = undefined
     watch = setInterval(() => {
       if (phase !== 'recording' || !media) return
-      const from = parts.length ? partStart : 0
-      const length = recorded() - from
+      const length = recorded() - partStart
       if (length >= PART_HARD) return splitPart()
       if (length < PART_SOFT || (monitor?.level() ?? 1) >= QUIET_LEVEL) {
         quietSince = undefined
@@ -183,25 +164,6 @@ export function createRecorder(deps: RecorderDeps) {
       quietSince ??= Date.now()
       if (Date.now() - quietSince >= QUIET_FOR) splitPart()
     }, WATCH_EVERY)
-  }
-
-  /** Where the part that records now began, in recorded time. */
-  let partStart = 0
-
-  /**
-   * A stopped recording becomes the job `id`, transcribed now. The recording's end says
-   * nothing: the background took it already, and the next recording may be someone else's.
-   */
-  function hand(id: string, recorded: Segment[], request: TranscribeRequest) {
-    phase = 'idle'
-    elapsed = 0
-    parts = []
-    release()
-    jobs.set(id, { segments: recorded })
-    void send(id, request)
-    const next = queued
-    queued = undefined
-    if (next !== undefined) void start(next)
   }
 
   /** Records a part on the open stream, from `from` in recorded time; false when refused. */
@@ -214,7 +176,6 @@ export function createRecorder(deps: RecorderDeps) {
       recording.ondataavailable = (e) => chunks.push(e.data)
       recording.start(TIMESLICE)
       const slot = parts.push(undefined) - 1
-      pending++
       const mine = recording
       const current = run
       recording.onstop = () => {
@@ -246,9 +207,7 @@ export function createRecorder(deps: RecorderDeps) {
 
   /** A part handed over its last chunk: cut, at the limit, at a stop, or by itself. */
   function partEnded(recording: MediaRecorderLike, slot: number, chunks: Blob[], from: number) {
-    pending--
-    const ownEnd = phase === 'paused' ? elapsed : recorded()
-    const end = cutAt.get(recording) ?? ownEnd
+    const end = cutAt.get(recording) ?? recorded()
     parts[slot] = { audio: new Blob(chunks, { type: 'audio/webm' }), ms: Math.max(0, end - from) }
     if (media === recording) {
       media = undefined
@@ -261,25 +220,26 @@ export function createRecorder(deps: RecorderDeps) {
       } else if (phase !== 'stopping') {
         // Audio goes out only after the developer's stop (spec principle 2). A recording
         // that ended by itself (device gone, permission revoked) waits for a stop or a cancel.
-        clearTimeout(limitTimer)
-        release()
-        phase = 'held'
-        deps.emit({ state: 'failed', error: 'mic-lost', retry: true })
+        hold()
       }
     }
     finish()
   }
 
-  /** A stop hands the recording over once every part is there. */
+  /**
+   * A stop hands the recording over once every part is there: it becomes the stop's job,
+   * transcribed now. The recording's end says nothing: the background took it already, and the
+   * next recording may be someone else's.
+   */
   function finish() {
     const to = stopping
-    if (!to || pending > 0) return
-    stopping = undefined
-    hand(
-      to.job,
-      parts.filter((part): part is Segment => part !== undefined),
-      to.request,
-    )
+    if (!to || parts.includes(undefined)) return
+    const segments = parts.filter((part): part is Segment => part !== undefined)
+    endRecording()
+    jobs.add(to.job, segments, to.request)
+    const next = queued
+    queued = undefined
+    if (next !== undefined) void start(next)
   }
 
   async function start(next: number) {
@@ -314,7 +274,6 @@ export function createRecorder(deps: RecorderDeps) {
       return
     }
     stream = granted
-    elapsed = 0
     if (!record(0)) {
       release()
       return fail('mic-failed')
@@ -324,12 +283,8 @@ export function createRecorder(deps: RecorderDeps) {
     } catch {
       // No level: parts are cut at PART_HARD only.
     }
-    phase = 'recording'
     limit = next
-    since = Date.now()
-    armLimit()
-    watchParts()
-    deps.emit({ state: 'recording', limit, elapsed: 0 })
+    go()
   }
 
   /**
@@ -353,17 +308,9 @@ export function createRecorder(deps: RecorderDeps) {
     }
     if (!record(elapsed)) {
       // The microphone went while the question waited: what was recorded waits for Retry.
-      clearTimeout(limitTimer)
-      release()
-      phase = 'held'
-      deps.emit({ state: 'failed', error: 'mic-lost', retry: true })
-      return
+      return hold()
     }
-    since = Date.now()
-    phase = 'recording'
-    armLimit()
-    watchParts()
-    deps.emit({ state: 'recording', limit, elapsed })
+    go()
   }
 
   function stop(job: string, request: TranscribeRequest) {
@@ -389,76 +336,6 @@ export function createRecorder(deps: RecorderDeps) {
     deps.emit({ job, state: 'failed', error: 'no-speech', retry: false })
   }
 
-  /** The job's stretches one after another; silence in one leaves it out. */
-  async function transcribeAll(job: Job, request: TranscribeRequest, signal: AbortSignal) {
-    const texts: string[] = []
-    for (const { audio, ms } of job.segments) {
-      try {
-        texts.push(await deps.transcribe(audio, request, signal, timeoutFor(ms)))
-      } catch (error) {
-        if (!(error instanceof VoiceFailure && error.code === 'no-speech')) throw error
-      }
-    }
-    if (texts.length === 0) throw new VoiceFailure('no-speech')
-    return texts.join(' ')
-  }
-
-  async function send(id: string, request: TranscribeRequest) {
-    const job = jobs.get(id)
-    if (!job) return
-    job.held = undefined
-    job.controller?.abort()
-    const controller = new AbortController()
-    job.controller = controller
-    deps.emit({ job: id, state: 'transcribing' })
-    const current = () => jobs.get(id) === job && job.controller === controller
-    try {
-      const answer = await transcribeAll(job, request, controller.signal)
-      if (!current()) return
-      jobs.delete(id)
-      deps.emit({ job: id, state: 'done', ...cut(answer, MAX_TEXT) })
-    } catch (error) {
-      if (!current()) return
-      job.controller = undefined
-      const code = error instanceof VoiceFailure ? error.code : 'failed'
-      const detail = error instanceof VoiceFailure ? error.detail : undefined
-      const retry = code !== 'no-speech'
-      if (retry) job.held = { at: Date.now(), error: code, ...(detail ? { detail } : {}) }
-      else jobs.delete(id)
-      deps.emit({ job: id, state: 'failed', error: code, ...(detail ? { detail } : {}), retry })
-      if (retry) keepHeld()
-    }
-  }
-
-  /** Held audio within its time and size: the rest gives up its Retry, oldest first. */
-  function keepHeld() {
-    clearTimeout(expiry)
-    const now = Date.now()
-    const holding = [...jobs]
-      .filter(([, job]) => job.held)
-      .sort(([, a], [, b]) => (a.held?.at ?? 0) - (b.held?.at ?? 0))
-    let bytes = holding.reduce((sum, [, job]) => sum + sizeOf(job.segments), 0)
-    for (const [id, job] of holding) {
-      const { at = 0, error = 'failed', detail } = job.held ?? {}
-      if (now - at < HOLD_TIME && bytes <= HOLD_BYTES) continue
-      bytes -= sizeOf(job.segments)
-      jobs.delete(id)
-      deps.emit({ job: id, state: 'failed', error, ...(detail ? { detail } : {}), retry: false })
-    }
-    const next = [...jobs.values()].reduce(
-      (soonest, job) => (job.held ? Math.min(soonest, job.held.at + HOLD_TIME) : soonest),
-      Infinity,
-    )
-    if (next !== Infinity) expiry = setTimeout(keepHeld, Math.max(0, next - now))
-  }
-
-  function drop(id: string) {
-    const job = jobs.get(id)
-    if (!job) return
-    job.controller?.abort()
-    jobs.delete(id)
-  }
-
   return {
     command(c: RecorderCommand) {
       switch (c.type) {
@@ -478,18 +355,17 @@ export function createRecorder(deps: RecorderDeps) {
           deps.emit({ state: 'idle' })
           return
         case 'retry':
-          if (jobs.get(c.job)?.held) void send(c.job, c.request)
+          jobs.retry(c.job, c.request)
           return
         case 'drop':
-          drop(c.job)
+          jobs.drop(c.job)
           return
       }
     },
     /** The port is gone: drop everything, report nothing. */
     stop() {
       endRecording()
-      clearTimeout(expiry)
-      for (const id of [...jobs.keys()]) drop(id)
+      jobs.dropAll()
     },
   }
 }

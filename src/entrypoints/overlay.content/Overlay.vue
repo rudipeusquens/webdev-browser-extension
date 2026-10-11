@@ -9,45 +9,32 @@ import {
   useTemplateRef,
   watch,
 } from 'vue'
-import { browser, type Browser } from 'wxt/browser'
+import { browser } from 'wxt/browser'
 import { useSiteCollection } from '@/composables/use-site-collection'
 import { keepNewest } from '@/composables/use-stored'
 import { useVoice } from '@/composables/use-voice'
-import { closestOf, deepActiveElement, queryFirst, tagOf } from '@/lib/capture/dom'
-import { findText } from '@/lib/capture/find-text'
+import { closestOf, deepActiveElement, tagOf } from '@/lib/capture/dom'
 import { snapshotArea } from '@/lib/capture/area'
-import { buildSelector } from '@/lib/capture/selector'
 import { pageInfo, snapshotElement } from '@/lib/capture/snapshot'
-import {
-  type CapturedText,
-  chipAnchor,
-  firstShownCharacter,
-  rangeContainer,
-  sameRange,
-  selectionRange,
-  snapshotRange,
-} from '@/lib/capture/text'
+import { type CapturedText, sameRange, selectionRange, snapshotRange } from '@/lib/capture/text'
 import type { PageInfo, Rect, Status, Target } from '@/lib/collection/model'
 import { siteOf } from '@/lib/collection/site'
-import { STATUS_BADGE, type Tone, toneOf } from '@/lib/status'
-import { type Filter, loadView, shows, watchView } from '@/lib/view'
+import { type Tone, toneOf } from '@/lib/status'
+import { type Filter, loadView, watchView } from '@/lib/view'
 import { isMacPlatform } from '@/lib/shortcuts'
 import { truncate } from '@/lib/text'
 import {
   type BackgroundMessage,
   isOverlayMessage,
-  isPanelAway,
   type Mode,
   type OverlayStatus,
   type PanelMessage,
-  type PinsPointed,
   type Reply,
 } from '@/lib/messages'
 import { request } from '@/lib/request'
 import { loadStored, watchStored } from '@/lib/storage'
 import { jobsKey, parseJobs, type SiteJobs } from '@/lib/voice/jobs'
 import { within } from '@/lib/within'
-import { createAnchorStatus } from './anchor-status'
 import CommentPopover from './CommentPopover.vue'
 import HoverBox from './HoverBox.vue'
 import { newId } from '@/lib/ids'
@@ -55,30 +42,16 @@ import { type Origins, readOrigins, selectorsOf, withOrigins } from './origins'
 import { pageShortcut } from './keys'
 import { createLinkSelect, pageSelectSurface } from './link-select'
 import { forwardsWheel, isEditable, pickAt, TargetPath, wheelTarget } from './picker'
-import {
-  boxOf,
-  clippersOf,
-  inBounds,
-  isLiveRange,
-  type LiveAnchor,
-  linesOf,
-  notRendered,
-  onArea,
-  onElement,
-  onRange,
-  outlineBox,
-  pinPositions,
-  placeItems,
-  pruneLive,
-  toRect,
-  visibleBounds,
-} from './pins'
+import { boxOf, type LiveAnchor, linesOf, notRendered, onArea, onElement, onRange } from './pins'
 import type { Layer } from './top-layer'
 import { rectBetween } from './place'
 import SelectionChip from './SelectionChip.vue'
 import TextHighlight from './TextHighlight.vue'
+import { useComponentNames } from './use-component-names'
 import { usePage } from './use-page'
-import { createTextMarks, type Marks, pageSurface } from './text-marks'
+import { usePanelLines } from './use-panel-lines'
+import { usePins } from './use-pins'
+import { useSelectionChip } from './use-selection-chip'
 import { useTracking } from './use-tracking'
 
 const props = defineProps<{ host: HTMLElement; layer: Layer }>()
@@ -94,10 +67,6 @@ const MIN_AREA = 4
  * 1.5 s to answer, this leaves room for the messages around it.
  */
 const ORIGIN_WAIT = 2000
-/** How long the pointer rests on an element before its component is looked up. */
-const HOVER_DWELL = 150
-/** Text items are searched again at most this often while the page changes. */
-const REANCHOR_EVERY = 300
 /** How long a reveal waits for its item to be placed: the page may still be loading. */
 const REVEAL_WAIT = 3000
 
@@ -145,9 +114,8 @@ const highlighted = ref<string | null>(null)
 // The panel or the P key can hide the pins, until they show them again or the overlay
 // restarts.
 const pinsShown = ref(true)
-// The page's selection the Pin chip offers to pin (browse mode), the character the chip sits
-// under, and the first one the selection shows.
-const chip = shallowRef<{ range: Range; anchor: Range; start: Range | null } | null>(null)
+// The pin whose outline is drawn stronger: the pointer rests on it.
+const hoveredPin = ref<string | null>(null)
 // The rectangle being dragged in area mode, in viewport coordinates.
 const drag = shallowRef<{ from: { x: number; y: number }; to: { x: number; y: number } } | null>(
   null,
@@ -183,7 +151,6 @@ const live = shallowReactive(new Map<string, LiveAnchor>())
 let pointed: Element | null = null
 let lastPointer: { x: number; y: number } | null = null
 let drafts = 0
-let chipCheck = 0
 
 function rectOf(el: Element): Rect {
   void frame.value
@@ -197,44 +164,6 @@ const sizeOf = (r: Rect) =>
 const describe = (el: Element, r: Rect, component?: string | null) =>
   [tagOf(el), component, sizeOf(r)].filter(Boolean).join(' · ')
 
-// The innermost component of elements looked up while hovering, for the label. A WeakMap is
-// not reactive: `componentsSeen` changes whenever an entry is added.
-const components = new WeakMap<Element, string | null>()
-const componentsSeen = ref(0)
-let hoverTimer: ReturnType<typeof setTimeout> | undefined
-let askingComponent = false
-
-function componentOf(el: Element): string | null | undefined {
-  void componentsSeen.value
-  return components.get(el)
-}
-
-/** Looks up the component of the element the pointer rests on; one lookup at a time. */
-async function askComponent(el: Element) {
-  if (askingComponent || components.has(el)) return
-  askingComponent = true
-  try {
-    const [origin] = await readOrigins([el], [buildSelector(el)])
-    components.set(el, origin?.chain.at(-1)?.name ?? null)
-    componentsSeen.value++
-  } catch {
-    components.set(el, null)
-  } finally {
-    askingComponent = false
-  }
-  // The pointer moved on meanwhile.
-  const now = hovered.value
-  if (now && now !== el && mode.value === 'element') void askComponent(now)
-}
-
-const hoverRect = computed(() =>
-  hovered.value && mode.value === 'element' && !draft.value ? rectOf(hovered.value) : null,
-)
-const hoverLabel = computed(() =>
-  hovered.value && hoverRect.value
-    ? describe(hovered.value, hoverRect.value, componentOf(hovered.value))
-    : '',
-)
 const dragRect = computed(() => drag.value && rectBetween(drag.value.from, drag.value.to))
 // A selected text is measured once per frame, before anything is written: box and lines.
 const draftText = computed(() => {
@@ -251,124 +180,28 @@ const draftLabel = computed(() =>
 )
 /** The target being commented on is rendered: it gets a marking (a closed menu has none). */
 const draftShown = computed(() => !!draftRect.value && !notRendered(draftRect.value))
-// The scroll containers and clipping boxes around the chip's selection: looked up once per
-// selection, measured on every frame.
-const chipClippers = computed(() => {
-  const anchor = chip.value?.anchor
-  return anchor ? clippersOf(rangeContainer(anchor), true) : []
-})
-const chipLine = computed(() => {
-  void frame.value
-  const anchor = chip.value?.anchor
-  if (!anchor || mode.value !== 'browse' || draft.value) return null
-  const r = anchor.getBoundingClientRect()
-  const line = toRect(r)
-  // The page hid the selection's end (a menu closed): it would sit in the corner.
-  if (notRendered(line)) return null
-  // From the first character to the last: a long selection keeps its chip at the edge while
-  // any of it is in view.
-  const s = chip.value?.start?.getBoundingClientRect() ?? r
-  const x = Math.min(r.x, s.x)
-  const y = Math.min(r.y, s.y)
-  const span = {
-    x,
-    y,
-    width: Math.max(r.right, s.right) - x,
-    height: Math.max(r.bottom, s.bottom) - y,
-  }
-  const viewport = { x: 0, y: 0, width: window.innerWidth, height: window.innerHeight }
-  // Scrolled out of view or out of its box: no chip, until the selection is back.
-  const bounds = visibleBounds(chipClippers.value, viewport)
-  return bounds && inBounds(span, bounds) ? line : null
+
+const { chip, chipLine, onRelease, onSelectionChange } = useSelectionChip({
+  host: props.host,
+  mode,
+  draft,
+  frame,
 })
 
-/** The items of this page that the filter shows: only they are placed and pinned. */
-const pageItems = computed(() =>
-  (collection.value?.items ?? []).filter(
-    (item) => item.pageKey === page.value && shows(item, filter.value),
-  ),
-)
-const placements = computed(() => {
-  // Again after DOM changes, not on every scroll: an element may have been replaced.
-  void layout.value
-  return placeItems(pageItems.value, live, document)
-})
-// The scroll containers and clipping boxes around each target: looked up with the
-// placements, measured on every frame.
-const clippers = computed(() => {
-  const found = new Map<string, Element[]>()
-  for (const [id, placement] of placements.value) {
-    // A selection lies in its element's content: that element's own scrolling clips it.
-    found.set(id, clippersOf(placement.el, !!placement.range))
-  }
-  return found
-})
-// The pin whose outline is drawn stronger: the pointer rests on it.
-const hoveredPin = ref<string | null>(null)
-/** The page's placed items while pins are shown, with where each can be seen, now. */
-const shown = computed(() => {
-  void frame.value
-  if (!pinsShown.value) return []
-  const viewport = { x: 0, y: 0, width: window.innerWidth, height: window.innerHeight }
-  return pageItems.value.flatMap((item) => {
-    const placement = placements.value.get(item.id)
-    if (!placement) return []
-    const bounds = visibleBounds(clippers.value.get(item.id) ?? [], viewport)
-    return [{ item, rect: placement.rect(), bounds }]
-  })
-})
-const pins = computed(() => {
-  const items = new Map(pageItems.value.map((item) => [item.id, item]))
-  const onPage = shown.value.map(({ item, rect, bounds }) => ({ id: item.id, rect, bounds }))
-  return pinPositions(onPage).map(({ id, x, y }) => ({
-    id,
-    number: items.get(id)?.number,
-    tone: STATUS_BADGE[toneOf(items.get(id) ?? { status: 'open' })],
-    transcribing: jobs.value[id]?.state === 'transcribing',
-    left: `${x}px`,
-    top: `${y}px`,
-  }))
-})
-/** Outline colors by tone: drawn fully while its pin is hovered. */
-const OUTLINE: Record<Tone, { normal: string; strong: string }> = {
-  open: { normal: 'border-blue-600/70', strong: 'border-blue-600' },
-  done: { normal: 'border-green-700/70', strong: 'border-green-700' },
-  deleted: { normal: 'border-red-600/70', strong: 'border-red-600' },
-  draft: { normal: 'border-zinc-500/70', strong: 'border-zinc-500' },
-}
-// A pin that goes away under the pointer (hidden, scrolled out of its box) gets no mouseleave.
-watch(pins, (current) => {
-  if (hoveredPin.value && !current.some((pin) => pin.id === hoveredPin.value)) {
-    hoveredPin.value = null
-  }
+const { pageItems, placements, pins, outlines, highlight } = usePins({
+  collection,
+  page,
+  filter,
+  live,
+  frame,
+  layout,
+  pinsShown,
+  hoveredPin,
+  highlighted,
+  jobs,
+  draft,
 })
 
-/**
- * The line around each pinned element or area. Texts are shaded by the browser instead
- * (text-marks.ts). The item being edited has the popover's own marking.
- */
-const outlines = computed(() => {
-  const editing = draft.value?.edit?.id
-  return shown.value.flatMap(({ item, rect, bounds }) => {
-    if (item.id === editing || !bounds || item.target.kind === 'text') return []
-    const strong = item.id === hoveredPin.value
-    const box = outlineBox(rect, bounds)
-    if (!box) return []
-    const side = (on: boolean) => (on ? '2px' : '0')
-    // Moved by its transform: scrolling does not make the browser draw the line again.
-    const style = {
-      transform: `translate(${box.x}px, ${box.y}px)`,
-      width: `${box.width}px`,
-      height: `${box.height}px`,
-      borderTopWidth: side(box.sides.top),
-      borderRightWidth: side(box.sides.right),
-      borderBottomWidth: side(box.sides.bottom),
-      borderLeftWidth: side(box.sides.left),
-    }
-    const tone = OUTLINE[toneOf(item)][strong ? 'strong' : 'normal']
-    return [{ id: item.id, strong, tone, dashed: item.target.kind === 'area', style }]
-  })
-})
 /** The pin being edited, as stored now. */
 const editStored = computed(() => {
   const edit = draft.value?.edit
@@ -397,80 +230,6 @@ async function jobAction(type: 'dictation:retry' | 'dictation:dismiss') {
   }
 }
 
-const highlight = computed(() => {
-  void frame.value
-  const item = pageItems.value.find((i) => i.id === highlighted.value)
-  const placement = item && placements.value.get(item.id)
-  const rect = placement?.rect()
-  // A target without a box (not rendered) has nothing to outline.
-  if (!item || !rect || rect.width === 0 || rect.height === 0) return null
-  return { rect, label: `Pin ${item.number}`, status: toneOf(item) }
-})
-
-// Pinned texts are shaded by the browser: set again when what is pinned, hovered or edited
-// changes (a text found again changes the placements), never while the page scrolls.
-const textMarks = createTextMarks(pageSurface(document))
-watch(
-  [placements, pinsShown, hoveredPin, () => draft.value?.edit?.id],
-  () => {
-    const marks: Marks = {}
-    const editing = draft.value?.edit?.id
-    if (pinsShown.value) {
-      for (const item of pageItems.value) {
-        const range = placements.value.get(item.id)?.range
-        // A text not found again has its pin at its container, and no shading.
-        if (!range || item.id === editing) continue
-        const tone = (marks[toneOf(item)] ??= { normal: [], strong: [] })
-        ;(item.id === hoveredPin.value ? tone.strong : tone.normal).push(range)
-      }
-    }
-    textMarks.set(marks)
-  },
-  { immediate: true },
-)
-
-watch(collection, (current) => pruneLive(live, current?.items ?? []))
-
-// Text items without a selection from this session are found again by their text: at once
-// when the page's items change (mount, another page), so the pin does not jump from the
-// container to the text; while the page changes, at most every REANCHOR_EVERY ms, so a page
-// that changes all the time does not keep the overlay searching.
-let reanchorTimer: ReturnType<typeof setTimeout> | undefined
-function reanchorTexts() {
-  for (const item of pageItems.value) {
-    const { target } = item
-    if (target.kind !== 'text' || isLiveRange(live.get(item.id))) continue
-    const container = queryFirst(document, target.container.selector)
-    if (!container) continue
-    try {
-      const range = findText(container, target)
-      if (range) live.set(item.id, range)
-    } catch {
-      // A page in the middle of re-rendering: the next layout change tries again.
-    }
-  }
-}
-watch(pageItems, reanchorTexts, { immediate: true })
-watch(layout, () => {
-  reanchorTimer ??= setTimeout(() => {
-    reanchorTimer = undefined
-    reanchorTexts()
-  }, REANCHOR_EVERY)
-})
-
-// Found and missing items of this page, for the panel's mark and the prompt.
-const anchors = createAnchorStatus((report) => {
-  browser.runtime.sendMessage({ type: 'anchors:report', ...report }).catch(() => undefined)
-})
-watch(placements, (placed) => {
-  const ids = pageItems.value.map((item) => item.id)
-  anchors.update(
-    page.value,
-    ids.filter((id) => placed.has(id)),
-    ids.filter((id) => !placed.has(id)),
-  )
-})
-
 // Another page of a single-page app: its own pins; the chip and highlight belonged to the last.
 watch(page, () => {
   chip.value = null
@@ -496,12 +255,16 @@ function hover(el: Element | null) {
   hovered.value = el
 }
 
-watch(hovered, (el) => {
-  clearTimeout(hoverTimer)
-  if (el && mode.value === 'element' && !components.has(el)) {
-    hoverTimer = setTimeout(() => void askComponent(el), HOVER_DWELL)
-  }
-})
+const { componentOf } = useComponentNames(hovered, mode)
+
+const hoverRect = computed(() =>
+  hovered.value && mode.value === 'element' && !draft.value ? rectOf(hovered.value) : null,
+)
+const hoverLabel = computed(() =>
+  hovered.value && hoverRect.value
+    ? describe(hovered.value, hoverRect.value, componentOf(hovered.value))
+    : '',
+)
 
 function setMode(next: Mode) {
   if (mode.value === next) return
@@ -685,30 +448,6 @@ watch(placements, (placed) => {
   void reveal(id)
 })
 
-/**
- * Offers the chip for the page's selection after the user let go of the mouse or a key: a
- * selection the page makes by script gets none. The check waits a frame, until the
- * selection has settled. Releases inside the overlay reach the window as the host's and are
- * not checked, except over a pin (its own listener): a selection dragged onto a pin.
- */
-function onRelease(e: Event) {
-  if (!e.isTrusted || e.target === props.host || mode.value !== 'browse' || draft.value) return
-  cancelAnimationFrame(chipCheck)
-  chipCheck = requestAnimationFrame(() => {
-    const range = selectionRange(document)
-    const anchor = range && chipAnchor(range)
-    chip.value = range && anchor ? { range, anchor, start: firstShownCharacter(range) } : null
-  })
-}
-
-/** Hides the chip as soon as the selection it was offered for changes. */
-function onSelectionChange() {
-  const offered = chip.value
-  if (!offered) return
-  const current = selectionRange(document)
-  if (!current || !sameRange(current, offered.range)) chip.value = null
-}
-
 /** The chip was clicked: comment on the selection it was offered for. */
 function commentOnSelection() {
   const offered = chip.value
@@ -737,22 +476,35 @@ function commentOnSelection() {
   })
 }
 
+/**
+ * Runs `work` while the open popover shows busy: it closes once that succeeded (`closing` runs
+ * first), or says why not (`failed` runs after). A popover opened meanwhile stays as it is.
+ */
+async function closeAfter(
+  current: Draft,
+  work: () => Promise<Reply | undefined>,
+  { closing, failed }: { closing?: () => void; failed?: () => void } = {},
+): Promise<Reply> {
+  draft.value = { ...current, busy: true, error: undefined }
+  const reply: Reply = (await work()) ?? { ok: false, error: NOT_SAVED }
+  if (draft.value?.key !== current.key) return reply
+  if (reply.ok) {
+    closing?.()
+    draft.value = null
+  } else {
+    draft.value = { ...current, busy: false, error: reply.error }
+    failed?.()
+  }
+  return reply
+}
+
 /** Delete or Restore in the popover of an existing item: it closes once the change is saved. */
 async function changeStatus(type: 'annotation:remove' | 'annotation:restore') {
   const current = draft.value
   const id = current?.edit?.id
   if (!current || !id || current.busy) return
   voice.cancel()
-  draft.value = { ...current, busy: true, error: undefined }
-  const message: BackgroundMessage = { type, site, id }
-  const reply = await request(message)
-  if (draft.value?.key !== current.key) return
-  if (reply?.ok) {
-    draft.value = null
-    return
-  }
-  const error = reply && !reply.ok ? reply.error : NOT_SAVED
-  draft.value = { ...current, busy: false, error }
+  await closeAfter(current, () => request({ type, site, id }))
 }
 
 function onPinClick(e: MouseEvent, id: string) {
@@ -829,6 +581,12 @@ const running = () => voice.recording.value && !voice.holds.value
 /** The save (or stop) of the open popover while it is stored, for a leave that comes meanwhile. */
 let saving: Promise<Reply> | undefined
 
+/** Keeps `stored` as `saving` until it settles. */
+function track(stored: Promise<Reply>): Promise<Reply> {
+  saving = stored
+  return stored.finally(() => (saving = undefined))
+}
+
 /** Save or `Enter`: the pin is saved; a running dictation is stopped first, its text follows. */
 async function save(comment: string) {
   if (running()) return void stopDictation()
@@ -836,33 +594,22 @@ async function save(comment: string) {
   if (!current || current.busy) return
   // A microphone that only starts recorded nothing: it goes with the popover.
   voice.cancel()
-  draft.value = { ...current, busy: true, error: undefined }
-  saving = persist(current, comment, 'save')
-  const reply = await saving.finally(() => (saving = undefined))
-  if (draft.value?.key !== current.key) return
-  if (reply.ok) draft.value = null
-  else draft.value = { ...current, busy: false, error: reply.error }
+  await closeAfter(current, () => track(persist(current, comment, 'save')))
 }
 
 /**
  * A dictation's stop (spec section 8): the pin is saved, a draft while it has no comment, the
  * recording handed over to the background, and the popover closes. The text follows.
  */
-async function stopDictation(): Promise<Reply> {
+function stopDictation(): Promise<Reply> {
   const current = draft.value
-  if (!current || current.busy) return { ok: false, error: NOT_SAVED }
-  draft.value = { ...current, busy: true, error: undefined }
-  saving = persist(current, popover.value?.snapshot() ?? '', 'save')
-  const reply = await saving.finally(() => (saving = undefined))
-  if (draft.value?.key !== current.key) return reply
-  if (!reply.ok) {
-    draft.value = { ...current, busy: false, error: reply.error }
-    return reply
-  }
-  // Only once the pin is stored: its text is filled into it.
-  voice.stop({ pin: current.id })
-  draft.value = null
-  return reply
+  if (!current || current.busy) return Promise.resolve({ ok: false, error: NOT_SAVED })
+  return closeAfter(
+    current,
+    () => track(persist(current, popover.value?.snapshot() ?? '', 'save')),
+    // Only once the pin is stored: its text is filled into it.
+    { closing: () => voice.stop({ pin: current.id }) },
+  )
 }
 
 /** Space, Alt+V, the mic, Retry of a held recording: starts a dictation, or stops it. */
@@ -894,15 +641,11 @@ function leave(): Promise<Reply> {
       if (running()) return await stopDictation()
       // A starting microphone recorded nothing; a held recording goes out on Retry only.
       voice.cancel()
-      draft.value = { ...current, busy: true, error: undefined }
-      const reply = await persist(current, popover.value?.snapshot() ?? '', 'keep')
-      if (draft.value?.key !== current.key) return reply
-      if (reply.ok) draft.value = null
-      else {
-        draft.value = { ...current, busy: false, error: reply.error }
-        nudge.value++
-      }
-      return reply
+      return await closeAfter(
+        current,
+        () => persist(current, popover.value?.snapshot() ?? '', 'keep'),
+        { failed: () => nudge.value++ },
+      )
     } finally {
       leaving = undefined
     }
@@ -1069,12 +812,7 @@ const onMessage: Parameters<typeof browser.runtime.onMessage.addListener>[0] = (
   }
 }
 
-/**
- * The panel keeps a line open to every overlay it has shown. When it moves to another tab, its
- * highlight goes; when it closes, the line goes and the page is left to work normally (spec
- * section 8).
- */
-const panels = new Set<Browser.runtime.Port>()
+const { panels, onConnect } = usePanelLines({ hoveredPin, draft, highlighted, setMode })
 
 // Ctrl+drag (⌘+drag on macOS) selects text in Browse mode, also in a link, while the panel is
 // open; the page keeps its Ctrl+click otherwise (spec section 8).
@@ -1084,63 +822,24 @@ const linkSelect = createLinkSelect(pageSelectSurface(document, props.host), {
   active: () => mode.value === 'browse' && panels.size > 0,
   editable: (target) => isEditable(target instanceof Element ? target : null),
 })
-const onSelectDown = (e: MouseEvent) => linkSelect.down(e)
-const onSelectMove = (e: MouseEvent) => linkSelect.move(e)
-const onSelectUp = () => linkSelect.up()
-const onSelectClick = (e: MouseEvent) => linkSelect.click(e)
-
-/** What the pins point at, by id only: the panel marks the entries (spec section 8). */
-function pointedNow(): PinsPointed {
-  return {
-    type: 'pins:pointed',
-    hovered: hoveredPin.value,
-    open: draft.value?.edit?.id ?? null,
-    popover: draft.value !== null,
-  }
-}
-
-function tellPanels(message: PinsPointed) {
-  for (const port of panels) {
-    try {
-      port.postMessage(message)
-    } catch {
-      panels.delete(port)
-    }
-  }
-}
-
-watch([hoveredPin, () => draft.value?.edit?.id ?? null, () => draft.value !== null], () =>
-  tellPanels(pointedNow()),
-)
-
-const onConnect: Parameters<typeof browser.runtime.onConnect.addListener>[0] = (port) => {
-  if (port.name !== 'panel' || port.sender?.id !== browser.runtime.id) return
-  panels.add(port)
-  port.onMessage.addListener((message) => {
-    if (isPanelAway(message)) highlighted.value = null
-  })
-  port.onDisconnect.addListener(() => {
-    panels.delete(port)
-    highlighted.value = null
-    setMode('browse')
-  })
-  const now = pointedNow()
-  if (now.hovered || now.open || now.popover) tellPanels(now)
-}
 
 const RELEASES = ['pointerup', 'mouseup', 'keyup'] as const
+// Removes the listeners on the window and the document together; the page's scripts cannot
+// reach it from their world.
+const listeners = new AbortController()
 
 onMounted(() => {
+  const { signal } = listeners
   // Capture phase on window: before the page's own bubble-phase shortcut handlers.
-  window.addEventListener('keydown', onKeydown, true)
-  window.addEventListener('pagehide', onPageHide)
-  for (const type of RELEASES) window.addEventListener(type, onRelease, true)
-  window.addEventListener('mousedown', onSelectDown, true)
-  window.addEventListener('mousemove', onSelectMove, true)
-  window.addEventListener('mouseup', onSelectUp, true)
-  window.addEventListener('blur', onSelectUp)
-  window.addEventListener('click', onSelectClick, true)
-  document.addEventListener('selectionchange', onSelectionChange)
+  window.addEventListener('keydown', onKeydown, { capture: true, signal })
+  window.addEventListener('pagehide', onPageHide, { signal })
+  for (const type of RELEASES) window.addEventListener(type, onRelease, { capture: true, signal })
+  window.addEventListener('mousedown', linkSelect.down, { capture: true, signal })
+  window.addEventListener('mousemove', linkSelect.move, { capture: true, signal })
+  window.addEventListener('mouseup', linkSelect.up, { capture: true, signal })
+  window.addEventListener('blur', linkSelect.up, { signal })
+  window.addEventListener('click', linkSelect.click, { capture: true, signal })
+  document.addEventListener('selectionchange', onSelectionChange, { signal })
   browser.runtime.onMessage.addListener(onMessage)
   browser.runtime.onConnect.addListener(onConnect)
   notifyPanel()
@@ -1149,21 +848,8 @@ onMounted(() => {
 onBeforeUnmount(() => {
   stopView()
   clearTimeout(wantedTimer)
-  textMarks.stop()
-  clearTimeout(hoverTimer)
-  clearTimeout(reanchorTimer)
-  anchors.stop()
-  window.removeEventListener('keydown', onKeydown, true)
-  window.removeEventListener('pagehide', onPageHide)
+  listeners.abort()
   stopJobs()
-  for (const type of RELEASES) window.removeEventListener(type, onRelease, true)
-  window.removeEventListener('mousedown', onSelectDown, true)
-  window.removeEventListener('mousemove', onSelectMove, true)
-  window.removeEventListener('mouseup', onSelectUp, true)
-  window.removeEventListener('blur', onSelectUp)
-  window.removeEventListener('click', onSelectClick, true)
-  document.removeEventListener('selectionchange', onSelectionChange)
-  cancelAnimationFrame(chipCheck)
   browser.runtime.onMessage.removeListener(onMessage)
   browser.runtime.onConnect.removeListener(onConnect)
 })
@@ -1185,15 +871,15 @@ onBeforeUnmount(() => {
       @wheel="onWheel"
       @contextmenu.prevent
     />
-    <template v-for="outline in outlines" :key="outline.id">
-      <div
-        data-testid="overlay-outline"
-        :data-strong="outline.strong"
-        class="pointer-events-none fixed top-0 left-0 z-[2147483647] rounded-[3px] will-change-transform"
-        :class="[outline.dashed ? 'border-dashed' : 'border-solid', outline.tone]"
-        :style="outline.style"
-      />
-    </template>
+    <div
+      v-for="outline in outlines"
+      :key="outline.id"
+      data-testid="overlay-outline"
+      :data-strong="outline.strong"
+      class="pointer-events-none fixed top-0 left-0 z-[2147483647] rounded-[3px] will-change-transform"
+      :class="[outline.dashed ? 'border-dashed' : 'border-solid', outline.tone]"
+      :style="outline.style"
+    />
     <HoverBox v-if="hoverRect" :rect="hoverRect" :label="hoverLabel" />
     <HoverBox
       v-if="highlight && !draft"

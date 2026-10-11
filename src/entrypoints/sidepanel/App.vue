@@ -20,7 +20,6 @@ import { Button } from '@/components/ui/button'
 import { Toggle } from '@/components/ui/toggle'
 import { ToggleGroup, ToggleGroupItem } from '@/components/ui/toggle-group'
 import { groupByPage } from '@/lib/collection/ops'
-import { isObject } from '@/lib/collection/validate'
 import { formatCollection } from '@/lib/format/markdown'
 import {
   type BackgroundMessage,
@@ -37,6 +36,7 @@ import ForgetSiteDialog from './ForgetSiteDialog.vue'
 import ItemList from './ItemList.vue'
 import NoteList from './NoteList.vue'
 import RecButton from './RecButton.vue'
+import RecMessages from './RecMessages.vue'
 import SitePill from './SitePill.vue'
 import SettingsView from './SettingsView.vue'
 import { useActiveTab } from './use-active-tab'
@@ -44,8 +44,8 @@ import { writeClipboard } from './clipboard'
 import { useDictation } from './use-dictation'
 import { usePanelView } from './use-panel-view'
 import { useMissing } from './use-missing'
-import { openMicPermission } from './open-mic-permission'
 import { useOverlayLines } from './use-overlay-lines'
+import { usePinJump } from './use-pin-jump'
 import { usePanelToggle } from './use-panel-toggle'
 import { useSettings } from './use-settings'
 import { useShortcut } from './use-shortcut'
@@ -127,10 +127,7 @@ function onKeydown(e: KeyboardEvent) {
   }
 }
 onMounted(() => window.addEventListener('keydown', onKeydown))
-onBeforeUnmount(() => {
-  window.removeEventListener('keydown', onKeydown)
-  cancelJump()
-})
+onBeforeUnmount(() => window.removeEventListener('keydown', onKeydown))
 const items = computed(() => collection.value.items)
 /** Open pins whose comment is complete: no drafts, nothing transcribed (spec section 8). */
 const openIds = computed(() =>
@@ -141,15 +138,16 @@ const openIds = computed(() =>
 )
 /** What the next Copy as prompt copies: nothing until the site's dictations are read. */
 const count = computed(() => (jobsLoaded.value ? openIds.value.length : 0))
-/** Open items it leaves out: drafts, and pins still transcribed. */
-const leftOut = computed(
-  () => items.value.filter((item) => item.status === 'open').length - count.value,
-)
+const binned = computed(() => items.value.filter((item) => item.status === 'deleted'))
+const binPages = computed(() => new Set(binned.value.map((item) => item.pageKey)).size)
+/** The filter's counts; `all` is also what Clear all moves to Deleted: the open and done items. */
 const counts = computed(() => ({
   open: items.value.filter((item) => item.status === 'open').length,
   all: items.value.filter((item) => shows(item, 'all')).length,
-  deleted: items.value.filter((item) => item.status === 'deleted').length,
+  deleted: binned.value.length,
 }))
+/** Open items it leaves out: drafts, and pins still transcribed. */
+const leftOut = computed(() => counts.value.open - count.value)
 const shown = computed(() => items.value.filter((item) => shows(item, filter.value)))
 /** Items of the last copy that were not deleted since: what Copy again copies. */
 const againIds = computed(() => {
@@ -164,10 +162,6 @@ const groups = computed(() => {
   }))
   return [...all.filter((g) => g.current), ...all.filter((g) => !g.current)]
 })
-/** What Clear all moves to Deleted: the open and done items. */
-const clearable = computed(() => items.value.filter((item) => item.status !== 'deleted').length)
-const binned = computed(() => items.value.filter((item) => item.status === 'deleted'))
-const binPages = computed(() => new Set(binned.value.map((item) => item.pageKey)).size)
 const mode = computed(() => (status.value.kind === 'active' ? status.value.mode : undefined))
 const pinsShown = computed(() => status.value.kind !== 'active' || status.value.pins)
 /** The origin of the active page, when it is a site that can be remembered. */
@@ -298,17 +292,24 @@ function retryNote(id: string) {
   void change({ type: 'note:retry', id })
 }
 
+/**
+ * Copies the prompt of `ids`, then marks them done on `current`; `noun` names them in a refusal.
+ */
+async function copyPins(ids: string[], current: string, done: string, noun: 'pin' | 'pins') {
+  await writePrompt(ids, done)
+  await change(
+    { type: 'collection:copied', site: current, ids },
+    (error) => `Copied, but the ${noun} could not be marked done: ${error}`,
+  )
+}
+
 /** The open items; then exactly those become done (spec section 7). */
 async function copy() {
   const ids = openIds.value
   const current = site.value
   if (!current || ids.length === 0 || !jobsLoaded.value) return
   const left = leftOut.value ? `. ${leftOut.value} left out: drafts and pins still transcribed` : ''
-  await writePrompt(ids, `Copied ${plural(ids.length, 'pin')}${left}`)
-  await change(
-    { type: 'collection:copied', site: current, ids },
-    (error) => `Copied, but the pins could not be marked done: ${error}`,
-  )
+  await copyPins(ids, current, `Copied ${plural(ids.length, 'pin')}${left}`, 'pins')
 }
 
 /** One open pin, from its entry: it becomes done, and Copy again copies it. */
@@ -316,11 +317,7 @@ async function copyOne(id: string) {
   const current = site.value
   const item = items.value.find((i) => i.id === id)
   if (!current || !item) return
-  await writePrompt([id], `Copied pin ${item.number}`)
-  await change(
-    { type: 'collection:copied', site: current, ids: [id] },
-    (error) => `Copied, but the pin could not be marked done: ${error}`,
-  )
+  await copyPins([id], current, `Copied pin ${item.number}`, 'pin')
 }
 
 /** The last copy again, for a paste that went wrong; it changes nothing. */
@@ -368,7 +365,7 @@ function changeItem(
 
 /** Clear all: the open and done pins move to Deleted, at once (Undo and Restore exist). */
 async function clearSite() {
-  const moved = clearable.value
+  const moved = counts.value.all
   if (!site.value || moved === 0) return
   if (await change({ type: 'collection:clear', site: site.value })) {
     say(`Moved ${plural(moved, 'pin')} to Deleted`)
@@ -377,12 +374,6 @@ async function clearSite() {
 
 function emptySiteBin() {
   if (site.value) void change({ type: 'collection:empty-bin', site: site.value })
-}
-
-function goTo(pageKey: string) {
-  cancelJump()
-  if (tabId.value === undefined) return
-  void change({ type: 'tab:go', tabId: tabId.value, pageKey })
 }
 
 const { pointed } = useOverlayLines(tabId, status)
@@ -395,59 +386,7 @@ watch(
   },
 )
 
-/** How long a jump to an item of another page waits for that page's overlay. */
-const JUMP_WAIT = 30_000
-let jump: {
-  tab: number
-  pageKey: string
-  id: string
-  timer: ReturnType<typeof setTimeout>
-} | null = null
-
-function cancelJump() {
-  if (jump) clearTimeout(jump.timer)
-  jump = null
-}
-
-/** An entry of another page: open the page in the tab, then show the item once it is ready. */
-function jumpTo(pageKey: string, id: string) {
-  cancelJump()
-  const tab = tabId.value
-  if (tab === undefined) return
-  // Set before the page loads: its overlay may answer before Go to does.
-  const pending = { tab, pageKey, id, timer: setTimeout(cancelJump, JUMP_WAIT) }
-  jump = pending
-  void change({ type: 'tab:go', tabId: tab, pageKey }).then((went) => {
-    if (!went && jump === pending) cancelJump()
-  })
-}
-
-/**
- * Opens a pin on the tab's page. The overlay refuses only while its popover holds unsaved
- * text: that is shown, as a refused change is, until something works.
- */
-async function showPin(id: string) {
-  if (tabId.value === undefined) return
-  const message: OverlayMessage = { type: 'overlay:reveal', id }
-  const reply: unknown = await browser.tabs
-    .sendMessage(tabId.value, message, { frameId: 0 })
-    .catch(() => undefined)
-  if (isObject(reply) && reply.ok === false) panelError.value = PIN_NOT_KEPT
-  else if (isObject(reply) && reply.ok === true) panelError.value = ''
-}
-
-watch(status, (now) => {
-  if (!jump || now.kind !== 'active') return
-  if (tabId.value !== jump.tab || now.pageKey !== jump.pageKey) return
-  const { id } = jump
-  cancelJump()
-  void showPin(id)
-})
-
-function reveal(id: string) {
-  cancelJump()
-  void showPin(id)
-}
+const { goTo, jumpTo, reveal } = usePinJump(tabId, status, change, panelError)
 
 function setPins(visible: boolean) {
   toOverlay({ type: 'overlay:set-pins', visible })
@@ -725,57 +664,14 @@ function setMode(next: unknown) {
         <p v-if="panelError" data-testid="panel-error" role="alert" class="text-destructive">
           {{ panelError }}
         </p>
-        <div
-          v-if="dictation.paused.value"
-          data-testid="rec-limit"
-          role="alert"
-          class="flex flex-wrap items-center gap-x-2 gap-y-1"
-        >
-          <span class="min-w-0 flex-1 basis-40"
-            >Rec paused at {{ dictation.clock.value }}. Keep recording?</span
-          >
-          <Button data-testid="rec-keep" variant="outline" size="xs" @click="dictation.resume()">
-            Keep
-          </Button>
-          <Button data-testid="rec-stop" variant="outline" size="xs" @click="dictation.toggle()">
-            Stop
-          </Button>
-        </div>
-        <div
-          v-if="dictation.failure.value"
-          data-testid="rec-message"
-          role="alert"
-          class="flex flex-wrap items-center gap-x-2 gap-y-1 text-destructive"
-        >
-          <span class="min-w-0 flex-1 basis-40">{{ dictation.failure.value.text }}</span>
-          <Button
-            v-if="dictation.failure.value.grant"
-            data-testid="rec-grant"
-            variant="outline"
-            size="xs"
-            @click="openMicPermission"
-          >
-            Grant
-          </Button>
-          <Button
-            v-if="dictation.failure.value.settings"
-            data-testid="rec-settings"
-            variant="outline"
-            size="xs"
-            @click="showSettings = true"
-          >
-            Open settings
-          </Button>
-          <Button
-            v-if="dictation.failure.value.retry"
-            data-testid="rec-retry"
-            variant="outline"
-            size="xs"
-            @click="dictation.toggle()"
-          >
-            Retry
-          </Button>
-        </div>
+        <RecMessages
+          :paused="dictation.paused.value"
+          :clock="dictation.clock.value"
+          :failure="dictation.failure.value"
+          @keep="dictation.resume()"
+          @toggle="dictation.toggle()"
+          @settings="showSettings = true"
+        />
         <p v-if="copyStatus" class="text-muted-foreground" aria-hidden="true">{{ copyStatus }}</p>
       </div>
       <!-- Two rows: three labels do not fit side by side in a narrow panel. -->
@@ -800,10 +696,10 @@ function setMode(next: unknown) {
         </Button>
         <!-- Once only deleted pins are left, the bin can be emptied. -->
         <Button
-          v-if="clearable || !binned.length"
+          v-if="counts.all || !binned.length"
           data-testid="clear-all"
           variant="outline"
-          :disabled="!clearable"
+          :disabled="!counts.all"
           title="Move every open and done pin to Deleted"
           @click="clearSite"
         >
