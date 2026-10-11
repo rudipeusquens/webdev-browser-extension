@@ -31,6 +31,16 @@ export function panelKey(
 }
 
 /**
+ * `Alt+V`, which starts and stops a dictation or Rec: by the key's place, since on macOS
+ * Option+V types a character instead of `v`.
+ */
+export function isAltV(
+  e: Pick<KeyboardEvent, 'code' | 'altKey' | 'ctrlKey' | 'metaKey' | 'shiftKey'>,
+): boolean {
+  return e.code === 'KeyV' && e.altKey && !e.ctrlKey && !e.metaKey && !e.shiftKey
+}
+
+/**
  * Rec in the panel: `Alt+V` starts and stops it, like dictation in a pin, by the key's place
  * (Option+V types a character on macOS) and not at the key repeat rate; `Escape` cancels it.
  */
@@ -42,9 +52,7 @@ export function recKey(
 ): 'toggle' | 'cancel' | null {
   if (e.isComposing) return null
   if (e.key === 'Escape') return 'cancel'
-  if (e.code === 'KeyV' && e.altKey && !e.ctrlKey && !e.metaKey && !e.shiftKey) {
-    return e.repeat ? null : 'toggle'
-  }
+  if (isAltV(e)) return e.repeat ? null : 'toggle'
   return null
 }
 
