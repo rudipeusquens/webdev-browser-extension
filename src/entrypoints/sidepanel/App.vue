@@ -292,17 +292,25 @@ function retryNote(id: string) {
   void change({ type: 'note:retry', id })
 }
 
+/**
+ * Copies the prompt of `ids` and says `done`; then exactly those become done on `current`, the
+ * site read before the copy. A refusal calls them `noun`.
+ */
+async function copyPins(ids: string[], current: string, done: string, noun: 'pin' | 'pins') {
+  await writePrompt(ids, done)
+  await change(
+    { type: 'collection:copied', site: current, ids },
+    (error) => `Copied, but the ${noun} could not be marked done: ${error}`,
+  )
+}
+
 /** The open items; then exactly those become done (spec section 7). */
 async function copy() {
   const ids = openIds.value
   const current = site.value
   if (!current || ids.length === 0 || !jobsLoaded.value) return
   const left = leftOut.value ? `. ${leftOut.value} left out: drafts and pins still transcribed` : ''
-  await writePrompt(ids, `Copied ${plural(ids.length, 'pin')}${left}`)
-  await change(
-    { type: 'collection:copied', site: current, ids },
-    (error) => `Copied, but the pins could not be marked done: ${error}`,
-  )
+  await copyPins(ids, current, `Copied ${plural(ids.length, 'pin')}${left}`, 'pins')
 }
 
 /** One open pin, from its entry: it becomes done, and Copy again copies it. */
@@ -310,11 +318,7 @@ async function copyOne(id: string) {
   const current = site.value
   const item = items.value.find((i) => i.id === id)
   if (!current || !item) return
-  await writePrompt([id], `Copied pin ${item.number}`)
-  await change(
-    { type: 'collection:copied', site: current, ids: [id] },
-    (error) => `Copied, but the pin could not be marked done: ${error}`,
-  )
+  await copyPins([id], current, `Copied pin ${item.number}`, 'pin')
 }
 
 /** The last copy again, for a paste that went wrong; it changes nothing. */
