@@ -16,7 +16,7 @@ import {
   type Target,
 } from './model'
 import { pageKey } from './page-key'
-import { isSite, siteOf } from './site'
+import { belongsTo, isSite } from './site'
 
 export type Fields = Record<string, unknown>
 
@@ -219,15 +219,6 @@ function isConsistent(
     new Set(items.map((item) => item.number)).size === items.length &&
     items.every((item) => item.number < nextNumber && Object.hasOwn(pages, item.pageKey))
   )
-}
-
-/** Whether the page `url` belongs to `site`. */
-export const belongsTo = (url: string, site: string) => {
-  try {
-    return siteOf(url) === site
-  } catch {
-    return false
-  }
 }
 
 export function isCollection(x: unknown): x is Collection {

@@ -4,7 +4,7 @@
 import { appendTranscript } from '../voice/transcript'
 import type { Annotation, Collection, PageInfo, Status, Target } from './model'
 import { pageKey } from './page-key'
-import { siteOf } from './site'
+import { belongsTo } from './site'
 
 export interface NewAnnotation {
   id: string
@@ -32,18 +32,9 @@ export function emptyCollection(site: string): Collection {
   return { version: 2, site, nextNumber: 1, pages: {}, items: [], lastCopy: [] }
 }
 
-/** Whether `url` is a page of the site `site`. */
-function onSite(url: string, site: string): boolean {
-  try {
-    return siteOf(url) === site
-  } catch {
-    return false
-  }
-}
-
 /** A new open item; nothing for an id that exists or a page of another site. */
 export function addAnnotation(c: Collection, input: NewAnnotation, now: string): Collection {
-  if (c.items.some((item) => item.id === input.id) || !onSite(input.page.url, c.site)) return c
+  if (c.items.some((item) => item.id === input.id) || !belongsTo(input.page.url, c.site)) return c
   const key = pageKey(input.page.url)
   const item: Annotation = {
     id: input.id,

@@ -5,7 +5,8 @@ import { browser } from 'wxt/browser'
 import type { Annotation, Collection, PageInfo } from './model'
 import { emptyCollection } from './ops'
 import { watchStored } from '../storage'
-import { belongsTo, isAnnotation, isCollection, isIdList, isObject, isPageInfo } from './validate'
+import { belongsTo, bySite } from './site'
+import { isAnnotation, isCollection, isIdList, isObject, isPageInfo } from './validate'
 
 export const COLLECTION_PREFIX = 'collection:'
 /** The single collection of milestones 2–5, split by site when the background starts. */
@@ -88,7 +89,7 @@ export async function loadSites(): Promise<Collection[]> {
     .filter(([key]) => key.startsWith(COLLECTION_PREFIX))
     .map(([key, value]) => parse(key.slice(COLLECTION_PREFIX.length), value))
     .filter((c) => c.items.length > 0)
-    .sort((a, b) => (a.site < b.site ? -1 : a.site > b.site ? 1 : 0))
+    .sort(bySite)
 }
 
 /** Calls `cb` whenever the collection of any site changes; returns a function that stops. */

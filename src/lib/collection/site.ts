@@ -26,6 +26,13 @@ export function siteOrNull(url?: string): string | null {
   }
 }
 
+/** Whether the page `url` belongs to `site`. */
+export const belongsTo = (url: string, site: string) => siteOrNull(url) === site
+
+/** Sorts collections by site. */
+export const bySite = (a: { site: string }, b: { site: string }) =>
+  a.site < b.site ? -1 : a.site > b.site ? 1 : 0
+
 /** A site as `siteOf` writes it. */
 export function isSite(x: unknown): x is string {
   return x === FILES || isSiteOrigin(x)
