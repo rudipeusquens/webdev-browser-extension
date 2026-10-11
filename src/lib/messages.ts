@@ -6,12 +6,12 @@ import { LIMITS } from './collection/model'
 import { isSite } from './collection/site'
 import { isOption, isSiteOrigin, type Option } from './settings'
 import { type Filter, isFilter } from './view'
-import { isLimit } from './voice/settings'
-import { isApiKey, isLanguage, isModelId } from './voice/settings'
+import { isApiKey, isLanguage, isLimit, isModelId } from './voice/settings'
 import {
   hasKeys,
   isAnnotationId,
   isComment,
+  isCount,
   isDraftComment,
   isIdList as isIdSet,
   isObject,
@@ -151,7 +151,6 @@ const isIdList = (x: unknown): x is string[] =>
   Array.isArray(x) && x.length <= MAX_REPORTED && x.every(isAnnotationId)
 
 /** A tab of the browser: Chrome numbers them from 0 on. */
-const isTabId = (x: unknown): x is number => Number.isInteger(x) && (x as number) >= 0
 
 /** Most selectors one `origin:read` asks for: an area's container and its elements. */
 export const MAX_ORIGIN_SELECTORS = LIMITS.areaElements + 1
@@ -314,9 +313,9 @@ export function isBackgroundMessage(x: unknown): x is BackgroundMessage {
     case 'settings:set':
       return hasKeys(x, ['type', 'key', 'value']) && isOption(x.key) && typeof x.value === 'boolean'
     case 'tab:start':
-      return hasKeys(x, ['type', 'tabId']) && isTabId(x.tabId)
+      return hasKeys(x, ['type', 'tabId']) && isCount(x.tabId)
     case 'tab:go':
-      return hasKeys(x, ['type', 'tabId', 'pageKey']) && isTabId(x.tabId) && isPageUrl(x.pageKey)
+      return hasKeys(x, ['type', 'tabId', 'pageKey']) && isCount(x.tabId) && isPageUrl(x.pageKey)
     case 'site:remember':
     case 'site:forget':
       return hasKeys(x, ['type', 'origin']) && isSiteOrigin(x.origin)

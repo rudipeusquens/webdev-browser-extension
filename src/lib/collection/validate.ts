@@ -59,7 +59,8 @@ export function isText(x: unknown, max: number, min = 0): x is string {
 }
 
 const isNumber = (x: unknown): x is number => typeof x === 'number' && Number.isFinite(x)
-const isCount = (x: unknown, min = 0): x is number => Number.isInteger(x) && (x as number) >= min
+export const isCount = (x: unknown, min = 0): x is number =>
+  Number.isInteger(x) && (x as number) >= min
 
 function isRect(x: unknown): x is Rect {
   return (

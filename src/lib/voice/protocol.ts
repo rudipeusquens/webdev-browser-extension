@@ -2,7 +2,7 @@
 // recorder, what can go wrong, and how the popover and the panel say it. Every receiver checks
 // shapes with these guards.
 
-import { hasKeys, isAnnotationId, isObject, isText } from '../collection/validate'
+import { hasKeys, isAnnotationId, isCount, isObject, isText } from '../collection/validate'
 import type { TranscribeRequest } from './openrouter'
 import { isApiKey, isLanguage, isLimit, isModelId } from './settings'
 
@@ -146,8 +146,6 @@ const isRequest = (x: unknown): x is TranscribeRequest =>
   isModelId(x.model) &&
   isLanguage(x.language)
 
-const isMs = (x: unknown): x is number => Number.isInteger(x) && (x as number) >= 0
-
 /** A failed state's fields; `extra` names the keys of a message that carries more. */
 export function isFailure(x: Record<string, unknown>, extra: string[] = []): boolean {
   return (
@@ -169,10 +167,10 @@ function isRecordingState(x: unknown): x is RecordingState {
         hasKeys(x, ['state', 'limit', 'elapsed']) &&
         Number.isInteger(x.limit) &&
         (x.limit as number) > 0 &&
-        isMs(x.elapsed)
+        isCount(x.elapsed)
       )
     case 'paused':
-      return hasKeys(x, ['state', 'elapsed']) && isMs(x.elapsed)
+      return hasKeys(x, ['state', 'elapsed']) && isCount(x.elapsed)
     case 'failed':
       return isFailure(x)
     default:
