@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed } from 'vue'
 import type { Rect } from '@/lib/collection/model'
-import { STATUS_MARK, type Tone } from '@/lib/status'
+import { STATUS_BADGE, STATUS_MARK, type Tone } from '@/lib/status'
 
 const props = withDefaults(
   defineProps<{
@@ -42,7 +42,7 @@ const labelInside = computed(() => props.rect.y < 24)
       v-if="label"
       data-testid="overlay-hover-label"
       class="absolute left-0 max-w-80 truncate rounded-sm px-1.5 py-0.5 font-mono text-xs leading-4 whitespace-nowrap text-white"
-      :class="[mark.label, labelInside ? 'top-0.5 left-0.5' : '-top-6']"
+      :class="[STATUS_BADGE[status], labelInside ? 'top-0.5 left-0.5' : '-top-6']"
       >{{ label }}</span
     >
   </div>
