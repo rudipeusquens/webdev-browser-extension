@@ -1088,10 +1088,6 @@ const linkSelect = createLinkSelect(pageSelectSurface(document, props.host), {
   active: () => mode.value === 'browse' && panels.size > 0,
   editable: (target) => isEditable(target instanceof Element ? target : null),
 })
-const onSelectDown = (e: MouseEvent) => linkSelect.down(e)
-const onSelectMove = (e: MouseEvent) => linkSelect.move(e)
-const onSelectUp = () => linkSelect.up()
-const onSelectClick = (e: MouseEvent) => linkSelect.click(e)
 
 /** What the pins point at, by id only: the panel marks the entries (spec section 8). */
 function pointedNow(): PinsPointed {
@@ -1133,18 +1129,22 @@ const onConnect: Parameters<typeof browser.runtime.onConnect.addListener>[0] = (
 }
 
 const RELEASES = ['pointerup', 'mouseup', 'keyup'] as const
+// Removes the listeners on the window and the document together; the page's scripts cannot
+// reach it from their world.
+const listeners = new AbortController()
 
 onMounted(() => {
+  const { signal } = listeners
   // Capture phase on window: before the page's own bubble-phase shortcut handlers.
-  window.addEventListener('keydown', onKeydown, true)
-  window.addEventListener('pagehide', onPageHide)
-  for (const type of RELEASES) window.addEventListener(type, onRelease, true)
-  window.addEventListener('mousedown', onSelectDown, true)
-  window.addEventListener('mousemove', onSelectMove, true)
-  window.addEventListener('mouseup', onSelectUp, true)
-  window.addEventListener('blur', onSelectUp)
-  window.addEventListener('click', onSelectClick, true)
-  document.addEventListener('selectionchange', onSelectionChange)
+  window.addEventListener('keydown', onKeydown, { capture: true, signal })
+  window.addEventListener('pagehide', onPageHide, { signal })
+  for (const type of RELEASES) window.addEventListener(type, onRelease, { capture: true, signal })
+  window.addEventListener('mousedown', linkSelect.down, { capture: true, signal })
+  window.addEventListener('mousemove', linkSelect.move, { capture: true, signal })
+  window.addEventListener('mouseup', linkSelect.up, { capture: true, signal })
+  window.addEventListener('blur', linkSelect.up, { signal })
+  window.addEventListener('click', linkSelect.click, { capture: true, signal })
+  document.addEventListener('selectionchange', onSelectionChange, { signal })
   browser.runtime.onMessage.addListener(onMessage)
   browser.runtime.onConnect.addListener(onConnect)
   notifyPanel()
@@ -1157,16 +1157,8 @@ onBeforeUnmount(() => {
   clearTimeout(hoverTimer)
   clearTimeout(reanchorTimer)
   anchors.stop()
-  window.removeEventListener('keydown', onKeydown, true)
-  window.removeEventListener('pagehide', onPageHide)
+  listeners.abort()
   stopJobs()
-  for (const type of RELEASES) window.removeEventListener(type, onRelease, true)
-  window.removeEventListener('mousedown', onSelectDown, true)
-  window.removeEventListener('mousemove', onSelectMove, true)
-  window.removeEventListener('mouseup', onSelectUp, true)
-  window.removeEventListener('blur', onSelectUp)
-  window.removeEventListener('click', onSelectClick, true)
-  document.removeEventListener('selectionchange', onSelectionChange)
   cancelAnimationFrame(chipCheck)
   browser.runtime.onMessage.removeListener(onMessage)
   browser.runtime.onConnect.removeListener(onConnect)

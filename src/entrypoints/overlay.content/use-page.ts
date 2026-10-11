@@ -15,18 +15,16 @@ export function usePage(): { key: Ref<string> } {
   // The Navigation API exists in every Chrome this extension supports; the fallback is for
   // tests. The page's own scripts cannot change this world's `window`.
   const navigation = (window as Navigation).navigation
+  const listeners = new AbortController()
   onMounted(() => {
+    const { signal } = listeners
     if (navigation) {
-      navigation.addEventListener('currententrychange', update)
+      navigation.addEventListener('currententrychange', update, { signal })
     } else {
-      window.addEventListener('popstate', update)
-      window.addEventListener('hashchange', update)
+      window.addEventListener('popstate', update, { signal })
+      window.addEventListener('hashchange', update, { signal })
     }
   })
-  onBeforeUnmount(() => {
-    navigation?.removeEventListener('currententrychange', update)
-    window.removeEventListener('popstate', update)
-    window.removeEventListener('hashchange', update)
-  })
+  onBeforeUnmount(() => listeners.abort())
   return { key }
 }

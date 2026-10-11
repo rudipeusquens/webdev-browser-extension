@@ -28,10 +28,12 @@ export function useTracking(): { frame: Ref<number>; layout: Ref<number> } {
   const resizes = new ResizeObserver(relayout)
   // Changes inside the overlay's own shadow root are not observed, so this cannot loop.
   const mutations = new MutationObserver(relayout)
+  const listeners = new AbortController()
   onMounted(() => {
+    const { signal } = listeners
     // Capture phase: scrolling inside any container counts, not only the document.
-    window.addEventListener('scroll', bump, { capture: true, passive: true })
-    window.addEventListener('resize', relayout, { passive: true })
+    window.addEventListener('scroll', bump, { capture: true, passive: true, signal })
+    window.addEventListener('resize', relayout, { passive: true, signal })
     resizes.observe(document.documentElement)
     mutations.observe(document.documentElement, {
       subtree: true,
@@ -41,8 +43,7 @@ export function useTracking(): { frame: Ref<number>; layout: Ref<number> } {
     })
   })
   onBeforeUnmount(() => {
-    window.removeEventListener('scroll', bump, { capture: true })
-    window.removeEventListener('resize', relayout)
+    listeners.abort()
     resizes.disconnect()
     mutations.disconnect()
     cancelAnimationFrame(pending)
