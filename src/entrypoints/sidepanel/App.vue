@@ -292,10 +292,7 @@ function retryNote(id: string) {
   void change({ type: 'note:retry', id })
 }
 
-/**
- * Copies the prompt of `ids` and says `done`; then exactly those become done on `current`, the
- * site read before the copy. A refusal calls them `noun`.
- */
+/** Copies the prompt of `ids`, then marks them done on `current`; `noun` names them in a refusal. */
 async function copyPins(ids: string[], current: string, done: string, noun: 'pin' | 'pins') {
   await writePrompt(ids, done)
   await change(

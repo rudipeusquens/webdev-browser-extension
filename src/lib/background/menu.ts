@@ -1,3 +1,6 @@
+// The page's context menu entry (spec section 8): present while its option is on; it starts the
+// extension like the toolbar icon.
+
 import { browser } from 'wxt/browser'
 import { loadSettings } from '../settings'
 import { serial } from './serial'

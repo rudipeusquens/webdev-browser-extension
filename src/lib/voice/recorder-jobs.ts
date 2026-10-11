@@ -27,7 +27,7 @@ function cut(text: string, max: number): { text: string; cut: boolean } {
     : { text, cut: false }
 }
 
-/** A stretch of one recording, up to a limit: a model transcribes it in one go. */
+/** One part of a recording (cut at a limit, in a pause or at PART_HARD): a model transcribes it in one go. */
 export interface Segment {
   audio: Blob
   ms: number
@@ -88,8 +88,8 @@ export function createJobs(deps: JobDeps) {
   }
 
   /** A job's failure; `detail` goes along only when OpenRouter gave a reason. */
-  function failed(job: string, error: VoiceError, detail: string | undefined, retry: boolean) {
-    deps.emit({ job, state: 'failed', error, ...(detail ? { detail } : {}), retry })
+  function failed(id: string, error: VoiceError, detail: string | undefined, retry: boolean) {
+    deps.emit({ job: id, state: 'failed', error, ...(detail ? { detail } : {}), retry })
   }
 
   /** Held audio within its time and size: the rest gives up its Retry, oldest first. */
@@ -100,7 +100,7 @@ export function createJobs(deps: JobDeps) {
       .flatMap(([id, job]) => (job.held ? [{ id, job, held: job.held }] : []))
       .sort((a, b) => a.held.at - b.held.at)
     let bytes = holding.reduce((sum, { job }) => sum + sizeOf(job.segments), 0)
-    // Since when the first job that keeps its audio holds it: the oldest runs out first.
+    // The first job kept is the oldest: its audio runs out first, so the timer waits for it.
     let oldest: number | undefined
     for (const { id, job, held } of holding) {
       if (now - held.at < HOLD_TIME && bytes <= HOLD_BYTES) {

@@ -3,8 +3,8 @@
 // own: a model's answer has a length limit, about twelve minutes of speech for the default
 // one), and turns each stopped recording into a job (recorder-jobs.ts) that it sends to
 // OpenRouter itself (a service worker is stopped when a fetch takes longer than 30 s). The next
-// recording may start while jobs are transcribed. A failed job keeps its audio for Retry, for a
-// while. Browser APIs come in as `deps`, so the states are tested without a microphone.
+// recording may start while jobs are transcribed. Browser APIs come in as `deps`, so the states
+// are tested without a microphone.
 
 import type { TranscribeRequest } from './openrouter'
 import type { RecorderCommand, RecorderMessage, VoiceError } from './protocol'
