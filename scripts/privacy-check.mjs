@@ -101,6 +101,11 @@ function denylistHits(line, denylist) {
     }))
 }
 
+/** Findings of `scanText` as report entries, each placed by `where(finding)`. */
+function located(findings, where) {
+  return findings.map((f) => ({ location: where(f), rule: f.rule, detail: f.detail }))
+}
+
 export function scanText(text, { denylist = [], patterns = true } = {}) {
   const findings = []
   text.split(/\r?\n/).forEach((line, i) => {
@@ -149,13 +154,12 @@ export function scanDiff(diff, denylist) {
     } else if (line.startsWith('@@')) {
       lineNo = Number(/\+(\d+)/.exec(line)?.[1] ?? 0)
     } else if (line.startsWith('+')) {
-      for (const f of scanText(line.slice(1), { denylist })) {
-        findings.push({
-          location: `commit ${commit} ${file}:${lineNo}`,
-          rule: f.rule,
-          detail: f.detail,
-        })
-      }
+      findings.push(
+        ...located(
+          scanText(line.slice(1), { denylist }),
+          () => `commit ${commit} ${file}:${lineNo}`,
+        ),
+      )
       lineNo++
     } else if (!line.startsWith('-')) {
       lineNo++
@@ -239,9 +243,9 @@ function scanFile(root, file, denylist) {
   // Binary files (images may carry EXIF names) get the denylist only.
   const binary = buffer.subarray(0, 8000).includes(0)
   const text = buffer.toString(binary ? 'latin1' : 'utf8')
-  for (const f of scanText(text, { denylist, patterns: !binary })) {
-    findings.push({ location: `${path}:${f.line}`, rule: f.rule, detail: f.detail })
-  }
+  findings.push(
+    ...located(scanText(text, { denylist, patterns: !binary }), (f) => `${path}:${f.line}`),
+  )
   return findings
 }
 
@@ -267,9 +271,7 @@ function scanCommits(revs, denylist) {
       for (const hit of denylistHits(name, denylist))
         findings.push({ location: `${at} (name)`, ...hit })
     }
-    for (const f of scanText(body, { denylist })) {
-      findings.push({ location: `${at} (message):${f.line}`, rule: f.rule, detail: f.detail })
-    }
+    findings.push(...located(scanText(body, { denylist }), (f) => `${at} (message):${f.line}`))
   }
   const diff = git(
     'log',
@@ -334,16 +336,12 @@ function main(argv) {
       .split('\n')
       .filter((line) => !line.startsWith('#'))
       .join('\n')
-    findings = scanText(message, { denylist }).map((f) => ({
-      location: `commit message:${f.line}`,
-      rule: f.rule,
-      detail: f.detail,
-    }))
+    findings = located(scanText(message, { denylist }), (f) => `commit message:${f.line}`)
   } else if (argv[0] === '--push') {
     help = `${FINDINGS_HELP}\n${IDENTITY_HELP}`
     for (const { refs, revs } of pushedRanges(readFileSync(0, 'utf8'))) {
       for (const ref of refs) {
-        for (const f of scanText(ref, { denylist })) findings.push({ location: `ref ${ref}`, ...f })
+        findings.push(...located(scanText(ref, { denylist }), () => `ref ${ref}`))
       }
       findings.push(...scanCommits(revs, denylist))
     }
