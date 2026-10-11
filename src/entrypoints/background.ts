@@ -201,8 +201,9 @@ export default defineBackground(() => {
       // removed themselves: they get a fresh one.
       if (reason !== 'update' || origins.length === 0) return
       const tabs = await browser.tabs.query({ url: origins.map(originPattern) })
-      for (const { id } of tabs)
+      for (const { id } of tabs) {
         if (id !== undefined) await injectOverlay(id).catch(() => undefined)
+      }
     })
     void syncMenuEntry()
   })

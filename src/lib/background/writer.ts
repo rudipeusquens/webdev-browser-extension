@@ -15,10 +15,10 @@ import {
   updateComment,
 } from '../collection/ops'
 import { collectionKey, LEGACY_KEY, readSite, unreadableKey } from '../collection/store'
-import { jsonBytes, setOrRemove } from '../storage'
-import { plural } from '../text'
 import { isLegacyCollection } from '../collection/validate'
 import type { CollectionMessage, Reply } from '../messages'
+import { jsonBytes, setOrRemove } from '../storage'
+import { plural } from '../text'
 import { applyStep, forgetHistory, loadHistory, saveHistory, stepBetween } from './history'
 import { serial } from './serial'
 

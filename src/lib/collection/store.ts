@@ -2,9 +2,9 @@
 // writes them (src/lib/background).
 
 import { browser } from 'wxt/browser'
+import { watchStored } from '../storage'
 import type { Annotation, Collection, PageInfo } from './model'
 import { emptyCollection } from './ops'
-import { watchStored } from '../storage'
 import { belongsTo, bySite } from './site'
 import { isAnnotation, isCollection, isIdList, isObject, isPageInfo } from './validate'
 

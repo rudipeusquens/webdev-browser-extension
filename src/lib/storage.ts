@@ -1,5 +1,5 @@
-// Reading and watching one key of `storage.local` (or `storage.session`), parsed on every read:
-// what a key holds is checked like any other input (spec section 11).
+// Reading, watching, writing and measuring one key of `storage.local` (or `storage.session`),
+// parsed on every read: what a key holds is checked like any other input (spec section 11).
 
 import { browser } from 'wxt/browser'
 

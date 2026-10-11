@@ -12,6 +12,7 @@ export const TIMEOUT = 65_000
 
 /** The timeout for a recording of `ms`: 10 s more for each minute after the first. */
 export const timeoutFor = (ms: number) => TIMEOUT + 10_000 * Math.max(0, Math.ceil(ms / 60_000) - 1)
+
 export interface TranscribeRequest {
   key: string
   model: string

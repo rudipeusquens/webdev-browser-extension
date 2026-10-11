@@ -8,7 +8,7 @@ import { Label } from '@/components/ui/label'
 import { NativeSelect, NativeSelectOption } from '@/components/ui/native-select'
 import type { KeyTestReply, Reply, VoiceSettingsMessage } from '@/lib/messages'
 import { isApiKey, isModelId, LANGUAGES, LIMIT_CHOICES, MODELS } from '@/lib/voice/settings'
-import { openMicPermission } from './mic-permission'
+import { openMicPermission } from './open-mic-permission'
 import { useVoiceSettings } from './use-voice-settings'
 
 // Settings → Voice (spec section 8). The panel reads the key only to show it masked; every

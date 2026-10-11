@@ -1,9 +1,9 @@
 // Which items the panel lists and the pages pin (spec section 5): one choice for every site,
 // kept in storage.local under its own key. The panel asks the background to write it.
 
+import type { Annotation } from './collection/model'
 import { hasKeys } from './collection/validate'
 import { loadStored, watchStored } from './storage'
-import type { Annotation } from './collection/model'
 
 export const VIEW_KEY = 'view'
 
