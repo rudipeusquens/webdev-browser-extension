@@ -9,28 +9,23 @@ import type { OriginReply } from '@/lib/messages'
 
 export type Origins = (CodeOrigin | undefined)[]
 
-/** The elements a target's snapshots were taken from, in snapshot order. */
-export interface Sources {
-  elements: Element[]
-  selectors: string[]
-}
-
-export function sourcesOf(target: Target, elements: Element[]): Sources {
+/** The selectors of a target's snapshots, in snapshot order. */
+export function selectorsOf(target: Target): string[] {
   switch (target.kind) {
     case 'element':
-      return { elements, selectors: [target.element.selector] }
+      return [target.element.selector]
     case 'text':
-      return { elements, selectors: [target.container.selector] }
+      return [target.container.selector]
     case 'area':
-      return {
-        elements,
-        selectors: [target.container, ...target.elements].map((s) => s.selector),
-      }
+      return [target.container, ...target.elements].map((s) => s.selector)
   }
 }
 
-/** The origin of each element, in the order given; undefined where none is known. */
-export async function readOrigins({ elements, selectors }: Sources): Promise<Origins> {
+/**
+ * The origin of each element, found by its selector in the page's world or by its
+ * attributes, in the order given; undefined where none is known.
+ */
+export async function readOrigins(elements: Element[], selectors: string[]): Promise<Origins> {
   let vue: (CodeOrigin | null)[] = []
   try {
     const reply = (await browser.runtime.sendMessage({ type: 'origin:read', selectors })) as
@@ -49,7 +44,7 @@ export async function readOrigins({ elements, selectors }: Sources): Promise<Ori
 const withOrigin = (snapshot: ElementSnapshot, origin: CodeOrigin | undefined) =>
   origin ? { ...snapshot, origin } : snapshot
 
-/** The target with each snapshot's origin, in the order of `sourcesOf`. */
+/** The target with each snapshot's origin, in the order of `selectorsOf`. */
 export function withOrigins(target: Target, origins: Origins): Target {
   switch (target.kind) {
     case 'element':

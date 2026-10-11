@@ -51,7 +51,7 @@ import { createAnchorStatus } from './anchor-status'
 import CommentPopover from './CommentPopover.vue'
 import HoverBox from './HoverBox.vue'
 import { newId } from '@/lib/ids'
-import { type Origins, readOrigins, sourcesOf, withOrigins } from './origins'
+import { type Origins, readOrigins, selectorsOf, withOrigins } from './origins'
 import { pageShortcut } from './keys'
 import { createLinkSelect, pageSelectSurface } from './link-select'
 import { forwardsWheel, isEditable, pickAt, TargetPath, wheelTarget } from './picker'
@@ -211,7 +211,7 @@ async function askComponent(el: Element) {
   if (askingComponent || components.has(el)) return
   askingComponent = true
   try {
-    const [origin] = await readOrigins({ elements: [el], selectors: [buildSelector(el)] })
+    const [origin] = await readOrigins([el], [buildSelector(el)])
     components.set(el, origin?.chain.at(-1)?.name ?? null)
     componentsSeen.value++
   } catch {
@@ -538,7 +538,7 @@ function openDraft(next: Omit<Draft, 'key' | 'busy' | 'id'>): number {
  */
 function marking(target: Target, elements: Element[]): Pick<Draft, 'origins' | 'marked' | 'page'> {
   return {
-    origins: readOrigins(sourcesOf(target, elements)),
+    origins: readOrigins(elements, selectorsOf(target)),
     marked: performance.now(),
     page: pageInfo(window),
   }
