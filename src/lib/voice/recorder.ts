@@ -104,10 +104,9 @@ export function createRecorder(deps: RecorderDeps) {
   let media: MediaRecorderLike | undefined
   /**
    * The recording's parts in order, each slot filled once its media recorder handed over its
-   * last chunk; `pending` of them are not filled yet.
+   * last chunk.
    */
   let parts: (Segment | undefined)[] = []
-  let pending = 0
   /** When a part that was cut (not at a limit or a stop) ended. */
   const cutAt = new WeakMap<MediaRecorderLike, number>()
   let limit = 0
@@ -154,7 +153,6 @@ export function createRecorder(deps: RecorderDeps) {
     media = undefined
     release()
     parts = []
-    pending = 0
     stopping = undefined
     resumeWaits = false
     quietSince = undefined
@@ -188,22 +186,6 @@ export function createRecorder(deps: RecorderDeps) {
   /** Where the part that records now began, in recorded time. */
   let partStart = 0
 
-  /**
-   * A stopped recording becomes the job `id`, transcribed now. The recording's end says
-   * nothing: the background took it already, and the next recording may be someone else's.
-   */
-  function hand(id: string, recorded: Segment[], request: TranscribeRequest) {
-    phase = 'idle'
-    elapsed = 0
-    parts = []
-    release()
-    jobs.set(id, { segments: recorded })
-    void send(id, request)
-    const next = queued
-    queued = undefined
-    if (next !== undefined) void start(next)
-  }
-
   /** Records a part on the open stream, from `from` in recorded time; false when refused. */
   function record(from: number): boolean {
     if (!stream) return false
@@ -214,7 +196,6 @@ export function createRecorder(deps: RecorderDeps) {
       recording.ondataavailable = (e) => chunks.push(e.data)
       recording.start(TIMESLICE)
       const slot = parts.push(undefined) - 1
-      pending++
       const mine = recording
       const current = run
       recording.onstop = () => {
@@ -246,7 +227,6 @@ export function createRecorder(deps: RecorderDeps) {
 
   /** A part handed over its last chunk: cut, at the limit, at a stop, or by itself. */
   function partEnded(recording: MediaRecorderLike, slot: number, chunks: Blob[], from: number) {
-    pending--
     const ownEnd = phase === 'paused' ? elapsed : recorded()
     const end = cutAt.get(recording) ?? ownEnd
     parts[slot] = { audio: new Blob(chunks, { type: 'audio/webm' }), ms: Math.max(0, end - from) }
@@ -270,16 +250,21 @@ export function createRecorder(deps: RecorderDeps) {
     finish()
   }
 
-  /** A stop hands the recording over once every part is there. */
+  /**
+   * A stop hands the recording over once every part is there: it becomes the stop's job,
+   * transcribed now. The recording's end says nothing: the background took it already, and the
+   * next recording may be someone else's.
+   */
   function finish() {
     const to = stopping
-    if (!to || pending > 0) return
-    stopping = undefined
-    hand(
-      to.job,
-      parts.filter((part): part is Segment => part !== undefined),
-      to.request,
-    )
+    if (!to || parts.includes(undefined)) return
+    const segments = parts.filter((part): part is Segment => part !== undefined)
+    endRecording()
+    jobs.set(to.job, { segments })
+    void send(to.job, to.request)
+    const next = queued
+    queued = undefined
+    if (next !== undefined) void start(next)
   }
 
   async function start(next: number) {
