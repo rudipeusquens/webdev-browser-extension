@@ -160,6 +160,14 @@ export function createRecorder(deps: RecorderDeps) {
     phase = 'idle'
   }
 
+  /** The microphone went: the recording is held until a stop sends it (Retry) or a cancel. */
+  function hold() {
+    clearTimeout(limitTimer)
+    release()
+    phase = 'held'
+    deps.emit({ state: 'failed', error: 'mic-lost', retry: true })
+  }
+
   /** Records on from `elapsed`: a whole limit from now, parts cut in pauses, and says so. */
   function go() {
     phase = 'recording'
@@ -246,10 +254,7 @@ export function createRecorder(deps: RecorderDeps) {
       } else if (phase !== 'stopping') {
         // Audio goes out only after the developer's stop (spec principle 2). A recording
         // that ended by itself (device gone, permission revoked) waits for a stop or a cancel.
-        clearTimeout(limitTimer)
-        release()
-        phase = 'held'
-        deps.emit({ state: 'failed', error: 'mic-lost', retry: true })
+        hold()
       }
     }
     finish()
@@ -338,11 +343,7 @@ export function createRecorder(deps: RecorderDeps) {
     }
     if (!record(elapsed)) {
       // The microphone went while the question waited: what was recorded waits for Retry.
-      clearTimeout(limitTimer)
-      release()
-      phase = 'held'
-      deps.emit({ state: 'failed', error: 'mic-lost', retry: true })
-      return
+      return hold()
     }
     go()
   }
