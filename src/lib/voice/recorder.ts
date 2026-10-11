@@ -117,6 +117,8 @@ export function createRecorder(deps: RecorderDeps) {
   /** Recorded before the stretch that runs now, and when that stretch began. */
   let elapsed = 0
   let since = 0
+  /** Where the part that records now began, in recorded time. */
+  let partStart = 0
   /** Keep came while the part the limit ended still handed over its last chunk. */
   let resumeWaits = false
   /** Where the recording goes once every part handed over its last chunk. */
@@ -184,8 +186,7 @@ export function createRecorder(deps: RecorderDeps) {
     quietSince = undefined
     watch = setInterval(() => {
       if (phase !== 'recording' || !media) return
-      const from = parts.length ? partStart : 0
-      const length = recorded() - from
+      const length = recorded() - partStart
       if (length >= PART_HARD) return splitPart()
       if (length < PART_SOFT || (monitor?.level() ?? 1) >= QUIET_LEVEL) {
         quietSince = undefined
@@ -195,9 +196,6 @@ export function createRecorder(deps: RecorderDeps) {
       if (Date.now() - quietSince >= QUIET_FOR) splitPart()
     }, WATCH_EVERY)
   }
-
-  /** Where the part that records now began, in recorded time. */
-  let partStart = 0
 
   /** Records a part on the open stream, from `from` in recorded time; false when refused. */
   function record(from: number): boolean {
@@ -240,8 +238,7 @@ export function createRecorder(deps: RecorderDeps) {
 
   /** A part handed over its last chunk: cut, at the limit, at a stop, or by itself. */
   function partEnded(recording: MediaRecorderLike, slot: number, chunks: Blob[], from: number) {
-    const ownEnd = phase === 'paused' ? elapsed : recorded()
-    const end = cutAt.get(recording) ?? ownEnd
+    const end = cutAt.get(recording) ?? recorded()
     parts[slot] = { audio: new Blob(chunks, { type: 'audio/webm' }), ms: Math.max(0, end - from) }
     if (media === recording) {
       media = undefined
