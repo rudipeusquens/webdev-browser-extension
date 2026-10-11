@@ -5,7 +5,7 @@
 import type { AreaTarget, Rect } from '../collection/model'
 import { LIMITS } from '../collection/model'
 import { childrenOf, isRendered, MAX_DEPTH, ownerDocumentOf, parentOf, rectOf, tagOf } from './dom'
-import { snapshotElement } from './snapshot'
+import { pageRect, snapshotElement } from './snapshot'
 
 /** Most elements one search looks at; the count of elements inside stops there. */
 export const AREA_BUDGET = 10_000
@@ -97,12 +97,7 @@ export function snapshotArea(
     elements,
     target: {
       kind: 'area',
-      rect: {
-        x: Math.round(rect.x + (view?.scrollX ?? 0)),
-        y: Math.round(rect.y + (view?.scrollY ?? 0)),
-        width: Math.round(rect.width),
-        height: Math.round(rect.height),
-      },
+      rect: pageRect(rect, view),
       container: snapshotElement(container),
       elements: elements.map((el) => snapshotElement(el)),
       moreCount: total - elements.length,
