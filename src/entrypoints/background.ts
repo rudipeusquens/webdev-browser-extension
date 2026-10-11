@@ -2,6 +2,7 @@ import { browser, type Browser } from 'wxt/browser'
 import { defineBackground } from 'wxt/utils/define-background'
 import { createAnchorStore, forgetMissing } from '@/lib/background/anchor-status'
 import { createDictations } from '@/lib/background/dictations'
+import { MENU_ENTRY, createMenuSync } from '@/lib/background/menu'
 import { createNotes } from '@/lib/background/notes'
 import { overlayLetsGo, overlayRuns } from '@/lib/background/ask-overlay'
 import { goTo } from '@/lib/background/go-to'
@@ -10,7 +11,6 @@ import { createSites, injectOverlay } from '@/lib/background/sites'
 import { clearBlocked, clearFailed, markBlocked, markFailed } from '@/lib/background/tab-status'
 import { createVoice } from '@/lib/background/voice'
 import { isPanelSender, pageSite } from '@/lib/background/senders'
-import { serial } from '@/lib/background/serial'
 import { setVoice } from '@/lib/background/voice-settings'
 import { createWriter } from '@/lib/background/writer'
 import { siteOf } from '@/lib/collection/site'
@@ -27,12 +27,9 @@ import {
   PIN_NOT_KEPT,
   type VoiceReadyReply,
 } from '@/lib/messages'
-import { isSiteOrigin, loadSettings, originPattern } from '@/lib/settings'
+import { isSiteOrigin, originPattern } from '@/lib/settings'
 import { VIEW_KEY } from '@/lib/view'
 import { loadKey } from '@/lib/voice/key'
-
-/** The page's context menu entry: it activates the extension like the toolbar icon. */
-const MENU_ENTRY = 'annotate'
 
 /** A refusal: its shape is the same in every reply type of the background. */
 const refuse = (error: string): Extract<Reply, { ok: false }> => ({ ok: false, error })
@@ -121,61 +118,10 @@ export default defineBackground(() => {
 
   browser.action.onClicked.addListener(toggle)
   browser.runtime.onConnect.addListener(voice.onConnect)
+  const syncMenuEntry = createMenuSync()
   browser.contextMenus.onClicked.addListener((info, tab) => {
     if (info.menuItemId === MENU_ENTRY && tab) activate(tab)
   })
-
-  /**
-   * The entry exists while its option is on (off by default). Chrome keeps entries across
-   * restarts and updates; written again, it is never doubled, and one an older version left
-   * goes.
-   */
-  function setMenuEntry(on: boolean): Promise<void> {
-    return new Promise((done) => {
-      // Read, so Chrome does not log an unchecked error.
-      const checked = () => {
-        void browser.runtime.lastError
-        done()
-      }
-      try {
-        // Callbacks: contextMenus returns promises only from Chrome 123 on.
-        browser.contextMenus.removeAll(() => {
-          if (!on) return checked()
-          void browser.runtime.lastError
-          browser.contextMenus.create(
-            {
-              id: MENU_ENTRY,
-              title: 'Annotate this page',
-              contexts: [
-                'page',
-                'frame',
-                'selection',
-                'link',
-                'editable',
-                'image',
-                'video',
-                'audio',
-              ],
-              documentUrlPatterns: ['http://*/*', 'https://*/*', 'file:///*'],
-            },
-            checked,
-          )
-        })
-      } catch {
-        // No entry then; the icon and the shortcut still work.
-        done()
-      }
-    })
-  }
-
-  // One update of the entry at a time, each with the option as stored when it runs: turned
-  // on and off at once, the entry ends as the option does.
-  const menuInOrder = serial()
-  const syncMenuEntry = () =>
-    menuInOrder(async () => {
-      const { contextMenu } = await loadSettings()
-      await setMenuEntry(contextMenu)
-    }).catch(() => undefined)
 
   /** A tab that loads another page or closes: its blocked and failed marks go. */
   const forgetTab = (tabId: number) => {
