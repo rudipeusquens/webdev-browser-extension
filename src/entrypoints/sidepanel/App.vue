@@ -27,9 +27,9 @@ import {
   type Mode,
   MODES,
   type OverlayMessage,
-  type Reply,
   PIN_NOT_KEPT,
 } from '@/lib/messages'
+import { NO_ANSWER, request } from '@/lib/request'
 import { isSiteOrigin, originPattern } from '@/lib/settings'
 import EmptyBinDialog from './EmptyBinDialog.vue'
 import CopyFallbackDialog, { type Fallback } from './CopyFallbackDialog.vue'
@@ -231,14 +231,9 @@ async function change(
   message: BackgroundMessage,
   refused = (error: string) => error,
 ): Promise<boolean> {
-  let reply: Reply | undefined
-  try {
-    reply = (await browser.runtime.sendMessage(message)) as Reply | undefined
-  } catch {
-    reply = undefined
-  }
+  const reply = await request(message)
   if (reply?.ok) panelError.value = ''
-  else panelError.value = refused(reply?.error ?? 'The extension did not answer. Try again.')
+  else panelError.value = refused(reply?.error ?? NO_ANSWER)
   return reply?.ok === true
 }
 
@@ -352,7 +347,7 @@ function rememberSite() {
     .then(async (granted) => {
       if (!granted) return
       const message: BackgroundMessage = { type: 'site:remember', origin }
-      const reply = (await browser.runtime.sendMessage(message)) as Reply | undefined
+      const reply = await request(message)
       if (reply && !reply.ok) siteError.value = reply.error
     })
     .catch(() => undefined)

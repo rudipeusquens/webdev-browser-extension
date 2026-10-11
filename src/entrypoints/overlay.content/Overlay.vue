@@ -43,6 +43,7 @@ import {
   type PinsPointed,
   type Reply,
 } from '@/lib/messages'
+import { request } from '@/lib/request'
 import { loadStored, watchStored } from '@/lib/storage'
 import { jobsKey, parseJobs, type SiteJobs } from '@/lib/voice/jobs'
 import { within } from '@/lib/within'
@@ -382,12 +383,7 @@ const editComment = computed(() => {
 async function jobAction(type: 'dictation:retry' | 'dictation:dismiss') {
   const current = draft.value
   if (!current) return
-  let reply: Reply | undefined
-  try {
-    reply = (await browser.runtime.sendMessage({ type, site, id: current.id })) as Reply | undefined
-  } catch {
-    reply = undefined
-  }
+  const reply = await request({ type, site, id: current.id })
   if (draft.value?.key === current.key && reply && !reply.ok) {
     draft.value = { ...current, error: reply.error }
   }
@@ -749,12 +745,7 @@ async function changeStatus(type: 'annotation:remove' | 'annotation:restore') {
   voice.cancel()
   draft.value = { ...current, busy: true, error: undefined }
   const message: BackgroundMessage = { type, site, id }
-  let reply: Reply | undefined
-  try {
-    reply = (await browser.runtime.sendMessage(message)) as Reply | undefined
-  } catch {
-    reply = undefined
-  }
+  const reply = await request(message)
   if (draft.value?.key !== current.key) return
   if (reply?.ok) {
     draft.value = null
@@ -821,12 +812,7 @@ async function persist(
     }
     if (kept || comment === '') message.draft = true
   }
-  let reply: Reply | undefined
-  try {
-    reply = (await browser.runtime.sendMessage(message)) as Reply | undefined
-  } catch {
-    reply = undefined
-  }
+  const reply = await request(message)
   if (!reply?.ok) return { ok: false, error: reply && !reply.ok ? reply.error : NOT_SAVED }
   if (!edit) {
     current.stored = true
