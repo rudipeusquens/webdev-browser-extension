@@ -472,6 +472,30 @@ describe('background: items not found', () => {
     expect([...(await loadMissing())]).toEqual(['a2'])
   })
 
+  it('forgets what Empty bin removed after a report that came first', async () => {
+    await send(report(A, [], ['a1']), contentScript)
+    await send({ type: 'annotation:remove', site: 'http://x.test', id: 'a1' }, contentScript)
+    // The next report holds its write until Empty bin has done what it could.
+    let release!: () => void
+    const held = new Promise<void>((resolve) => (release = resolve))
+    const set = fakeBrowser.storage.session.set.bind(fakeBrowser.storage.session)
+    const write = vi
+      .spyOn(fakeBrowser.storage.session, 'set')
+      .mockImplementationOnce(async (items) => {
+        await held
+        await set(items)
+      })
+    const reported = send(report(B, [], ['b1']), contentScript)
+    await flush()
+    expect(write).toHaveBeenCalledOnce()
+    const emptied = send({ type: 'collection:empty-bin', site: 'http://x.test' }, panelSender())
+    await flush()
+    release()
+    await Promise.all([reported, emptied])
+    // Not a1 again: the report read the marks before Empty bin forgot it.
+    expect([...(await loadMissing())]).toEqual(['b1'])
+  })
+
   it('empties the bin for the panel only', async () => {
     await send({ type: 'collection:clear', site: 'http://x.test' }, panelSender())
     const empty = { type: 'collection:empty-bin', site: 'http://x.test' }

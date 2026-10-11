@@ -21,32 +21,43 @@ export const loadMissing = (): Promise<Set<string>> => loadStored(MISSING_KEY, p
 export const watchMissing = (cb: (missing: Set<string>) => void): (() => void) =>
   watchStored(MISSING_KEY, parse, cb, 'session')
 
-/** Forgets these items, such as the items of a site that was cleared. */
-export async function forgetMissing(ids: Iterable<string>): Promise<void> {
-  const missing = await loadMissing()
-  for (const id of ids) missing.delete(id)
-  await browser.storage.session.set({ [MISSING_KEY]: [...missing] })
-}
-
 /**
- * Applies reports one at a time (several tabs report at once). A report changes only the
- * items of its own page, and ids of items that no longer exist are dropped.
+ * The single writer of the set: reports and forgotten items change it one at a time, in the
+ * order they came (several tabs report at once).
  */
 export function createAnchorStore() {
   const inOrder = serial()
-  return (report: Omit<AnchorMessage, 'type'>): Promise<void> =>
-    inOrder(async () => {
-      const site = siteOf(report.pageKey)
-      const sites = await loadSites()
-      const items = sites.find((c) => c.site === site)?.items ?? []
-      const onPage = new Set(
-        items.filter((item) => item.pageKey === report.pageKey).map((item) => item.id),
-      )
-      const existing = new Set(sites.flatMap((c) => c.items.map((item) => item.id)))
-      const missing = await loadMissing()
-      for (const id of report.found) if (onPage.has(id)) missing.delete(id)
-      for (const id of report.missing) if (onPage.has(id)) missing.add(id)
-      const kept = [...missing].filter((id) => existing.has(id))
-      await browser.storage.session.set({ [MISSING_KEY]: kept })
-    })
+
+  return {
+    /**
+     * Applies a report, in turn with the others. It changes only the items of its own page,
+     * and ids of items that no longer exist are dropped.
+     */
+    record: (report: Omit<AnchorMessage, 'type'>): Promise<void> =>
+      inOrder(async () => {
+        const site = siteOf(report.pageKey)
+        const sites = await loadSites()
+        const items = sites.find((c) => c.site === site)?.items ?? []
+        const onPage = new Set(
+          items.filter((item) => item.pageKey === report.pageKey).map((item) => item.id),
+        )
+        const existing = new Set(sites.flatMap((c) => c.items.map((item) => item.id)))
+        const missing = await loadMissing()
+        for (const id of report.found) if (onPage.has(id)) missing.delete(id)
+        for (const id of report.missing) if (onPage.has(id)) missing.add(id)
+        const kept = [...missing].filter((id) => existing.has(id))
+        await browser.storage.session.set({ [MISSING_KEY]: kept })
+      }),
+
+    /**
+     * Forgets these items, such as the items Empty bin removed: after the reports that came
+     * first, so none of them writes an item back.
+     */
+    forget: (ids: Iterable<string>): Promise<void> =>
+      inOrder(async () => {
+        const missing = await loadMissing()
+        for (const id of ids) missing.delete(id)
+        await browser.storage.session.set({ [MISSING_KEY]: [...missing] })
+      }),
+  }
 }
