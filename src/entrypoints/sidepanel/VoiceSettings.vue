@@ -7,7 +7,14 @@ import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { NativeSelect, NativeSelectOption } from '@/components/ui/native-select'
 import type { KeyTestReply, Reply, VoiceSettingsMessage } from '@/lib/messages'
-import { isApiKey, isModelId, LANGUAGES, LIMIT_CHOICES, MODELS } from '@/lib/voice/settings'
+import {
+  isApiKey,
+  isModelId,
+  LANGUAGES,
+  LIMIT_CHOICES,
+  MODELS,
+  type VoiceSettings,
+} from '@/lib/voice/settings'
 import { openMicPermission } from './open-mic-permission'
 import { useVoiceSettings } from './use-voice-settings'
 
@@ -70,8 +77,12 @@ function removeKey() {
   void send({ type: 'voice:key:remove' })
 }
 
-function setVoice(model: string, language: string, limit = voice.value.limit) {
-  void send({ type: 'voice:set', model, language, limit })
+/**
+ * Only the field that changed: the others as shown come from storage, which may not hold a
+ * change made just before yet, and would undo it.
+ */
+function setVoice(change: Partial<VoiceSettings>) {
+  void send({ type: 'voice:set', ...change })
 }
 
 const modelChoice = computed({
@@ -80,7 +91,7 @@ const modelChoice = computed({
     const model = String(value)
     choice.value = model
     modelError.value = ''
-    if (model !== 'custom') setVoice(model, voice.value.language)
+    if (model !== 'custom') setVoice({ model })
   },
 })
 
@@ -91,12 +102,12 @@ function saveCustom() {
     return
   }
   modelError.value = ''
-  setVoice(model, voice.value.language)
+  setVoice({ model })
 }
 
 const language = computed({
   get: () => voice.value.language,
-  set: (value: unknown) => setVoice(voice.value.model, String(value)),
+  set: (value: unknown) => setVoice({ language: String(value) }),
 })
 
 /** The limits of the list, and the stored one when it is not among them (set elsewhere). */
@@ -110,8 +121,7 @@ const minutes = (ms: number) =>
 
 const limit = computed({
   get: () => String(voice.value.limit),
-  set: (value: unknown) =>
-    setVoice(voice.value.model, voice.value.language, Number.parseInt(String(value), 10)),
+  set: (value: unknown) => setVoice({ limit: Number.parseInt(String(value), 10) }),
 })
 </script>
 

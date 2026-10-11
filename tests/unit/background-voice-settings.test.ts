@@ -2,8 +2,8 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { fakeBrowser } from 'wxt/testing/fake-browser'
 import background from '@/entrypoints/background'
 import { loadKey, storeKey } from '@/lib/voice/key'
-import { DEFAULT_MODEL, loadVoiceSettings } from '@/lib/voice/settings'
-import { fakeChrome, send } from './helpers/background'
+import { DEFAULT_MODEL, loadVoiceSettings, VOICE_KEY } from '@/lib/voice/settings'
+import { fakeChrome, send, stored } from './helpers/background'
 import { panelSender } from './helpers/fake-ports'
 
 // A well-formed but fake key, assembled at runtime so this file never contains one.
@@ -30,6 +30,25 @@ describe('background: voice settings from the panel', () => {
       language: 'de',
       limit: 600_000,
     })
+  })
+
+  it('changes only the fields it is sent, the others as stored', async () => {
+    await fakeBrowser.storage.local.set({
+      [VOICE_KEY]: { model: 'a/b', language: 'de', limit: 600_000 },
+    })
+    expect(await send({ type: 'voice:set', limit: 120_000 }, panelSender())).toEqual({ ok: true })
+    expect(await send({ type: 'voice:set', language: 'fr' }, panelSender())).toEqual({ ok: true })
+    expect(await stored(VOICE_KEY)).toEqual({ model: 'a/b', language: 'fr', limit: 120_000 })
+  })
+
+  it('keeps both of two changes sent at once', async () => {
+    const replies = await Promise.all([
+      send({ type: 'voice:set', language: 'de' }, panelSender()),
+      send({ type: 'voice:set', limit: 600_000 }, panelSender()),
+      send({ type: 'voice:set', model: 'a/b' }, panelSender()),
+    ])
+    expect(replies).toEqual([{ ok: true }, { ok: true }, { ok: true }])
+    expect(await loadVoiceSettings()).toEqual({ model: 'a/b', language: 'de', limit: 600_000 })
   })
 
   it('saves and removes the key without ever answering with it', async () => {
@@ -99,6 +118,8 @@ describe('background: voice settings from the panel', () => {
     expect(
       await send({ type: 'voice:set', model: 'a/b', language: 'en', limit: 1_000 }, panelSender()),
     ).toBe(undefined)
+    expect(await send({ type: 'voice:set' }, panelSender())).toBe(undefined)
+    expect(await send({ type: 'voice:set', limit: 1_000 }, panelSender())).toBe(undefined)
     expect(await loadKey()).toBeUndefined()
     expect(await loadVoiceSettings()).toEqual({
       model: DEFAULT_MODEL,

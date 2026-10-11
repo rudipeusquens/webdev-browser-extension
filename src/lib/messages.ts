@@ -6,7 +6,7 @@ import { LIMITS } from './collection/model'
 import { isSite } from './collection/site'
 import { isOption, isSiteOrigin, type Option } from './settings'
 import { type Filter, isFilter } from './view'
-import { isApiKey, isLanguage, isLimit, isModelId } from './voice/settings'
+import { isApiKey, isLanguage, isLimit, isModelId, type VoiceSettings } from './voice/settings'
 import {
   hasKeys,
   isAnnotationId,
@@ -90,9 +90,13 @@ export type StartMessage = { type: 'tab:start'; tabId: number }
 /** Overlay → background: it could not start; the error itself stays in the page's console. */
 export type FailedMessage = { type: 'overlay:failed' }
 
-/** Side panel → background: the voice settings and the OpenRouter key (spec section 9). */
+/**
+ * Side panel → background: the voice settings and the OpenRouter key (spec section 9).
+ * `voice:set` carries only the fields that changed, at least one: the background merges them
+ * into the stored settings, so two changes in a row never undo each other.
+ */
 export type VoiceSettingsMessage =
-  | { type: 'voice:set'; model: string; language: string; limit: number }
+  | ({ type: 'voice:set' } & Partial<VoiceSettings>)
   | { type: 'voice:key:save'; key: string }
   | { type: 'voice:key:remove' }
   | { type: 'voice:key:test' }
@@ -299,10 +303,11 @@ export function isBackgroundMessage(x: unknown): x is BackgroundMessage {
       return hasKeys(x, ['type', 'id']) && isAnnotationId(x.id)
     case 'voice:set':
       return (
-        hasKeys(x, ['type', 'model', 'language', 'limit']) &&
-        isModelId(x.model) &&
-        isLanguage(x.language) &&
-        isLimit(x.limit)
+        hasKeys(x, ['type'], ['model', 'language', 'limit']) &&
+        (x.model !== undefined || x.language !== undefined || x.limit !== undefined) &&
+        (x.model === undefined || isModelId(x.model)) &&
+        (x.language === undefined || isLanguage(x.language)) &&
+        (x.limit === undefined || isLimit(x.limit))
       )
     case 'voice:key:save':
       return hasKeys(x, ['type', 'key']) && isApiKey(x.key)
