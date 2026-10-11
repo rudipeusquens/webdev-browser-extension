@@ -1,6 +1,6 @@
 import { browser, type Browser } from 'wxt/browser'
 import { defineBackground } from 'wxt/utils/define-background'
-import { createAnchorStore, forgetMissing } from '@/lib/background/anchor-status'
+import { createAnchorStore } from '@/lib/background/anchor-status'
 import { createDictations } from '@/lib/background/dictations'
 import { MENU_ENTRY, createMenuSync } from '@/lib/background/menu'
 import { createNotes } from '@/lib/background/notes'
@@ -40,7 +40,7 @@ export default defineBackground(() => {
   const { write, fill, migrate, undo, redo } = createWriter()
   // Queued before any write: the collection of milestones 2–5 becomes one per site.
   void migrate()
-  const recordAnchors = createAnchorStore()
+  const anchors = createAnchorStore()
   const sites = createSites()
   const voice = createVoice({ fill, notes: createNotes(), dictations: createDictations() })
   // Queued before any dictation: what an earlier background left transcribing is lost.
@@ -188,7 +188,7 @@ export default defineBackground(() => {
         if (pageSite(sender) !== siteOf(message.pageKey)) {
           return refuse('Reports come from a page of their site.')
         }
-        return recordAnchors(message).then(ok)
+        return anchors.record(message).then(ok)
       case 'site:remember':
       case 'site:forget':
         if (!isPanelSender(sender)) return refuse('Sites are set in the panel.')
@@ -301,7 +301,7 @@ export default defineBackground(() => {
           if (!reply.ok) return reply
           const kept = new Set((await loadSite(site)).items.map((item) => item.id))
           const gone = items.filter((item) => !kept.has(item.id)).map((item) => item.id)
-          await forgetMissing(gone).catch(() => undefined)
+          await anchors.forget(gone).catch(() => undefined)
           return reply
         })
       }
