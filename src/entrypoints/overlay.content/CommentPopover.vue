@@ -7,7 +7,7 @@ import type { Rect, Status } from '@/lib/collection/model'
 import type { BackgroundMessage, VoiceReadyReply } from '@/lib/messages'
 import { currentPlatform, isMacPlatform } from '@/lib/shortcuts'
 import type { JobView } from '@/lib/voice/jobs'
-import { dictationFailure, type RecordingState } from '@/lib/voice/protocol'
+import { dictationFailure, isBusy, isHeld, type RecordingState } from '@/lib/voice/protocol'
 import { CommentGuard } from './comment-guard'
 import { popoverKey, spaceKey } from './keys'
 import { placeNear } from './place'
@@ -81,12 +81,9 @@ const ready = ref(false)
 const recording = computed(
   () => props.voice.state === 'recording' || props.voice.state === 'paused',
 )
-const voiceBusy = computed(() => recording.value || props.voice.state === 'starting')
+const voiceBusy = computed(() => isBusy(props.voice))
 /** A recording that ended by itself, held until Retry sends it or Esc drops it. */
-const holds = computed(() => {
-  const now = props.voice
-  return now.state === 'failed' && now.error === 'mic-lost' && now.retry
-})
+const holds = computed(() => isHeld(props.voice))
 const transcribing = computed(() => props.job?.state === 'transcribing')
 // A dictation's stop saves too: its text follows.
 const canSave = computed(

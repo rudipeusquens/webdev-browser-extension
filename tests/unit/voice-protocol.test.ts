@@ -1,6 +1,8 @@
 import { describe, expect, it } from 'vitest'
 import {
   dictationFailure,
+  isBusy,
+  isHeld,
   isJobEvent,
   isRecorderCommand,
   isRecorderMessage,
@@ -134,5 +136,17 @@ describe('the dictation protocol', () => {
       true,
     )
     expect(dictationFailure({ state: 'idle' })).toBeNull()
+  })
+
+  it('tells a running dictation and a held recording, as the popover and use-voice see them', () => {
+    expect(isBusy({ state: 'starting' })).toBe(true)
+    expect(isBusy({ state: 'recording', limit: 60_000, elapsed: 0 })).toBe(true)
+    expect(isBusy({ state: 'paused', elapsed: 60_000 })).toBe(true)
+    expect(isBusy({ state: 'idle' })).toBe(false)
+    expect(isBusy({ state: 'failed', error: 'mic-lost', retry: true })).toBe(false)
+    expect(isHeld({ state: 'failed', error: 'mic-lost', retry: true })).toBe(true)
+    expect(isHeld({ state: 'failed', error: 'mic-lost', retry: false })).toBe(false)
+    expect(isHeld({ state: 'failed', error: 'interrupted', retry: true })).toBe(false)
+    expect(isHeld({ state: 'paused', elapsed: 0 })).toBe(false)
   })
 })

@@ -104,6 +104,14 @@ export type RecordingState =
   /** Before the developer's stop: the microphone, or a recording that ended by itself. */
   | Failed
 
+/** Starting, recording or paused at the limit: a dictation runs. */
+export const isBusy = (now: RecordingState) =>
+  now.state === 'starting' || now.state === 'recording' || now.state === 'paused'
+
+/** A recording that ended by itself, held until a stop (Retry) sends it or a cancel drops it. */
+export const isHeld = (now: RecordingState) =>
+  now.state === 'failed' && now.error === 'mic-lost' && now.retry
+
 /**
  * Background → popover or panel. A recording ends in exactly one of `handed` (its audio is a
  * job now, transcribed in the background), `idle` (cancelled, or nothing was recorded) or

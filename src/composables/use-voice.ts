@@ -7,6 +7,8 @@ import { computed, onScopeDispose, ref, shallowRef } from 'vue'
 import { browser, type Browser } from 'wxt/browser'
 import {
   type HandedTo,
+  isBusy,
+  isHeld,
   isVoiceState,
   type Keep,
   type RecordingState,
@@ -41,13 +43,10 @@ export function useVoice(
     const seconds = Math.floor(recorded.value / 1000)
     return `${Math.floor(seconds / 60)}:${String(seconds % 60).padStart(2, '0')}`
   })
-  const busy = computed(() => ['starting', 'recording', 'paused'].includes(state.value.state))
+  const busy = computed(() => isBusy(state.value))
   const paused = computed(() => state.value.state === 'paused')
   /** A recording that ended by itself, kept for a stop (Retry) or a cancel. */
-  const holds = computed(() => {
-    const now = state.value
-    return now.state === 'failed' && now.error === 'mic-lost' && now.retry
-  })
+  const holds = computed(() => isHeld(state.value))
   let port: Port | undefined
   let ticker: ReturnType<typeof setInterval> | undefined
   let asking: ReturnType<typeof setTimeout> | undefined
