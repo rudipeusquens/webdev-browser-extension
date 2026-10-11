@@ -445,6 +445,33 @@ describe('dictating a comment', () => {
     await panel.click('[data-testid="close-settings"]')
   })
 
+  it('keeps two settings changed in a row', async () => {
+    const panel = await panelPage()
+    if (!(await panel.$('[data-testid="voice-settings"]')))
+      await panel.click('[data-testid="open-settings"]')
+    await panel.waitForSelector('[data-testid="voice-limit"]')
+    // In one go: the second change leaves before the first comes back from storage.
+    await panel.evaluate(() => {
+      for (const [id, value] of [
+        ['voice-language', 'fr'],
+        ['voice-limit', '120000'],
+      ] as const) {
+        const select = document.querySelector<HTMLSelectElement>(`[data-testid="${id}"]`)!
+        select.value = value
+        select.dispatchEvent(new Event('change', { bubbles: true }))
+      }
+    })
+    await sleep(300)
+    expect((await stored()).voice).toMatchObject({ language: 'fr', limit: 120_000 })
+
+    const worker = await serviceWorker(s)
+    await worker.evaluate(async () => {
+      const { storage } = (globalThis as unknown as { chrome: ExtensionApi }).chrome
+      await storage.local.remove('voice')
+    })
+    await panel.click('[data-testid="close-settings"]')
+  })
+
   it('keeps the key out of the overlay script', async () => {
     const overlay = await readFile(join(EXTENSION_DIR, 'content-scripts/overlay.js'), 'utf8')
     expect(overlay).not.toContain('openrouterKey')
