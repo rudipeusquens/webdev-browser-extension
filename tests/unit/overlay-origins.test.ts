@@ -1,7 +1,8 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { fakeBrowser } from 'wxt/testing/fake-browser'
-import { readOrigins, sourcesOf, within, withOrigins } from '@/entrypoints/overlay.content/origins'
+import { readOrigins, sourcesOf, withOrigins } from '@/entrypoints/overlay.content/origins'
 import type { AreaTarget, CodeOrigin, Target } from '@/lib/collection/model'
+import { within } from '@/lib/within'
 import { snapshot } from './helpers/collection'
 
 const card: CodeOrigin = {
@@ -97,5 +98,20 @@ describe('within', () => {
     const past = within(new Promise(() => undefined), -50)
     await vi.advanceTimersByTimeAsync(0)
     expect(await past).toBeUndefined()
+  })
+
+  it('gives what it is told to give when the value is late', async () => {
+    vi.useFakeTimers()
+    const LATE = Symbol('late')
+    expect(await within(Promise.resolve(undefined), 100, LATE)).toBeUndefined()
+    const late = within(new Promise(() => undefined), 100, LATE)
+    await vi.advanceTimersByTimeAsync(100)
+    expect(await late).toBe(LATE)
+  })
+
+  it('passes a rejection on and clears its timer', async () => {
+    vi.useFakeTimers()
+    await expect(within(Promise.reject(new Error('gone')), 100)).rejects.toThrow('gone')
+    expect(vi.getTimerCount()).toBe(0)
   })
 })

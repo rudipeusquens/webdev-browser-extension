@@ -64,12 +64,3 @@ export function withOrigins(target: Target, origins: Origins): Target {
       }
   }
 }
-
-/** `promise`'s value, or undefined when it takes longer than `ms`. */
-export function within<T>(promise: Promise<T>, ms: number): Promise<T | undefined> {
-  let timer: ReturnType<typeof setTimeout> | undefined
-  const late = new Promise<undefined>((done) => {
-    timer = setTimeout(() => done(undefined), Math.max(0, ms))
-  })
-  return Promise.race([promise, late]).finally(() => clearTimeout(timer))
-}

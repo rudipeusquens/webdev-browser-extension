@@ -5,6 +5,7 @@ import { browser } from 'wxt/browser'
 import { parseVueOrigin } from '../capture/origin'
 import { vueOrigins } from '../capture/origin-bridge'
 import type { CodeOrigin } from '../collection/model'
+import { within } from '../within'
 
 /** A page that blocks its main thread or never answers does not hold up the comment. */
 export const ORIGIN_TIMEOUT = 1500
@@ -15,12 +16,8 @@ export async function readOrigins(
   selectors: string[],
 ): Promise<(CodeOrigin | null)[]> {
   const none = selectors.map(() => null)
-  let timer: ReturnType<typeof setTimeout> | undefined
-  const late = new Promise<undefined>((done) => {
-    timer = setTimeout(() => done(undefined), ORIGIN_TIMEOUT)
-  })
   try {
-    const results = await Promise.race([
+    const results = await within(
       browser.scripting.executeScript({
         // Only the document that asked: a navigation meanwhile must not answer for it.
         target: { tabId, documentIds: [documentId] },
@@ -28,14 +25,12 @@ export async function readOrigins(
         func: vueOrigins,
         args: [selectors],
       }),
-      late,
-    ])
+      ORIGIN_TIMEOUT,
+    )
     const raw: unknown = results?.[0]?.result
     if (!Array.isArray(raw) || raw.length !== selectors.length) return none
     return raw.map((origin) => parseVueOrigin(origin) ?? null)
   } catch {
     return none
-  } finally {
-    clearTimeout(timer)
   }
 }
