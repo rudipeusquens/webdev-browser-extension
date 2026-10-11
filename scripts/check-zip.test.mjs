@@ -1,12 +1,10 @@
 import assert from 'node:assert/strict'
 import { spawnSync } from 'node:child_process'
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
-import { tmpdir } from 'node:os'
-import { join } from 'node:path'
 import { describe, it } from 'node:test'
 import { crc32, deflateRawSync } from 'node:zlib'
 
 import { checkZip, readZip } from './check-zip.mjs'
+import { withFolder } from './test-helpers.mjs'
 
 const SCRIPT = new URL('./check-zip.mjs', import.meta.url).pathname
 const UNIX = 3 << 8
@@ -90,20 +88,6 @@ function zip(entries, { prefix = Buffer.alloc(0), gap = Buffer.alloc(0), comment
   end.writeUInt32LE(offset + gap.length, 16)
   end.writeUInt16LE(zipComment.length, 20)
   return Buffer.concat([...parts, gap, directory, end, zipComment])
-}
-
-/** A folder with `files` (path → text); removed after `use` ran. */
-function withFolder(files, use) {
-  const dir = mkdtempSync(join(tmpdir(), 'zip-'))
-  try {
-    for (const [path, text] of Object.entries(files)) {
-      mkdirSync(join(dir, path, '..'), { recursive: true })
-      writeFileSync(join(dir, path), text)
-    }
-    return use(dir)
-  } finally {
-    rmSync(dir, { recursive: true, force: true })
-  }
 }
 
 const build = {
@@ -246,11 +230,11 @@ describe('readZip', () => {
 
 describe('checkZip', () => {
   it('passes a zip that holds exactly the build', () => {
-    withFolder(build, (dir) => assert.deepEqual(checkZip(zip(entriesOf(build)), dir), []))
+    withFolder('zip', build, (dir) => assert.deepEqual(checkZip(zip(entriesOf(build)), dir), []))
   })
 
   it('names what is missing, extra or changed', () => {
-    withFolder(build, (dir) => {
+    withFolder('zip', build, (dir) => {
       const shipped = { ...build, 'background.js': 'console.log(2)', 'extra.js': '' }
       delete shipped['chunks/panel.js']
       assert.deepEqual(checkZip(zip(entriesOf(shipped)), dir), [
@@ -262,7 +246,7 @@ describe('checkZip', () => {
   })
 
   it('reports a zip it cannot read instead of throwing', () => {
-    withFolder(build, (dir) => {
+    withFolder('zip', build, (dir) => {
       assert.deepEqual(checkZip(Buffer.from('nope'), dir), ['not a zip (no end of directory)'])
     })
   })
@@ -271,7 +255,7 @@ describe('checkZip', () => {
 describe('check-zip.mjs', () => {
   /** Runs the script in a project folder with this package.json and these files. */
   function run(files) {
-    return withFolder(files, (dir) => {
+    return withFolder('zip', files, (dir) => {
       const { status, stderr } = spawnSync(process.execPath, [SCRIPT], { cwd: dir })
       return { status, stderr: stderr.toString() }
     })
