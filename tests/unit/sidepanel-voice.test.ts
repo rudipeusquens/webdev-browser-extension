@@ -147,8 +147,6 @@ describe('side panel: voice settings', () => {
       expect(sendMessage).toHaveBeenCalledWith({
         type: 'voice:set',
         model: 'openai/whisper-large-v3-turbo',
-        language: 'auto',
-        limit: 300_000,
       })
     })
 
@@ -164,8 +162,6 @@ describe('side panel: voice settings', () => {
       expect(sendMessage).toHaveBeenCalledWith({
         type: 'voice:set',
         model: 'qwen/qwen3-asr-flash-2026-02-10',
-        language: 'auto',
-        limit: 300_000,
       })
     })
 
@@ -177,21 +173,34 @@ describe('side panel: voice settings', () => {
       expect((byTestId('voice-language') as HTMLSelectElement).value).toBe('de')
     })
 
-    it('saves the language with the model', async () => {
+    it('saves the language alone', async () => {
       await fakeBrowser.storage.local.set({ [VOICE_KEY]: { model: 'a/b', language: 'auto' } })
       await openSettings()
       await choose('voice-language', 'de')
-      expect(sendMessage).toHaveBeenCalledWith({
-        type: 'voice:set',
-        model: 'a/b',
-        language: 'de',
-        limit: 300_000,
-      })
+      expect(sendMessage).toHaveBeenCalledWith({ type: 'voice:set', language: 'de' })
+    })
+
+    it('sends each change alone, even before the one before is stored', async () => {
+      await fakeBrowser.storage.local.set({ [VOICE_KEY]: { model: 'a/b', language: 'auto' } })
+      await openSettings()
+      // The background is a mock here: none of these changes comes back through storage.
+      await choose('voice-language', 'de')
+      await choose('voice-model', 'openai/whisper-large-v3-turbo')
+      await choose('voice-limit', '600000')
+      const sets = vi
+        .mocked(fakeBrowser.runtime.sendMessage)
+        .mock.calls.map(([m]) => m as unknown as { type: string })
+        .filter((m) => m.type === 'voice:set')
+      expect(sets).toEqual([
+        { type: 'voice:set', language: 'de' },
+        { type: 'voice:set', model: 'openai/whisper-large-v3-turbo' },
+        { type: 'voice:set', limit: 600_000 },
+      ])
     })
   })
 
   describe('the recording limit', () => {
-    it('offers 1 to 15 minutes, 5 by default, and saves the choice with the rest', async () => {
+    it('offers 1 to 15 minutes, 5 by default, and saves the choice alone', async () => {
       await fakeBrowser.storage.local.set({ [VOICE_KEY]: { model: 'a/b', language: 'de' } })
       await openSettings()
       const select = byTestId('voice-limit') as HTMLSelectElement
@@ -205,12 +214,7 @@ describe('side panel: voice settings', () => {
         '15 minutes',
       ])
       await choose('voice-limit', '600000')
-      expect(sendMessage).toHaveBeenCalledWith({
-        type: 'voice:set',
-        model: 'a/b',
-        language: 'de',
-        limit: 600_000,
-      })
+      expect(sendMessage).toHaveBeenCalledWith({ type: 'voice:set', limit: 600_000 })
     })
 
     it('shows a limit set elsewhere as its own choice', async () => {
