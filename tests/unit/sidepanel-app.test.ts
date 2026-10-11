@@ -142,6 +142,10 @@ describe('side panel', () => {
   })
 
   describe('drafts and dictations', () => {
+    beforeEach(() => {
+      overlayReply = active
+    })
+
     /** Two pins on B: b1 saved, d1 a draft; and their dictations. */
     async function withDraft(jobs: Record<string, unknown> = {}) {
       let c = addAnnotation(emptyCollection(SITE), elementInput('b1', B, 'Saved'), 'T')
@@ -154,7 +158,6 @@ describe('side panel', () => {
       document.querySelector<HTMLElement>(`[data-testid="item"][data-item-id="${id}"]`)!
 
     it('shows a draft grey, counts it as open, and Copy as prompt leaves it out', async () => {
-      overlayReply = active
       const c = await withDraft()
       expect(entry('d1').dataset.tone).toBe('draft')
       expect(entry('d1').querySelector('[data-testid="item-number"]')?.className).toContain(
@@ -176,7 +179,6 @@ describe('side panel', () => {
     })
 
     it('has nothing to copy when only drafts are open', async () => {
-      overlayReply = active
       await render(
         addAnnotation(emptyCollection(SITE), { ...elementInput('d1', B, 'x'), draft: true }, 'T'),
       )
@@ -184,7 +186,6 @@ describe('side panel', () => {
     })
 
     it('shows a pin that is transcribed, and leaves it out of Copy as prompt', async () => {
-      overlayReply = active
       await withDraft({ b1: { state: 'transcribing' } })
       expect(entry('b1').querySelector('[data-testid="item-transcribing"]')?.textContent).toContain(
         'Transcribing…',
@@ -194,7 +195,6 @@ describe('side panel', () => {
     })
 
     it("offers Retry and Dismiss on a pin's failed dictation, and Dismiss on a cut one", async () => {
-      overlayReply = active
       await withDraft({
         d1: { state: 'failed', error: 'rate-limited', retry: true },
         b1: { state: 'cut' },
@@ -220,7 +220,6 @@ describe('side panel', () => {
     })
 
     it("follows the site's dictations as they change", async () => {
-      overlayReply = active
       await withDraft()
       expect(entry('d1').querySelector('[data-testid="item-transcribing"]')).toBeNull()
       await fakeBrowser.storage.local.set({ [jobsKey(SITE)]: { d1: { state: 'transcribing' } } })
@@ -315,6 +314,10 @@ describe('side panel', () => {
   })
 
   describe('statuses, copying and the filter', () => {
+    beforeEach(() => {
+      overlayReply = active
+    })
+
     /** a1 open, a2 done, a3 deleted on A; b1 open on B (the active page). */
     function mixed() {
       let c = twoPages()
@@ -330,7 +333,6 @@ describe('side panel', () => {
     const sent = () => vi.mocked(fakeBrowser.runtime.sendMessage).mock.calls.map(([m]) => m)
 
     it('copies only the open items, then marks exactly those done', async () => {
-      overlayReply = active
       const c = mixed()
       await render(c)
       await click('copy-prompt')
@@ -340,7 +342,6 @@ describe('side panel', () => {
     })
 
     it('marks them done also when the clipboard fails and the text is offered', async () => {
-      overlayReply = active
       writeText.mockRejectedValue(new DOMException('Document is not focused.'))
       await render(mixed())
       await click('copy-prompt')
@@ -349,13 +350,11 @@ describe('side panel', () => {
     })
 
     it('cannot copy without open items', async () => {
-      overlayReply = active
       await render(markCopied(twoPages(), ['a1', 'b1'], 'T'))
       expect(byTestId('copy-prompt').hasAttribute('disabled')).toBe(true)
     })
 
     it('copies the last copy again, without what was deleted since, and changes nothing', async () => {
-      overlayReply = active
       let c = markCopied(mixed(), ['a1', 'a2', 'a3'], 'T')
       c = setStatus(c, 'a1', 'deleted', 'T')
       await render(c)
@@ -375,13 +374,11 @@ describe('side panel', () => {
     })
 
     it('cannot copy again before a copy', async () => {
-      overlayReply = active
       await render(twoPages())
       expect(byTestId('copy-again').hasAttribute('disabled')).toBe(true)
     })
 
     it('shows open items first, then done ones with All, and deleted ones too', async () => {
-      overlayReply = active
       await render(mixed())
       expect(comments()).toEqual(['On B <b>not bold</b>', 'First on A'])
       expect(byTestId('filter-open').textContent).toContain('2')
@@ -395,7 +392,6 @@ describe('side panel', () => {
     })
 
     it('follows the filter chosen in another panel', async () => {
-      overlayReply = active
       await render(mixed())
       await fakeBrowser.storage.local.set({ view: { filter: 'with-deleted' } })
       await flushPromises()
@@ -404,7 +400,6 @@ describe('side panel', () => {
     })
 
     it('colors numbers by status and strikes deleted comments through', async () => {
-      overlayReply = active
       await fakeBrowser.storage.local.set({ view: { filter: 'with-deleted' } })
       await render(mixed())
       const numbers = [...document.querySelectorAll<HTMLElement>('[data-testid="item-number"]')]
@@ -419,7 +414,6 @@ describe('side panel', () => {
     })
 
     it('offers Delete for open and done items, Reopen for done, Restore for deleted', async () => {
-      overlayReply = active
       await fakeBrowser.storage.local.set({ view: { filter: 'with-deleted' } })
       await render(mixed())
       const button = (label: string) =>
@@ -441,7 +435,6 @@ describe('side panel', () => {
     })
 
     it('says how many items the filter hides when it hides them all', async () => {
-      overlayReply = active
       await render(markCopied(twoPages(), ['a1', 'b1'], 'T'))
       expect(document.querySelector('[data-testid="item"]')).toBeNull()
       expect(byTestId('filter-hides').textContent).toContain('2 pins are hidden by this filter')
@@ -450,6 +443,10 @@ describe('side panel', () => {
   })
 
   describe('undo and redo', () => {
+    beforeEach(() => {
+      overlayReply = active
+    })
+
     const labels = (value: object) =>
       fakeBrowser.storage.session.set({ [`historyLabels:${SITE}`]: value })
     const sent = () => vi.mocked(fakeBrowser.runtime.sendMessage).mock.calls.map(([m]) => m)
@@ -459,7 +456,6 @@ describe('side panel', () => {
       )
 
     it('are disabled until there is a step, and name it', async () => {
-      overlayReply = active
       await render(twoPages())
       expect(byTestId('undo').hasAttribute('disabled')).toBe(true)
       expect(byTestId('redo').hasAttribute('disabled')).toBe(true)
@@ -477,7 +473,6 @@ describe('side panel', () => {
     })
 
     it('sit in the title row, before the gear', async () => {
-      overlayReply = active
       await render(twoPages())
       const row = byTestId('title-row')
       expect(byTestId('undo').closest('[data-testid="title-row"]')).toBe(row)
@@ -488,7 +483,6 @@ describe('side panel', () => {
     })
 
     it('answer Ctrl+Z, Ctrl+Shift+Z and Ctrl+Y outside text fields', async () => {
-      overlayReply = active
       await labels({ undo: 'Add pin 1', redo: 'Add pin 2' })
       await render(twoPages())
       key({ key: 'z', ctrlKey: true })
@@ -509,7 +503,6 @@ describe('side panel', () => {
     })
 
     it('take no keys while Settings is open', async () => {
-      overlayReply = active
       await labels({ undo: 'Add pin 1' })
       await render(twoPages())
       await click('open-settings')
@@ -520,7 +513,6 @@ describe('side panel', () => {
     })
 
     it('say that Empty bin can be undone', async () => {
-      overlayReply = active
       await render(setStatus(twoPages(), 'a1', 'deleted', 'T'))
       // Something is open: Clear all first.
       expect(document.querySelector('[data-testid="empty-bin"]')).toBeNull()
@@ -533,6 +525,10 @@ describe('side panel', () => {
   })
 
   describe('refused changes', () => {
+    beforeEach(() => {
+      overlayReply = active
+    })
+
     const refuse = (type: string, error: string) =>
       vi
         .mocked(fakeBrowser.runtime.sendMessage)
@@ -540,7 +536,6 @@ describe('side panel', () => {
           m.type === type ? { ok: false, error } : { ok: true }) as never)
 
     it('says why an undo was refused', async () => {
-      overlayReply = active
       await fakeBrowser.storage.session.set({
         [`historyLabels:${SITE}`]: { undo: 'Delete pin 1' },
       })
@@ -554,7 +549,6 @@ describe('side panel', () => {
     })
 
     it('says when copied items could not be marked done', async () => {
-      overlayReply = active
       refuse('collection:copied', 'Could not save.')
       await render(twoPages())
       await click('copy-prompt')
@@ -564,7 +558,6 @@ describe('side panel', () => {
     })
 
     it('says why a change was refused, until the next one works', async () => {
-      overlayReply = active
       refuse('annotation:remove', 'This pin no longer exists.')
       await render(twoPages())
       document.querySelector<HTMLElement>('[aria-label="Delete pin 1"]')?.click()
@@ -582,6 +575,7 @@ describe('side panel', () => {
     let scrolled: string[]
 
     beforeEach(() => {
+      overlayReply = active
       ports = []
       scrolled = []
       vi.spyOn(fakeBrowser.windows, 'getCurrent').mockResolvedValue({ id: 1 } as never)
@@ -606,7 +600,6 @@ describe('side panel', () => {
       ])
 
     it('marks the entry of the pin hovered or open on the page, and scrolls to it', async () => {
-      overlayReply = active
       await render(twoPages())
       ports[0]?.receive({ type: 'pins:pointed', hovered: 'a1', open: null, popover: false })
       await flushPromises()
@@ -633,7 +626,6 @@ describe('side panel', () => {
     })
 
     it('drops the refusal of an entry once the popover on the page closes', async () => {
-      overlayReply = active
       await render(twoPages())
       ports[0]?.receive({ type: 'pins:pointed', hovered: null, open: null, popover: true })
       vi.mocked(fakeBrowser.tabs.sendMessage).mockImplementation((async (_: number, m: unknown) =>
@@ -651,7 +643,6 @@ describe('side panel', () => {
     })
 
     it('ignores the pins of tabs it does not show, and forgets the mark on another tab', async () => {
-      overlayReply = active
       await render(twoPages())
       await fakeBrowser.runtime.onMessage.trigger(
         { type: 'overlay:changed', instance: 'other' },
@@ -674,7 +665,6 @@ describe('side panel', () => {
     })
 
     it('keeps the mark of an open popover when it comes back to its tab', async () => {
-      overlayReply = active
       await render(twoPages())
       ports[0]?.receive({ type: 'pins:pointed', hovered: 'b1', open: 'b1', popover: true })
       await flushPromises()
@@ -692,7 +682,6 @@ describe('side panel', () => {
     })
 
     it('goes to an entry of another page, then shows it once that page is ready', async () => {
-      overlayReply = active
       await render(twoPages())
       entry('First on A')?.querySelector<HTMLElement>('button')?.click()
       await flushPromises()
@@ -721,7 +710,6 @@ describe('side panel', () => {
     })
 
     it('says why the overlay keeps its popover when an entry is clicked', async () => {
-      overlayReply = active
       await render(twoPages())
       vi.mocked(fakeBrowser.tabs.sendMessage).mockImplementation((async (_: number, m: unknown) =>
         (m as { type: string }).type === 'overlay:reveal'
@@ -741,7 +729,6 @@ describe('side panel', () => {
     })
 
     it('says why Go to stays on the page, and gives the jump up', async () => {
-      overlayReply = active
       await render(twoPages())
       vi.mocked(fakeBrowser.runtime.sendMessage).mockImplementation((async (m: unknown) =>
         (m as { type: string }).type === 'tab:go'
@@ -763,7 +750,6 @@ describe('side panel', () => {
     })
 
     it("says why another page's link stays on the page", async () => {
-      overlayReply = active
       await render(twoPages())
       vi.mocked(fakeBrowser.runtime.sendMessage).mockImplementation((async (m: unknown) =>
         (m as { type: string }).type === 'tab:go'
@@ -781,7 +767,6 @@ describe('side panel', () => {
     })
 
     it('gives the jump up when something else is clicked, or after 30 seconds', async () => {
-      overlayReply = active
       await render(twoPages())
       const reveals = () =>
         vi
