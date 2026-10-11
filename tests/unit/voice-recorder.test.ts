@@ -4,11 +4,10 @@ import type { RecorderMessage } from '@/lib/voice/protocol'
 import {
   createMediaRecorder,
   createRecorder,
-  HOLD_BYTES,
-  HOLD_TIME,
   type MediaRecorderLike,
   type RecorderDeps,
 } from '@/lib/voice/recorder'
+import { HOLD_BYTES, HOLD_TIME } from '@/lib/voice/recorder-jobs'
 
 const REQUEST: TranscribeRequest = { key: 'test-key-1', model: 'a/b', language: 'auto' }
 const LIMIT = 300_000
