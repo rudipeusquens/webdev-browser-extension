@@ -5,13 +5,10 @@
 // `storage.local`, where the overlay can read it, and not in `storage.session`.
 
 import type { Annotation } from '../collection/model'
-import { hasKeys, isAnnotationId, isObject, isText } from '../collection/validate'
-import { VOICE_ERRORS, type VoiceError } from './protocol'
+import { hasKeys, isAnnotationId, isObject } from '../collection/validate'
+import { isFailure, type Failed } from './protocol'
 
-export type JobView =
-  | { state: 'transcribing' }
-  | { state: 'failed'; error: VoiceError; detail?: string; retry: boolean }
-  | { state: 'cut' }
+export type JobView = { state: 'transcribing' } | Failed | { state: 'cut' }
 
 /** The dictations of one site's pins, by pin id. */
 export type SiteJobs = Record<string, JobView>
@@ -28,12 +25,7 @@ export function isJobView(x: unknown): x is JobView {
     case 'cut':
       return hasKeys(x, ['state'])
     case 'failed':
-      return (
-        hasKeys(x, ['state', 'error', 'retry'], ['detail']) &&
-        VOICE_ERRORS.includes(x.error as VoiceError) &&
-        typeof x.retry === 'boolean' &&
-        (x.detail === undefined || isText(x.detail, 200, 1))
-      )
+      return isFailure(x)
     default:
       return false
   }

@@ -4,7 +4,7 @@
 
 import { hasKeys, isAnnotationId, isObject, isText } from '../collection/validate'
 import type { TranscribeRequest } from './openrouter'
-import { isApiKey, isLanguage, isModelId } from './settings'
+import { isApiKey, isLanguage, isLimit, isModelId } from './settings'
 
 export type VoiceError =
   | 'no-key'
@@ -82,17 +82,14 @@ export const RECORDER_PORT = 'recorder'
 /** Longest transcript a job carries: the recorder cuts what goes beyond it. */
 export const MAX_TEXT = 20_000
 /** Longest reason from OpenRouter (see openrouter.ts). */
-const MAX_DETAIL = 200
-/** The limits a recording may pause at, in milliseconds (Settings offers minutes). */
-export const MIN_LIMIT = 10_000
-export const MAX_LIMIT = 3_600_000
+export const MAX_DETAIL = 200
 
 /** Where a stopped recording's text goes: after a pin's comment, or into a new Rec note. */
 export type Keep = { pin: string } | { note: true }
 /** Where it went: the pin, or the note the background made for it. */
 export type HandedTo = { pin: string } | { note: string }
 
-type Failed = { state: 'failed'; error: VoiceError; detail?: string; retry: boolean }
+export type Failed = { state: 'failed'; error: VoiceError; detail?: string; retry: boolean }
 
 /** The recording, as the recorder reports it: what runs now, never a transcription. */
 export type RecordingState =
@@ -150,10 +147,9 @@ const isRequest = (x: unknown): x is TranscribeRequest =>
   isLanguage(x.language)
 
 const isMs = (x: unknown): x is number => Number.isInteger(x) && (x as number) >= 0
-export const isLimit = (x: unknown): x is number =>
-  Number.isInteger(x) && (x as number) >= MIN_LIMIT && (x as number) <= MAX_LIMIT
 
-function isFailure(x: Record<string, unknown>, extra: string[] = []): boolean {
+/** A failed state's fields; `extra` names the keys of a message that carries more. */
+export function isFailure(x: Record<string, unknown>, extra: string[] = []): boolean {
   return (
     hasKeys(x, ['state', 'error', 'retry', ...extra], ['detail']) &&
     VOICE_ERRORS.includes(x.error as VoiceError) &&

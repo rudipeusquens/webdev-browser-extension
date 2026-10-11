@@ -6,7 +6,7 @@ import { LIMITS } from './collection/model'
 import { isSite } from './collection/site'
 import { isOption, isSiteOrigin, type Option } from './settings'
 import { type Filter, isFilter } from './view'
-import { isLimit } from './voice/protocol'
+import { isLimit } from './voice/settings'
 import { isApiKey, isLanguage, isModelId } from './voice/settings'
 import {
   hasKeys,

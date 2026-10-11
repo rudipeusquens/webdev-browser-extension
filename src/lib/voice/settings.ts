@@ -3,7 +3,6 @@
 // the background writes them.
 
 import { isObject } from '../collection/validate'
-import { isLimit } from './protocol'
 import { loadStored, watchStored } from '../storage'
 
 export interface VoiceSettings {
@@ -20,6 +19,12 @@ export const DEFAULT_MODEL = 'openai/gpt-4o-mini-transcribe'
 export const DEFAULT_LIMIT = 300_000
 /** The limits Settings offers, in milliseconds: 1, 2, 3, 5, 10 and 15 minutes. */
 export const LIMIT_CHOICES: readonly number[] = [1, 2, 3, 5, 10, 15].map((m) => m * 60_000)
+
+/** The limits a recording may pause at, in milliseconds (Settings offers minutes). */
+const MIN_LIMIT = 10_000
+const MAX_LIMIT = 3_600_000
+export const isLimit = (x: unknown): x is number =>
+  Number.isInteger(x) && (x as number) >= MIN_LIMIT && (x as number) <= MAX_LIMIT
 
 /** The short list of the settings, the default first (spec section 9). */
 export const MODELS: readonly { id: string; label: string }[] = [
