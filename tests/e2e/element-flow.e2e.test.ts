@@ -1,22 +1,15 @@
-import { afterAll, beforeAll, describe, expect, it } from 'vitest'
+import { beforeAll, describe, expect, it } from 'vitest'
 import { formatCollection } from '../../src/lib/format/markdown'
 import type { Collection } from '../../src/lib/collection/model'
-import { allowClipboard, clickAction, launch, type Session, startFixtureServer } from './harness'
+import { allowClipboard, clickAction, useBrowser, useFixtureServer } from './harness'
 import { centerOf, storedCollection, waitInOverlay } from './overlay-helpers'
 
 describe('marking an element end to end', () => {
-  let server: Awaited<ReturnType<typeof startFixtureServer>>
-  let session: Session
+  const server = useFixtureServer()
+  const session = useBrowser()
 
   beforeAll(async () => {
-    server = await startFixtureServer()
-    session = await launch()
     await allowClipboard(session)
-  })
-
-  afterAll(async () => {
-    await session?.browser.close()
-    await server?.close()
   })
 
   it('marks, lists and copies the prompt', async () => {

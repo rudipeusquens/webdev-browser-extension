@@ -1,5 +1,5 @@
-import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest'
-import { clickAction, launch, type Session, startFixtureServer } from './harness'
+import { beforeEach, describe, expect, it } from 'vitest'
+import { clickAction, useBrowser, useFixtureServer } from './harness'
 import {
   clickInOverlay,
   markElement,
@@ -12,21 +12,11 @@ import {
 // form controls shadow their form's properties in every world, the content script's
 // included, so the overlay reads nodes through the prototypes (spec section 11).
 describe('a page whose named elements shadow document and form members', () => {
-  let server: Awaited<ReturnType<typeof startFixtureServer>>
-  let session: Session
-
-  beforeAll(async () => {
-    server = await startFixtureServer()
-    session = await launch()
-  })
+  const server = useFixtureServer()
+  const session = useBrowser()
 
   beforeEach(async () => {
     await session.page.goto(`${server.origin}/clobbered/`)
-  })
-
-  afterAll(async () => {
-    await session?.browser.close()
-    await server?.close()
   })
 
   it('shadows them in the page', async () => {

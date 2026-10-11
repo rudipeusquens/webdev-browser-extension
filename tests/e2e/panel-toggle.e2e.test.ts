@@ -1,12 +1,12 @@
-import { afterEach, beforeAll, afterAll, beforeEach, describe, expect, it } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import {
   clickAction,
   contentRealm,
   launch,
   panelUrl,
   type Session,
-  startFixtureServer,
   useAction,
+  useFixtureServer,
 } from './harness'
 import { GLASS, markElement, overlayMounted, sleep, waitInOverlay } from './overlay-helpers'
 
@@ -20,12 +20,8 @@ async function panelClosed(s: Session) {
 }
 
 describe('the toolbar action toggles the side panel', () => {
-  let server: Awaited<ReturnType<typeof startFixtureServer>>
+  const server = useFixtureServer()
   let session: Session
-
-  beforeAll(async () => {
-    server = await startFixtureServer()
-  })
 
   beforeEach(async () => {
     session = await launch()
@@ -34,10 +30,6 @@ describe('the toolbar action toggles the side panel', () => {
 
   afterEach(async () => {
     await session?.browser.close()
-  })
-
-  afterAll(async () => {
-    await server?.close()
   })
 
   it('closes on a second click and leaves the page in browse mode with its pins', async () => {

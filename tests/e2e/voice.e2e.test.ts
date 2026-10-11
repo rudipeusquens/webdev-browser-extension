@@ -12,8 +12,8 @@ import {
   serviceWorker,
   type Session,
   setMicrophone,
-  startFixtureServer,
   startOverlayAgain,
+  useFixtureServer,
 } from './harness'
 import {
   clickInOverlay,
@@ -51,12 +51,11 @@ interface Item {
 }
 
 describe('dictating a comment', () => {
-  let server: Awaited<ReturnType<typeof startFixtureServer>>
+  const server = useFixtureServer()
   let fake: Awaited<ReturnType<typeof startFakeOpenRouter>>
   let s: Session
 
   beforeAll(async () => {
-    server = await startFixtureServer()
     fake = await startFakeOpenRouter()
     s = await launch({ openrouter: fake.origin, microphone: 'granted' })
     await allowClipboard(s)
@@ -70,7 +69,6 @@ describe('dictating a comment', () => {
   afterAll(async () => {
     await s?.browser.close()
     await fake?.close()
-    await server?.close()
   })
 
   beforeEach(async () => {

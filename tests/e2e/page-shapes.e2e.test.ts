@@ -1,5 +1,5 @@
 import type { Page } from 'puppeteer'
-import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest'
+import { beforeEach, describe, expect, it } from 'vitest'
 import type {
   AreaTarget,
   Collection,
@@ -7,7 +7,7 @@ import type {
   Target,
   TextTarget,
 } from '../../src/lib/collection/model'
-import { contentRealm, launch, type Session, startFixtureServer } from './harness'
+import { contentRealm, useBrowser, useFixtureServer } from './harness'
 import {
   centerOf,
   CHIP,
@@ -24,22 +24,12 @@ import {
 
 // Layouts and elements that ordinary pages use and that Chrome treats in its own way.
 describe('marking on pages of every shape', () => {
-  let server: Awaited<ReturnType<typeof startFixtureServer>>
-  let session: Session
+  const server = useFixtureServer()
+  const session = useBrowser()
   let panel: Page
-
-  beforeAll(async () => {
-    server = await startFixtureServer()
-    session = await launch()
-  })
 
   beforeEach(async () => {
     panel = await startOverlay(session, `${server.origin}/plain/shapes.html`)
-  })
-
-  afterAll(async () => {
-    await session?.browser.close()
-    await server?.close()
   })
 
   async function save(comment: string): Promise<Target> {

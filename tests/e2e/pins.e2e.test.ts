@@ -1,13 +1,6 @@
 import type { Page } from 'puppeteer'
-import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest'
-import {
-  allowClipboard,
-  clickAction,
-  contentRealm,
-  launch,
-  type Session,
-  startFixtureServer,
-} from './harness'
+import { beforeAll, beforeEach, describe, expect, it } from 'vitest'
+import { allowClipboard, clickAction, contentRealm, useBrowser, useFixtureServer } from './harness'
 import {
   clickInOverlay,
   markAndSave,
@@ -22,23 +15,16 @@ import {
 const BUTTON = 'button[type="submit"]'
 
 describe('pins and editing', () => {
-  let server: Awaited<ReturnType<typeof startFixtureServer>>
-  let session: Session
+  const server = useFixtureServer()
+  const session = useBrowser()
   let panel: Page
 
   beforeAll(async () => {
-    server = await startFixtureServer()
-    session = await launch()
     await allowClipboard(session)
   })
 
   beforeEach(async () => {
     panel = await startOverlay(session, `${server.origin}/plain/`)
-  })
-
-  afterAll(async () => {
-    await session?.browser.close()
-    await server?.close()
   })
 
   async function pinCenter() {

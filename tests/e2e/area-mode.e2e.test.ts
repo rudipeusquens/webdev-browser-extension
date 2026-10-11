@@ -1,7 +1,7 @@
 import type { Page } from 'puppeteer'
-import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest'
+import { beforeEach, describe, expect, it } from 'vitest'
 import type { AreaTarget, Collection } from '../../src/lib/collection/model'
-import { contentRealm, launch, type Session, startFixtureServer } from './harness'
+import { contentRealm, useBrowser, useFixtureServer } from './harness'
 import {
   clickInOverlay,
   GLASS,
@@ -17,22 +17,12 @@ import {
 
 const DRAG = '[data-testid="overlay-area"]'
 describe('marking an area', () => {
-  let server: Awaited<ReturnType<typeof startFixtureServer>>
-  let session: Session
+  const server = useFixtureServer()
+  const session = useBrowser()
   let panel: Page
-
-  beforeAll(async () => {
-    server = await startFixtureServer()
-    session = await launch()
-  })
 
   beforeEach(async () => {
     panel = await startOverlay(session, `${server.origin}/plain/`)
-  })
-
-  afterAll(async () => {
-    await session?.browser.close()
-    await server?.close()
   })
 
   /** Viewport corners just outside the three cards. */

@@ -1,27 +1,16 @@
-import { afterAll, beforeAll, describe, expect, it } from 'vitest'
+import { describe, expect, it } from 'vitest'
 import {
   clickAction,
   contentRealm,
-  launch,
-  type Session,
-  startFixtureServer,
   startOverlayAgain,
+  useBrowser,
+  useFixtureServer,
 } from './harness'
 import { overlayHosts, overlayMounted, startOverlay } from './overlay-helpers'
 
 describe('activating twice on the same tab', () => {
-  let server: Awaited<ReturnType<typeof startFixtureServer>>
-  let session: Session
-
-  beforeAll(async () => {
-    server = await startFixtureServer()
-    session = await launch()
-  })
-
-  afterAll(async () => {
-    await session?.browser.close()
-    await server?.close()
-  })
+  const server = useFixtureServer()
+  const session = useBrowser()
 
   it('keeps exactly one mounted overlay', async () => {
     await session.page.goto(`${server.origin}/plain/`)

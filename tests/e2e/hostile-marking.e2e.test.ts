@@ -1,6 +1,6 @@
-import { afterAll, beforeAll, describe, expect, it } from 'vitest'
+import { describe, expect, it } from 'vitest'
 import type { AreaTarget, Collection, TextTarget } from '../../src/lib/collection/model'
-import { launch, type Session, startFixtureServer } from './harness'
+import { useBrowser, useFixtureServer } from './harness'
 import {
   clickInOverlay,
   comment,
@@ -14,18 +14,8 @@ import {
 // Text and area marking on the pages that broke element marking before: named elements
 // shadowing document members, modal dialogs and script focus traps.
 describe('text and area marking on hostile pages', () => {
-  let server: Awaited<ReturnType<typeof startFixtureServer>>
-  let session: Session
-
-  beforeAll(async () => {
-    server = await startFixtureServer()
-    session = await launch()
-  })
-
-  afterAll(async () => {
-    await session?.browser.close()
-    await server?.close()
-  })
+  const server = useFixtureServer()
+  const session = useBrowser()
 
   const open = (path: string) => startOverlay(session, `${server.origin}${path}`)
 

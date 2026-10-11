@@ -1,13 +1,6 @@
 import type { Page } from 'puppeteer'
-import { afterAll, beforeAll, describe, expect, it } from 'vitest'
-import {
-  allowClipboard,
-  clickAction,
-  launch,
-  serviceWorker,
-  type Session,
-  startFixtureServer,
-} from './harness'
+import { beforeAll, describe, expect, it } from 'vitest'
+import { allowClipboard, clickAction, serviceWorker, useBrowser, useFixtureServer } from './harness'
 import {
   markAndSave,
   overlayMounted,
@@ -19,22 +12,13 @@ import {
 
 // Two dev servers side by side: each site has its own feedback (spec section 5).
 describe('one collection per site', () => {
-  let one: Awaited<ReturnType<typeof startFixtureServer>>
-  let two: Awaited<ReturnType<typeof startFixtureServer>>
-  let session: Session
+  const one = useFixtureServer()
+  const two = useFixtureServer()
+  const session = useBrowser()
   let panel: Page
 
   beforeAll(async () => {
-    one = await startFixtureServer()
-    two = await startFixtureServer()
-    session = await launch()
     await allowClipboard(session)
-  })
-
-  afterAll(async () => {
-    await session?.browser.close()
-    await one?.close()
-    await two?.close()
   })
 
   /** The comments the panel lists, in order. */

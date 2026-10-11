@@ -8,7 +8,7 @@ import {
   serviceWorker,
   type Session,
   setMicrophone,
-  startFixtureServer,
+  useFixtureServer,
 } from './harness'
 import { markElement, sleep, startOverlay, waitForItems } from './overlay-helpers'
 import { offscreenDocuments, setKey } from './voice-helpers'
@@ -21,13 +21,12 @@ import { offscreenDocuments, setKey } from './voice-helpers'
 const KEY = 'test-key-e2e-1234'
 
 describe('Rec in the panel', () => {
-  let server: Awaited<ReturnType<typeof startFixtureServer>>
+  const server = useFixtureServer()
   let fake: Awaited<ReturnType<typeof startFakeOpenRouter>>
   let s: Session
   let panel: Page
 
   beforeAll(async () => {
-    server = await startFixtureServer()
     fake = await startFakeOpenRouter()
     s = await launch({ openrouter: fake.origin, microphone: 'granted' })
     await allowClipboard(s, ['clipboard-read'])
@@ -37,7 +36,6 @@ describe('Rec in the panel', () => {
   afterAll(async () => {
     await s?.browser.close()
     await fake?.close()
-    await server?.close()
   })
 
   beforeEach(async () => {

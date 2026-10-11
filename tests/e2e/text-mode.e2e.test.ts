@@ -1,8 +1,8 @@
 import type { Page } from 'puppeteer'
-import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest'
+import { beforeAll, beforeEach, describe, expect, it } from 'vitest'
 import type { Collection, TextTarget } from '../../src/lib/collection/model'
 import { formatCollection } from '../../src/lib/format/markdown'
-import { allowClipboard, contentRealm, launch, type Session, startFixtureServer } from './harness'
+import { allowClipboard, contentRealm, useBrowser, useFixtureServer } from './harness'
 import {
   centerOf,
   CHIP,
@@ -22,23 +22,16 @@ import {
 const HIGHLIGHT = '[data-testid="overlay-text-highlight"]'
 
 describe('marking text', () => {
-  let server: Awaited<ReturnType<typeof startFixtureServer>>
-  let session: Session
+  const server = useFixtureServer()
+  const session = useBrowser()
   let panel: Page
 
   beforeAll(async () => {
-    server = await startFixtureServer()
-    session = await launch()
     await allowClipboard(session)
   })
 
   beforeEach(async () => {
     panel = await startOverlay(session, `${server.origin}/plain/text.html`)
-  })
-
-  afterAll(async () => {
-    await session?.browser.close()
-    await server?.close()
   })
 
   /** The chip does not show up, also not a moment later. */
@@ -310,18 +303,8 @@ describe('marking text', () => {
 })
 
 describe('marking text on a huge page', () => {
-  let server: Awaited<ReturnType<typeof startFixtureServer>>
-  let session: Session
-
-  beforeAll(async () => {
-    server = await startFixtureServer()
-    session = await launch()
-  })
-
-  afterAll(async () => {
-    await session?.browser.close()
-    await server?.close()
-  })
+  const server = useFixtureServer()
+  const session = useBrowser()
 
   it('stays quick when everything is selected', async () => {
     const panel = await startOverlay(session, `${server.origin}/plain/big.html`, { clear: false })

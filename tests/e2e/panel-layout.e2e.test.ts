@@ -1,6 +1,6 @@
 import type { Page } from 'puppeteer'
-import { afterAll, beforeAll, describe, expect, it } from 'vitest'
-import { contentRealm, launch, type Session, startFixtureServer } from './harness'
+import { beforeAll, describe, expect, it } from 'vitest'
+import { contentRealm, useBrowser, useFixtureServer } from './harness'
 import { markElement, sleep, startOverlay, waitForItems, waitInOverlay } from './overlay-helpers'
 
 interface Clickable {
@@ -34,23 +34,16 @@ function expectPointers(all: Clickable[]) {
 }
 
 describe('everything clickable shows the pointer', () => {
-  let server: Awaited<ReturnType<typeof startFixtureServer>>
-  let session: Session
+  const server = useFixtureServer()
+  const session = useBrowser()
   let panel: Page
 
   beforeAll(async () => {
-    server = await startFixtureServer()
-    session = await launch()
     panel = await startOverlay(session, `${server.origin}/plain/`, { clear: false })
     await markElement(session, 'button[type="submit"]')
     await session.page.keyboard.type('Make it wider.')
     await session.page.keyboard.press('Enter')
     await waitForItems(panel, 1)
-  })
-
-  afterAll(async () => {
-    await session?.browser.close()
-    await server?.close()
   })
 
   it('in both views of the panel', async () => {
@@ -129,19 +122,12 @@ async function boxOf(panel: Page, selector: string): Promise<Box> {
 }
 
 describe("the panel's layout", () => {
-  let server: Awaited<ReturnType<typeof startFixtureServer>>
-  let session: Session
+  const server = useFixtureServer()
+  const session = useBrowser()
   let panel: Page
 
   beforeAll(async () => {
-    server = await startFixtureServer()
-    session = await launch()
     panel = await startOverlay(session, `${server.origin}/plain/`, { clear: false })
-  })
-
-  afterAll(async () => {
-    await session?.browser.close()
-    await server?.close()
   })
 
   it('puts the site in the middle of the title row', async () => {
@@ -368,15 +354,7 @@ describe("the panel's layout", () => {
 // The shipped build's content security policy: the extension's pages connect to OpenRouter
 // only. Blocked before any request leaves the browser.
 describe("the extension's pages", () => {
-  let session: Session
-
-  beforeAll(async () => {
-    session = await launch()
-  })
-
-  afterAll(async () => {
-    await session?.browser.close()
-  })
+  const session = useBrowser()
 
   it('connect to nothing but OpenRouter', async () => {
     const page = await session.browser.newPage()

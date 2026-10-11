@@ -1,6 +1,6 @@
 import type { Page } from 'puppeteer'
-import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest'
-import { contentRealm, launch, type Session, startFixtureServer } from './harness'
+import { beforeEach, describe, expect, it } from 'vitest'
+import { contentRealm, useBrowser, useFixtureServer } from './harness'
 import {
   clickInOverlay,
   dragSelect,
@@ -15,22 +15,12 @@ import {
 
 // Pins follow the element, not the document (plan Review Focus 5).
 describe('pins in scroll containers and on sticky elements', () => {
-  let server: Awaited<ReturnType<typeof startFixtureServer>>
-  let session: Session
+  const server = useFixtureServer()
+  const session = useBrowser()
   let panel: Page
-
-  beforeAll(async () => {
-    server = await startFixtureServer()
-    session = await launch()
-  })
 
   beforeEach(async () => {
     panel = await startOverlay(session, `${server.origin}/plain/layout.html`)
-  })
-
-  afterAll(async () => {
-    await session?.browser.close()
-    await server?.close()
   })
 
   async function mark(selector: string, count: number) {

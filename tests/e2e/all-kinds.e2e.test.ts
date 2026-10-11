@@ -1,7 +1,7 @@
-import { afterAll, beforeAll, describe, expect, it } from 'vitest'
+import { beforeAll, describe, expect, it } from 'vitest'
 import type { Collection } from '../../src/lib/collection/model'
 import { formatCollection } from '../../src/lib/format/markdown'
-import { allowClipboard, clickAction, launch, type Session, startFixtureServer } from './harness'
+import { allowClipboard, clickAction, useBrowser, useFixtureServer } from './harness'
 import {
   clickInOverlay,
   comment,
@@ -15,18 +15,11 @@ import {
 
 // Milestone 3 acceptance: element, text and area items in one copied prompt.
 describe('all three marking types', () => {
-  let server: Awaited<ReturnType<typeof startFixtureServer>>
-  let session: Session
+  const server = useFixtureServer()
+  const session = useBrowser()
 
   beforeAll(async () => {
-    server = await startFixtureServer()
-    session = await launch()
     await allowClipboard(session)
-  })
-
-  afterAll(async () => {
-    await session?.browser.close()
-    await server?.close()
   })
 
   it('end up in one prompt', async () => {

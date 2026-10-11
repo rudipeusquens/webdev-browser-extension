@@ -1,14 +1,7 @@
-import { afterAll, beforeAll, describe, expect, it } from 'vitest'
+import { beforeAll, describe, expect, it } from 'vitest'
 import type { Collection } from '../../src/lib/collection/model'
 import { formatCollection } from '../../src/lib/format/markdown'
-import {
-  allowClipboard,
-  clickAction,
-  contentRealm,
-  launch,
-  type Session,
-  startVueDevServer,
-} from './harness'
+import { allowClipboard, clickAction, contentRealm, useBrowser, useVueDevServer } from './harness'
 import {
   centerOf,
   clickInOverlay,
@@ -25,18 +18,11 @@ import {
 // Milestone 4 acceptance: a session over three pages of a Vue app on its dev server, with a
 // reload in between, copies one correct prompt.
 describe('a three-page session on a Vue app', () => {
-  let app: Awaited<ReturnType<typeof startVueDevServer>>
-  let session: Session
+  const app = useVueDevServer()
+  const session = useBrowser()
 
   beforeAll(async () => {
-    app = await startVueDevServer()
-    session = await launch()
     await allowClipboard(session)
-  })
-
-  afterAll(async () => {
-    await session?.browser.close()
-    await app?.close()
   })
 
   const file = (path: string) => `${app.root}/src/${path}`

@@ -1,22 +1,15 @@
-import { afterAll, beforeAll, describe, expect, it } from 'vitest'
-import { contentRealm, launch, type Session, startFixtureServer } from './harness'
+import { beforeAll, describe, expect, it } from 'vitest'
+import { contentRealm, useBrowser, useFixtureServer } from './harness'
 import { markElement, startOverlay } from './overlay-helpers'
 
 describe('overlay on a hostile page', () => {
-  let server: Awaited<ReturnType<typeof startFixtureServer>>
-  let session: Session
+  const server = useFixtureServer()
+  const session = useBrowser()
 
   beforeAll(async () => {
-    server = await startFixtureServer()
-    session = await launch()
     await startOverlay(session, `${server.origin}/hostile/`, { clear: false })
     // The full-page layer covers everything, so the click marks the layer itself.
     await markElement(session, '.layer')
-  })
-
-  afterAll(async () => {
-    await session?.browser.close()
-    await server?.close()
   })
 
   it('mounts in a closed shadow root with Tailwind styles intact', async () => {

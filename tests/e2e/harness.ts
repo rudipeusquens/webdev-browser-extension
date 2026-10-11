@@ -14,6 +14,7 @@ import puppeteer, {
   type WebWorker,
 } from 'puppeteer'
 import { createServer as createViteServer } from 'vite'
+import { afterAll, beforeAll } from 'vitest'
 
 export const EXTENSION_DIR = resolve(process.env.E2E_EXTENSION_DIR ?? '.output/chrome-mv3')
 const SITES = resolve('tests/fixtures/sites')
@@ -267,3 +268,38 @@ export async function contentRealm(s: Session): Promise<Realm> {
   }
   throw new Error('content-script realm not found')
 }
+
+/**
+ * Registers the lifecycle of a resource for the enclosing `describe`: started in `beforeAll`,
+ * closed in `afterAll`. The returned object is filled when the hook has run, so tests can
+ * destructure or share it like a value from `beforeAll`. Declare servers before the browser:
+ * `afterAll` hooks run in reverse, so the browser closes first.
+ */
+function useResource<T extends object>(
+  start: () => Promise<T>,
+  close: (resource: T) => Promise<unknown>,
+): T {
+  const resource = {} as T
+  let started = false
+  beforeAll(async () => {
+    Object.assign(resource, await start())
+    started = true
+  })
+  afterAll(async () => {
+    if (started) await close(resource)
+  })
+  return resource
+}
+
+/** A fixture server for the tests of the enclosing `describe`. */
+export const useFixtureServer = () => useResource(startFixtureServer, (server) => server.close())
+
+/** A Vue dev server for the tests of the enclosing `describe`. */
+export const useVueDevServer = () => useResource(startVueDevServer, (app) => app.close())
+
+/** A browser with the extension, launched once for the tests of the enclosing `describe`. */
+export const useBrowser = (options: LaunchOptions = {}) =>
+  useResource(
+    () => launch(options),
+    (session) => session.browser.close(),
+  )

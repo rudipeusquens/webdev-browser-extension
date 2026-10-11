@@ -1,6 +1,6 @@
 import type { KeyInput, Page } from 'puppeteer'
-import { afterAll, beforeAll, describe, expect, it } from 'vitest'
-import { clickAction, launch, type Session, startFixtureServer } from './harness'
+import { describe, expect, it } from 'vitest'
+import { clickAction, useBrowser, useFixtureServer } from './harness'
 import {
   centerOf,
   markElement,
@@ -14,18 +14,8 @@ import {
 } from './overlay-helpers'
 
 describe('hostile pages and untrusted events', () => {
-  let server: Awaited<ReturnType<typeof startFixtureServer>>
-  let session: Session
-
-  beforeAll(async () => {
-    server = await startFixtureServer()
-    session = await launch()
-  })
-
-  afterAll(async () => {
-    await session?.browser.close()
-    await server?.close()
-  })
+  const server = useFixtureServer()
+  const session = useBrowser()
 
   const activate = (path: string) => startOverlay(session, `${server.origin}${path}`)
 

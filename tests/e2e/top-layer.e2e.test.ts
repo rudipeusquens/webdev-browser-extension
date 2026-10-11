@@ -1,6 +1,6 @@
 import type { Page } from 'puppeteer'
-import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest'
-import { clickAction, contentRealm, launch, type Session, startFixtureServer } from './harness'
+import { beforeEach, describe, expect, it } from 'vitest'
+import { clickAction, contentRealm, useBrowser, useFixtureServer } from './harness'
 import {
   centerOf,
   clickInOverlay,
@@ -18,21 +18,11 @@ import {
 // A modal dialog makes everything outside it inert, including top-layer elements shown above
 // it; the overlay has to move into the dialog to stay usable (spec section 13, spike 3).
 describe('overlay above modal dialogs', () => {
-  let server: Awaited<ReturnType<typeof startFixtureServer>>
-  let session: Session
-
-  beforeAll(async () => {
-    server = await startFixtureServer()
-    session = await launch()
-  })
+  const server = useFixtureServer()
+  const session = useBrowser()
 
   beforeEach(async () => {
     await session.page.goto(`${server.origin}/modal/`)
-  })
-
-  afterAll(async () => {
-    await session?.browser.close()
-    await server?.close()
   })
 
   /**
@@ -158,22 +148,12 @@ describe('overlay above modal dialogs', () => {
 // A page can lay something over the overlay that lets clicks through (clickjacking), or hide
 // the overlay's host popover.
 describe('overlay under a page cover', () => {
-  let server: Awaited<ReturnType<typeof startFixtureServer>>
-  let session: Session
+  const server = useFixtureServer()
+  const session = useBrowser()
   let panel: Page
-
-  beforeAll(async () => {
-    server = await startFixtureServer()
-    session = await launch()
-  })
 
   beforeEach(async () => {
     panel = await startOverlay(session, `${server.origin}/covering/`)
-  })
-
-  afterAll(async () => {
-    await session?.browser.close()
-    await server?.close()
   })
 
   it('takes no click on the popover while the page covers it, and says why', async () => {

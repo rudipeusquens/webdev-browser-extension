@@ -1,14 +1,14 @@
 import type { Page } from 'puppeteer'
-import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest'
+import { beforeEach, describe, expect, it } from 'vitest'
 import type { Collection } from '../../src/lib/collection/model'
 import { formatCollection } from '../../src/lib/format/markdown'
 import {
   clickAction,
   contentRealm,
-  launch,
   type Session,
-  startFixtureServer,
-  startVueDevServer,
+  useBrowser,
+  useFixtureServer,
+  useVueDevServer,
 } from './harness'
 import {
   clickInOverlay,
@@ -58,22 +58,12 @@ const near = (a: { x: number; y: number }, b: { x: number; y: number }, by = 3) 
   Math.abs(a.x - b.x) <= by && Math.abs(a.y - b.y) <= by
 
 describe('re-anchoring after a reload', () => {
-  let server: Awaited<ReturnType<typeof startFixtureServer>>
-  let session: Session
+  const server = useFixtureServer()
+  const session = useBrowser()
   let panel: Page
-
-  beforeAll(async () => {
-    server = await startFixtureServer()
-    session = await launch()
-  })
 
   beforeEach(async () => {
     panel = await startOverlay(session, `${server.origin}/plain/text.html`)
-  })
-
-  afterAll(async () => {
-    await session?.browser.close()
-    await server?.close()
   })
 
   /** Viewport box of `needle` inside `selector`, the `nth` time it occurs. */
@@ -189,18 +179,8 @@ describe('re-anchoring after a reload', () => {
 })
 
 describe('re-anchoring on a page that changes all the time (review focus 2)', () => {
-  let server: Awaited<ReturnType<typeof startFixtureServer>>
-  let session: Session
-
-  beforeAll(async () => {
-    server = await startFixtureServer()
-    session = await launch()
-  })
-
-  afterAll(async () => {
-    await session?.browser.close()
-    await server?.close()
-  })
+  const server = useFixtureServer()
+  const session = useBrowser()
 
   it('keeps its pins without flapping or long frames', async () => {
     const panel = await startOverlay(session, `${server.origin}/plain/busy.html`)
@@ -231,18 +211,8 @@ describe('re-anchoring on a page that changes all the time (review focus 2)', ()
 })
 
 describe('re-anchoring text that is gone, inside one huge text node (review focus 2)', () => {
-  let server: Awaited<ReturnType<typeof startFixtureServer>>
-  let session: Session
-
-  beforeAll(async () => {
-    server = await startFixtureServer()
-    session = await launch()
-  })
-
-  afterAll(async () => {
-    await session?.browser.close()
-    await server?.close()
-  })
+  const server = useFixtureServer()
+  const session = useBrowser()
 
   it('keeps searching cheap while the page keeps changing', async () => {
     const panel = await startOverlay(session, `${server.origin}/plain/busy.html`)
@@ -272,18 +242,8 @@ describe('re-anchoring text that is gone, inside one huge text node (review focu
 })
 
 describe('re-anchoring after HMR', () => {
-  let app: Awaited<ReturnType<typeof startVueDevServer>>
-  let session: Session
-
-  beforeAll(async () => {
-    app = await startVueDevServer()
-    session = await launch()
-  })
-
-  afterAll(async () => {
-    await session?.browser.close()
-    await app?.close()
-  })
+  const app = useVueDevServer()
+  const session = useBrowser()
 
   it('finds a re-rendered element again', async () => {
     await session.page.goto(`${app.origin}/settings`)
@@ -322,18 +282,8 @@ describe('re-anchoring after HMR', () => {
 })
 
 describe('an overlay whose extension was reloaded', () => {
-  let server: Awaited<ReturnType<typeof startFixtureServer>>
-  let session: Session
-
-  beforeAll(async () => {
-    server = await startFixtureServer()
-    session = await launch()
-  })
-
-  afterAll(async () => {
-    await session?.browser.close()
-    await server?.close()
-  })
+  const server = useFixtureServer()
+  const session = useBrowser()
 
   it('removes itself', async () => {
     await startOverlay(session, `${server.origin}/plain/`, { clear: false })

@@ -1,12 +1,6 @@
 import type { Page } from 'puppeteer'
-import { afterAll, beforeAll, describe, expect, it } from 'vitest'
-import {
-  contentRealm,
-  launch,
-  type Session,
-  startFixtureServer,
-  startOverlayAgain,
-} from './harness'
+import { describe, expect, it } from 'vitest'
+import { contentRealm, startOverlayAgain, useBrowser, useFixtureServer } from './harness'
 import {
   inOverlay,
   markAndStore,
@@ -20,20 +14,9 @@ import {
 const HIGHLIGHT = '[data-testid="overlay-highlight"]'
 
 describe('the panel and the pages of the collection', () => {
-  let server: Awaited<ReturnType<typeof startFixtureServer>>
-  let session: Session
+  const server = useFixtureServer()
+  const session = useBrowser()
   let panel: Page
-
-  beforeAll(async () => {
-    server = await startFixtureServer()
-    session = await launch()
-  })
-
-  afterAll(async () => {
-    await session?.browser.close()
-    await server?.close()
-  })
-
   it('opens another page of the collection with Go to, with the overlay running', async () => {
     panel = await startOverlay(session, `${server.origin}/plain/`)
     await markAndStore(session, panel, 'h1', 'On the plain page', 1)

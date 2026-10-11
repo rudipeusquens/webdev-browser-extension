@@ -1,6 +1,6 @@
 import type { Page } from 'puppeteer'
-import { afterAll, beforeAll, describe, expect, it } from 'vitest'
-import { allowClipboard, contentRealm, launch, type Session, startFixtureServer } from './harness'
+import { beforeAll, describe, expect, it } from 'vitest'
+import { allowClipboard, contentRealm, useBrowser, useFixtureServer } from './harness'
 import {
   markAndSave,
   sleep,
@@ -12,22 +12,13 @@ import {
 
 // Milestone 6 acceptance: the review loop of spec section 2, on two sites at once.
 describe('the review loop', () => {
-  let one: Awaited<ReturnType<typeof startFixtureServer>>
-  let two: Awaited<ReturnType<typeof startFixtureServer>>
-  let session: Session
+  const one = useFixtureServer()
+  const two = useFixtureServer()
+  const session = useBrowser()
   let panel: Page
 
   beforeAll(async () => {
-    one = await startFixtureServer()
-    two = await startFixtureServer()
-    session = await launch()
     await allowClipboard(session)
-  })
-
-  afterAll(async () => {
-    await session?.browser.close()
-    await one?.close()
-    await two?.close()
   })
 
   const clipboard = () => panel.evaluate(() => navigator.clipboard.readText())

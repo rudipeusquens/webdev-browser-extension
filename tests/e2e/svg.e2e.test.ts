@@ -1,23 +1,13 @@
-import { afterAll, beforeAll, describe, expect, it } from 'vitest'
-import { launch, type Session, startFixtureServer } from './harness'
+import { describe, expect, it } from 'vitest'
+import { useBrowser, useFixtureServer } from './harness'
 import { markElement, startOverlay, storedCollection, waitInOverlay } from './overlay-helpers'
 
 // Chrome's chrome.dom.openOrClosedShadowRoot() throws for anything but an HTML element, and
 // most real pages have inline SVG icons: the overlay must neither fail to start nor stop
 // working on them.
 describe('pages with SVG and MathML', () => {
-  let server: Awaited<ReturnType<typeof startFixtureServer>>
-  let session: Session
-
-  beforeAll(async () => {
-    server = await startFixtureServer()
-    session = await launch()
-  })
-
-  afterAll(async () => {
-    await session?.browser.close()
-    await server?.close()
-  })
+  const server = useFixtureServer()
+  const session = useBrowser()
 
   it('starts the overlay', async () => {
     const panel = await startOverlay(session, `${server.origin}/svg/`, { clear: false })

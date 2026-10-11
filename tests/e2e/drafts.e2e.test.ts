@@ -1,15 +1,14 @@
 import type { Page } from 'puppeteer'
-import { afterAll, beforeAll, describe, expect, it } from 'vitest'
+import { beforeAll, describe, expect, it } from 'vitest'
 import {
   allowClipboard,
   clickAction,
   contentRealm,
-  launch,
   panelUrl,
-  type Session,
-  startFixtureServer,
   startOverlayAgain,
   useAction,
+  useBrowser,
+  useFixtureServer,
 } from './harness'
 import {
   clickInOverlay,
@@ -35,8 +34,8 @@ interface Item {
 }
 
 describe('drafts', () => {
-  let server: Awaited<ReturnType<typeof startFixtureServer>>
-  let session: Session
+  const server = useFixtureServer()
+  const session = useBrowser()
   let panel: Page
 
   /** The popover's comment field: its text, and whether it has the focus. */
@@ -65,8 +64,6 @@ describe('drafts', () => {
     (await items(count)).find((i) => i.number === number)
 
   beforeAll(async () => {
-    server = await startFixtureServer()
-    session = await launch()
     await allowClipboard(session)
     // Pin 1 on another page of the site, pins 2 and 3 on this one.
     panel = await startOverlay(session, `${server.origin}/plain/text.html`)
@@ -74,11 +71,6 @@ describe('drafts', () => {
     panel = await startOverlay(session, `${server.origin}/plain/`, { clear: false })
     await markAndStore(session, panel, 'h1', 'First', 2)
     await markAndStore(session, panel, 'button[type="submit"]', 'Second', 3)
-  })
-
-  afterAll(async () => {
-    await session?.browser.close()
-    await server?.close()
   })
 
   it('keeps a new pin as a grey draft when another pin is clicked, and opens that one', async () => {
