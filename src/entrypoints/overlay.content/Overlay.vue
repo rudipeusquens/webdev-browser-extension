@@ -737,22 +737,35 @@ function commentOnSelection() {
   })
 }
 
+/**
+ * Runs `work` while the open popover shows busy: it closes once that succeeded (`closing` runs
+ * first), or says why not (`failed` runs after). A popover opened meanwhile stays as it is.
+ */
+async function closeAfter(
+  current: Draft,
+  work: () => Promise<Reply | undefined>,
+  { closing, failed }: { closing?: () => void; failed?: () => void } = {},
+): Promise<Reply> {
+  draft.value = { ...current, busy: true, error: undefined }
+  const reply: Reply = (await work()) ?? { ok: false, error: NOT_SAVED }
+  if (draft.value?.key !== current.key) return reply
+  if (reply.ok) {
+    closing?.()
+    draft.value = null
+  } else {
+    draft.value = { ...current, busy: false, error: reply.error }
+    failed?.()
+  }
+  return reply
+}
+
 /** Delete or Restore in the popover of an existing item: it closes once the change is saved. */
 async function changeStatus(type: 'annotation:remove' | 'annotation:restore') {
   const current = draft.value
   const id = current?.edit?.id
   if (!current || !id || current.busy) return
   voice.cancel()
-  draft.value = { ...current, busy: true, error: undefined }
-  const message: BackgroundMessage = { type, site, id }
-  const reply = await request(message)
-  if (draft.value?.key !== current.key) return
-  if (reply?.ok) {
-    draft.value = null
-    return
-  }
-  const error = reply && !reply.ok ? reply.error : NOT_SAVED
-  draft.value = { ...current, busy: false, error }
+  await closeAfter(current, () => request({ type, site, id }))
 }
 
 function onPinClick(e: MouseEvent, id: string) {
@@ -829,6 +842,12 @@ const running = () => voice.recording.value && !voice.holds.value
 /** The save (or stop) of the open popover while it is stored, for a leave that comes meanwhile. */
 let saving: Promise<Reply> | undefined
 
+/** Keeps `stored` as `saving` until it settles. */
+function track(stored: Promise<Reply>): Promise<Reply> {
+  saving = stored
+  return stored.finally(() => (saving = undefined))
+}
+
 /** Save or `Enter`: the pin is saved; a running dictation is stopped first, its text follows. */
 async function save(comment: string) {
   if (running()) return void stopDictation()
@@ -836,33 +855,22 @@ async function save(comment: string) {
   if (!current || current.busy) return
   // A microphone that only starts recorded nothing: it goes with the popover.
   voice.cancel()
-  draft.value = { ...current, busy: true, error: undefined }
-  saving = persist(current, comment, 'save')
-  const reply = await saving.finally(() => (saving = undefined))
-  if (draft.value?.key !== current.key) return
-  if (reply.ok) draft.value = null
-  else draft.value = { ...current, busy: false, error: reply.error }
+  await closeAfter(current, () => track(persist(current, comment, 'save')))
 }
 
 /**
  * A dictation's stop (spec section 8): the pin is saved, a draft while it has no comment, the
  * recording handed over to the background, and the popover closes. The text follows.
  */
-async function stopDictation(): Promise<Reply> {
+function stopDictation(): Promise<Reply> {
   const current = draft.value
-  if (!current || current.busy) return { ok: false, error: NOT_SAVED }
-  draft.value = { ...current, busy: true, error: undefined }
-  saving = persist(current, popover.value?.snapshot() ?? '', 'save')
-  const reply = await saving.finally(() => (saving = undefined))
-  if (draft.value?.key !== current.key) return reply
-  if (!reply.ok) {
-    draft.value = { ...current, busy: false, error: reply.error }
-    return reply
-  }
-  // Only once the pin is stored: its text is filled into it.
-  voice.stop({ pin: current.id })
-  draft.value = null
-  return reply
+  if (!current || current.busy) return Promise.resolve({ ok: false, error: NOT_SAVED })
+  return closeAfter(
+    current,
+    () => track(persist(current, popover.value?.snapshot() ?? '', 'save')),
+    // Only once the pin is stored: its text is filled into it.
+    { closing: () => voice.stop({ pin: current.id }) },
+  )
 }
 
 /** Space, Alt+V, the mic, Retry of a held recording: starts a dictation, or stops it. */
@@ -894,15 +902,11 @@ function leave(): Promise<Reply> {
       if (running()) return await stopDictation()
       // A starting microphone recorded nothing; a held recording goes out on Retry only.
       voice.cancel()
-      draft.value = { ...current, busy: true, error: undefined }
-      const reply = await persist(current, popover.value?.snapshot() ?? '', 'keep')
-      if (draft.value?.key !== current.key) return reply
-      if (reply.ok) draft.value = null
-      else {
-        draft.value = { ...current, busy: false, error: reply.error }
-        nudge.value++
-      }
-      return reply
+      return await closeAfter(
+        current,
+        () => persist(current, popover.value?.snapshot() ?? '', 'keep'),
+        { failed: () => nudge.value++ },
+      )
     } finally {
       leaving = undefined
     }
