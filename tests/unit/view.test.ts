@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 import { fakeBrowser } from 'wxt/testing/fake-browser'
 import type { Annotation, Status } from '@/lib/collection/model'
 import { FILTERS, isView, loadView, shows, VIEW_KEY, watchView } from '@/lib/view'
@@ -6,8 +6,6 @@ import { FILTERS, isView, loadView, shows, VIEW_KEY, watchView } from '@/lib/vie
 const item = (status: Status) => ({ status }) as Annotation
 
 describe('the view', () => {
-  beforeEach(() => fakeBrowser.reset())
-
   it('shows open items until the developer chooses otherwise', async () => {
     expect(VIEW_KEY).toBe('view')
     expect(FILTERS).toEqual(['open', 'all', 'with-deleted'])

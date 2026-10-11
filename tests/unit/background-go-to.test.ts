@@ -1,4 +1,4 @@
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 import { fakeBrowser } from 'wxt/testing/fake-browser'
 import { goTo, LOAD_TIMEOUT } from '@/lib/background/go-to'
 
@@ -6,8 +6,6 @@ const complete = (tabId: number) =>
   fakeBrowser.tabs.onUpdated.trigger(tabId, { status: 'complete' }, { id: tabId } as never)
 
 describe('goTo', () => {
-  beforeEach(() => fakeBrowser.reset())
-
   afterEach(() => {
     vi.useRealTimers()
     vi.restoreAllMocks()

@@ -78,7 +78,6 @@ const byTestId = (id: string) => {
 
 describe('side panel', () => {
   beforeEach(() => {
-    fakeBrowser.reset()
     overlayReply = undefined
     vi.spyOn(fakeBrowser.tabs, 'query').mockResolvedValue([{ id: 1 }] as never)
     vi.spyOn(fakeBrowser.tabs, 'sendMessage').mockImplementation((async () => {

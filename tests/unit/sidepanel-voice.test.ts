@@ -65,7 +65,6 @@ async function choose(id: string, value: string) {
 
 describe('side panel: voice settings', () => {
   beforeEach(() => {
-    fakeBrowser.reset()
     vi.spyOn(fakeBrowser.tabs, 'query').mockResolvedValue([{ id: 1, windowId: WINDOW }] as never)
     vi.spyOn(fakeBrowser.tabs, 'sendMessage').mockRejectedValue(new Error('No overlay.'))
     sendMessage = vi

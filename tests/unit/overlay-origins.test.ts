@@ -17,7 +17,6 @@ const area: AreaTarget = {
 }
 
 beforeEach(() => {
-  fakeBrowser.reset()
   document.body.innerHTML = ''
 })
 

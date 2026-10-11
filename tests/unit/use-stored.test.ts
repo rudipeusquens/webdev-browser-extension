@@ -35,7 +35,6 @@ describe('keepNewest', () => {
 
 describe('useStored', () => {
   it('reads its key, says when it has, and follows changes', async () => {
-    fakeBrowser.reset()
     await fakeBrowser.storage.local.set({ a: 'first' })
     const { stored } = setup('a')
     expect(stored.loaded.value).toBe(false)
@@ -48,7 +47,6 @@ describe('useStored', () => {
   })
 
   it('reads again, not loaded meanwhile, when the key changes, and holds nothing without one', async () => {
-    fakeBrowser.reset()
     await fakeBrowser.storage.local.set({ a: 'A', b: 'B' })
     const { stored, current } = setup('a')
     await flushPromises()

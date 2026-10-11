@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 import { fakeBrowser } from 'wxt/testing/fake-browser'
 import { loadSettings, SETTINGS_KEY } from '@/lib/settings'
 import { deleteKey, KEY_DB, loadKey, maskKey, storeKey } from '@/lib/voice/key'
@@ -20,8 +20,6 @@ import {
 const KEY = 'sk-or-v1-' + 'ab12'.repeat(16)
 
 describe('voice settings', () => {
-  beforeEach(() => fakeBrowser.reset())
-
   it('default to the spec model, automatic language and a five-minute limit', async () => {
     expect(DEFAULT_MODEL).toBe('openai/gpt-4o-mini-transcribe')
     expect(DEFAULT_LIMIT).toBe(300_000)
@@ -131,8 +129,6 @@ describe('voice settings', () => {
 })
 
 describe('the API key', () => {
-  beforeEach(() => fakeBrowser.reset())
-
   it('accepts key-shaped text only', () => {
     expect(isApiKey(KEY)).toBe(true)
     expect(isApiKey('test-key-1')).toBe(true)

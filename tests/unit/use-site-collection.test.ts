@@ -26,7 +26,6 @@ function mountWith(site: ReturnType<typeof ref<string | null>>) {
 
 describe('useSiteCollection', () => {
   beforeEach(async () => {
-    fakeBrowser.reset()
     await fakeBrowser.storage.local.set({
       [collectionKey(A)]: addAnnotation(emptyCollection(A), elementInput('a1', `${A}/`), 'T'),
       [collectionKey(B)]: addAnnotation(emptyCollection(B), elementInput('b1', `${B}/`), 'T'),

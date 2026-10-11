@@ -38,7 +38,6 @@ async function openSettings(stored: Record<string, unknown>) {
 
 describe('Settings: sites', () => {
   beforeEach(() => {
-    fakeBrowser.reset()
     fakeSites()
     vi.spyOn(fakeBrowser.tabs, 'query').mockResolvedValue([{ id: 1 }] as never)
     vi.spyOn(fakeBrowser.tabs, 'sendMessage').mockRejectedValue(new Error('No overlay.'))

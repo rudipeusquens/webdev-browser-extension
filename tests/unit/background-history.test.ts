@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it } from 'vitest'
+import { describe, expect, it } from 'vitest'
 import { fakeBrowser } from 'wxt/testing/fake-browser'
 import {
   applyStep,
@@ -86,8 +86,6 @@ describe('steps', () => {
 })
 
 describe('undo and redo', () => {
-  beforeEach(() => fakeBrowser.reset())
-
   const add = (id: string, url = A): CollectionMessage => ({
     type: 'annotation:add',
     ...elementInput(id, url),
@@ -219,8 +217,6 @@ describe('undo and redo', () => {
 })
 
 describe('the size of the history', () => {
-  beforeEach(() => fakeBrowser.reset())
-
   /** A step of about `size` characters: storage.session is shared with other runtime state. */
   const step = (size: number, label = 'x'): Step => ({
     label: label + ' '.repeat(size),

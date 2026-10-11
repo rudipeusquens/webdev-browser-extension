@@ -118,7 +118,6 @@ async function transcribing(id = 'n1') {
 describe('Rec in the panel', () => {
   beforeEach(() => {
     vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout', 'setInterval', 'clearInterval'] })
-    fakeBrowser.reset()
     overlayReply = active
     vi.spyOn(fakeBrowser.tabs, 'query').mockResolvedValue([{ id: 1 }] as never)
     vi.spyOn(fakeBrowser.tabs, 'sendMessage').mockImplementation((async () => {
@@ -397,7 +396,6 @@ describe('Rec in the panel', () => {
 
 describe('Rec notes in the panel', () => {
   beforeEach(() => {
-    fakeBrowser.reset()
     vi.spyOn(fakeBrowser.tabs, 'query').mockResolvedValue([{ id: 1 }] as never)
     vi.spyOn(fakeBrowser.tabs, 'sendMessage').mockResolvedValue(active as never)
     vi.spyOn(fakeBrowser.runtime, 'sendMessage').mockResolvedValue({ ok: true } as never)

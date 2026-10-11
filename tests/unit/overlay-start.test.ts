@@ -76,7 +76,6 @@ describe('starting the overlay', () => {
   let sent: ReturnType<typeof vi.spyOn>
 
   beforeEach(() => {
-    fakeBrowser.reset()
     logged = vi.spyOn(console, 'error').mockImplementation(() => undefined)
     sent = vi.spyOn(fakeBrowser.runtime, 'sendMessage').mockResolvedValue(undefined as never)
   })

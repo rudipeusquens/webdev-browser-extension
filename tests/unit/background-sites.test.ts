@@ -11,7 +11,6 @@ describe('createSites', () => {
   let fake: ReturnType<typeof fakeSites>
 
   beforeEach(() => {
-    fakeBrowser.reset()
     fake = fakeSites([`${A}/*`, `${B}/*`])
   })
 
