@@ -15,7 +15,6 @@ import { keepNewest } from '@/composables/use-stored'
 import { useVoice } from '@/composables/use-voice'
 import { closestOf, deepActiveElement, tagOf } from '@/lib/capture/dom'
 import { snapshotArea } from '@/lib/capture/area'
-import { buildSelector } from '@/lib/capture/selector'
 import { pageInfo, snapshotElement } from '@/lib/capture/snapshot'
 import {
   type CapturedText,
@@ -68,6 +67,7 @@ import type { Layer } from './top-layer'
 import { rectBetween } from './place'
 import SelectionChip from './SelectionChip.vue'
 import TextHighlight from './TextHighlight.vue'
+import { useComponentNames } from './use-component-names'
 import { usePage } from './use-page'
 import { usePanelLines } from './use-panel-lines'
 import { usePins } from './use-pins'
@@ -86,8 +86,6 @@ const MIN_AREA = 4
  * 1.5 s to answer, this leaves room for the messages around it.
  */
 const ORIGIN_WAIT = 2000
-/** How long the pointer rests on an element before its component is looked up. */
-const HOVER_DWELL = 150
 /** How long a reveal waits for its item to be placed: the page may still be loading. */
 const REVEAL_WAIT = 3000
 
@@ -188,36 +186,6 @@ const sizeOf = (r: Rect) =>
 
 const describe = (el: Element, r: Rect, component?: string | null) =>
   [tagOf(el), component, sizeOf(r)].filter(Boolean).join(' · ')
-
-// The innermost component of elements looked up while hovering, for the label. A WeakMap is
-// not reactive: `componentsSeen` changes whenever an entry is added.
-const components = new WeakMap<Element, string | null>()
-const componentsSeen = ref(0)
-let hoverTimer: ReturnType<typeof setTimeout> | undefined
-let askingComponent = false
-
-function componentOf(el: Element): string | null | undefined {
-  void componentsSeen.value
-  return components.get(el)
-}
-
-/** Looks up the component of the element the pointer rests on; one lookup at a time. */
-async function askComponent(el: Element) {
-  if (askingComponent || components.has(el)) return
-  askingComponent = true
-  try {
-    const [origin] = await readOrigins([el], [buildSelector(el)])
-    components.set(el, origin?.chain.at(-1)?.name ?? null)
-    componentsSeen.value++
-  } catch {
-    components.set(el, null)
-  } finally {
-    askingComponent = false
-  }
-  // The pointer moved on meanwhile.
-  const now = hovered.value
-  if (now && now !== el && mode.value === 'element') void askComponent(now)
-}
 
 const hoverRect = computed(() =>
   hovered.value && mode.value === 'element' && !draft.value ? rectOf(hovered.value) : null,
@@ -341,12 +309,8 @@ function hover(el: Element | null) {
   hovered.value = el
 }
 
-watch(hovered, (el) => {
-  clearTimeout(hoverTimer)
-  if (el && mode.value === 'element' && !components.has(el)) {
-    hoverTimer = setTimeout(() => void askComponent(el), HOVER_DWELL)
-  }
-})
+// Also used by hoverLabel above: a computed, first read once the overlay renders.
+const { componentOf } = useComponentNames(hovered, mode)
 
 function setMode(next: Mode) {
   if (mode.value === next) return
@@ -954,7 +918,6 @@ onMounted(() => {
 onBeforeUnmount(() => {
   stopView()
   clearTimeout(wantedTimer)
-  clearTimeout(hoverTimer)
   listeners.abort()
   stopJobs()
   cancelAnimationFrame(chipCheck)
