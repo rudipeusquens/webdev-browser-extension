@@ -36,6 +36,7 @@ import ForgetSiteDialog from './ForgetSiteDialog.vue'
 import ItemList from './ItemList.vue'
 import NoteList from './NoteList.vue'
 import RecButton from './RecButton.vue'
+import RecMessages from './RecMessages.vue'
 import SitePill from './SitePill.vue'
 import SettingsView from './SettingsView.vue'
 import { useActiveTab } from './use-active-tab'
@@ -43,7 +44,6 @@ import { writeClipboard } from './clipboard'
 import { useDictation } from './use-dictation'
 import { usePanelView } from './use-panel-view'
 import { useMissing } from './use-missing'
-import { openMicPermission } from './open-mic-permission'
 import { useOverlayLines } from './use-overlay-lines'
 import { usePinJump } from './use-pin-jump'
 import { usePanelToggle } from './use-panel-toggle'
@@ -664,57 +664,14 @@ function setMode(next: unknown) {
         <p v-if="panelError" data-testid="panel-error" role="alert" class="text-destructive">
           {{ panelError }}
         </p>
-        <div
-          v-if="dictation.paused.value"
-          data-testid="rec-limit"
-          role="alert"
-          class="flex flex-wrap items-center gap-x-2 gap-y-1"
-        >
-          <span class="min-w-0 flex-1 basis-40"
-            >Rec paused at {{ dictation.clock.value }}. Keep recording?</span
-          >
-          <Button data-testid="rec-keep" variant="outline" size="xs" @click="dictation.resume()">
-            Keep
-          </Button>
-          <Button data-testid="rec-stop" variant="outline" size="xs" @click="dictation.toggle()">
-            Stop
-          </Button>
-        </div>
-        <div
-          v-if="dictation.failure.value"
-          data-testid="rec-message"
-          role="alert"
-          class="flex flex-wrap items-center gap-x-2 gap-y-1 text-destructive"
-        >
-          <span class="min-w-0 flex-1 basis-40">{{ dictation.failure.value.text }}</span>
-          <Button
-            v-if="dictation.failure.value.grant"
-            data-testid="rec-grant"
-            variant="outline"
-            size="xs"
-            @click="openMicPermission"
-          >
-            Grant
-          </Button>
-          <Button
-            v-if="dictation.failure.value.settings"
-            data-testid="rec-settings"
-            variant="outline"
-            size="xs"
-            @click="showSettings = true"
-          >
-            Open settings
-          </Button>
-          <Button
-            v-if="dictation.failure.value.retry"
-            data-testid="rec-retry"
-            variant="outline"
-            size="xs"
-            @click="dictation.toggle()"
-          >
-            Retry
-          </Button>
-        </div>
+        <RecMessages
+          :paused="dictation.paused.value"
+          :clock="dictation.clock.value"
+          :failure="dictation.failure.value"
+          @keep="dictation.resume()"
+          @toggle="dictation.toggle()"
+          @settings="showSettings = true"
+        />
         <p v-if="copyStatus" class="text-muted-foreground" aria-hidden="true">{{ copyStatus }}</p>
       </div>
       <!-- Two rows: three labels do not fit side by side in a narrow panel. -->
