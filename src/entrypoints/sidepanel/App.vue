@@ -138,15 +138,16 @@ const openIds = computed(() =>
 )
 /** What the next Copy as prompt copies: nothing until the site's dictations are read. */
 const count = computed(() => (jobsLoaded.value ? openIds.value.length : 0))
-/** Open items it leaves out: drafts, and pins still transcribed. */
-const leftOut = computed(
-  () => items.value.filter((item) => item.status === 'open').length - count.value,
-)
+const binned = computed(() => items.value.filter((item) => item.status === 'deleted'))
+const binPages = computed(() => new Set(binned.value.map((item) => item.pageKey)).size)
+/** The filter's counts; `all` is also what Clear all moves to Deleted: the open and done items. */
 const counts = computed(() => ({
   open: items.value.filter((item) => item.status === 'open').length,
   all: items.value.filter((item) => shows(item, 'all')).length,
-  deleted: items.value.filter((item) => item.status === 'deleted').length,
+  deleted: binned.value.length,
 }))
+/** Open items it leaves out: drafts, and pins still transcribed. */
+const leftOut = computed(() => counts.value.open - count.value)
 const shown = computed(() => items.value.filter((item) => shows(item, filter.value)))
 /** Items of the last copy that were not deleted since: what Copy again copies. */
 const againIds = computed(() => {
@@ -161,10 +162,6 @@ const groups = computed(() => {
   }))
   return [...all.filter((g) => g.current), ...all.filter((g) => !g.current)]
 })
-/** What Clear all moves to Deleted: the open and done items. */
-const clearable = computed(() => items.value.filter((item) => item.status !== 'deleted').length)
-const binned = computed(() => items.value.filter((item) => item.status === 'deleted'))
-const binPages = computed(() => new Set(binned.value.map((item) => item.pageKey)).size)
 const mode = computed(() => (status.value.kind === 'active' ? status.value.mode : undefined))
 const pinsShown = computed(() => status.value.kind !== 'active' || status.value.pins)
 /** The origin of the active page, when it is a site that can be remembered. */
@@ -365,7 +362,7 @@ function changeItem(
 
 /** Clear all: the open and done pins move to Deleted, at once (Undo and Restore exist). */
 async function clearSite() {
-  const moved = clearable.value
+  const moved = counts.value.all
   if (!site.value || moved === 0) return
   if (await change({ type: 'collection:clear', site: site.value })) {
     say(`Moved ${plural(moved, 'pin')} to Deleted`)
@@ -696,10 +693,10 @@ function setMode(next: unknown) {
         </Button>
         <!-- Once only deleted pins are left, the bin can be emptied. -->
         <Button
-          v-if="clearable || !binned.length"
+          v-if="counts.all || !binned.length"
           data-testid="clear-all"
           variant="outline"
-          :disabled="!clearable"
+          :disabled="!counts.all"
           title="Move every open and done pin to Deleted"
           @click="clearSite"
         >
