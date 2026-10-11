@@ -20,7 +20,6 @@ import { Button } from '@/components/ui/button'
 import { Toggle } from '@/components/ui/toggle'
 import { ToggleGroup, ToggleGroupItem } from '@/components/ui/toggle-group'
 import { groupByPage } from '@/lib/collection/ops'
-import { isObject } from '@/lib/collection/validate'
 import { formatCollection } from '@/lib/format/markdown'
 import {
   type BackgroundMessage,
@@ -46,6 +45,7 @@ import { usePanelView } from './use-panel-view'
 import { useMissing } from './use-missing'
 import { openMicPermission } from './open-mic-permission'
 import { useOverlayLines } from './use-overlay-lines'
+import { usePinJump } from './use-pin-jump'
 import { usePanelToggle } from './use-panel-toggle'
 import { useSettings } from './use-settings'
 import { useShortcut } from './use-shortcut'
@@ -127,10 +127,7 @@ function onKeydown(e: KeyboardEvent) {
   }
 }
 onMounted(() => window.addEventListener('keydown', onKeydown))
-onBeforeUnmount(() => {
-  window.removeEventListener('keydown', onKeydown)
-  cancelJump()
-})
+onBeforeUnmount(() => window.removeEventListener('keydown', onKeydown))
 const items = computed(() => collection.value.items)
 /** Open pins whose comment is complete: no drafts, nothing transcribed (spec section 8). */
 const openIds = computed(() =>
@@ -379,12 +376,6 @@ function emptySiteBin() {
   if (site.value) void change({ type: 'collection:empty-bin', site: site.value })
 }
 
-function goTo(pageKey: string) {
-  cancelJump()
-  if (tabId.value === undefined) return
-  void change({ type: 'tab:go', tabId: tabId.value, pageKey })
-}
-
 const { pointed } = useOverlayLines(tabId, status)
 // A refusal for the popover's unsaved text holds only while that popover is open (on the tab
 // the panel shows).
@@ -395,59 +386,7 @@ watch(
   },
 )
 
-/** How long a jump to an item of another page waits for that page's overlay. */
-const JUMP_WAIT = 30_000
-let jump: {
-  tab: number
-  pageKey: string
-  id: string
-  timer: ReturnType<typeof setTimeout>
-} | null = null
-
-function cancelJump() {
-  if (jump) clearTimeout(jump.timer)
-  jump = null
-}
-
-/** An entry of another page: open the page in the tab, then show the item once it is ready. */
-function jumpTo(pageKey: string, id: string) {
-  cancelJump()
-  const tab = tabId.value
-  if (tab === undefined) return
-  // Set before the page loads: its overlay may answer before Go to does.
-  const pending = { tab, pageKey, id, timer: setTimeout(cancelJump, JUMP_WAIT) }
-  jump = pending
-  void change({ type: 'tab:go', tabId: tab, pageKey }).then((went) => {
-    if (!went && jump === pending) cancelJump()
-  })
-}
-
-/**
- * Opens a pin on the tab's page. The overlay refuses only while its popover holds unsaved
- * text: that is shown, as a refused change is, until something works.
- */
-async function showPin(id: string) {
-  if (tabId.value === undefined) return
-  const message: OverlayMessage = { type: 'overlay:reveal', id }
-  const reply: unknown = await browser.tabs
-    .sendMessage(tabId.value, message, { frameId: 0 })
-    .catch(() => undefined)
-  if (isObject(reply) && reply.ok === false) panelError.value = PIN_NOT_KEPT
-  else if (isObject(reply) && reply.ok === true) panelError.value = ''
-}
-
-watch(status, (now) => {
-  if (!jump || now.kind !== 'active') return
-  if (tabId.value !== jump.tab || now.pageKey !== jump.pageKey) return
-  const { id } = jump
-  cancelJump()
-  void showPin(id)
-})
-
-function reveal(id: string) {
-  cancelJump()
-  void showPin(id)
-}
+const { goTo, jumpTo, reveal } = usePinJump(tabId, status, change, panelError)
 
 function setPins(visible: boolean) {
   toOverlay({ type: 'overlay:set-pins', visible })
