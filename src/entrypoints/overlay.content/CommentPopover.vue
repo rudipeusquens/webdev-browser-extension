@@ -5,7 +5,7 @@ import { browser } from 'wxt/browser'
 import { Button } from '@/components/ui/button'
 import type { Rect, Status } from '@/lib/collection/model'
 import type { BackgroundMessage, VoiceReadyReply } from '@/lib/messages'
-import { currentPlatform, isMacPlatform } from '@/lib/shortcuts'
+import { isMacPlatform } from '@/lib/shortcuts'
 import type { JobView } from '@/lib/voice/jobs'
 import { dictationFailure, isBusy, isHeld, type RecordingState } from '@/lib/voice/protocol'
 import { CommentGuard } from './comment-guard'
@@ -68,7 +68,7 @@ const emit = defineEmits<{
 }>()
 
 const guard = new CommentGuard(props.initial ?? '')
-const mac = isMacPlatform(currentPlatform())
+const mac = isMacPlatform()
 const selection = useFieldSelection(guard, mac)
 const text = ref(guard.verified)
 const warning = ref('')

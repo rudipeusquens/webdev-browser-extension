@@ -57,7 +57,7 @@ import { plural } from '@/lib/text'
 import { type Filter, shows } from '@/lib/view'
 import { useView } from './use-view'
 import { useHistory } from './use-history'
-import { currentPlatform, isMacPlatform, panelKey, recKey } from '@/lib/shortcuts'
+import { isMacPlatform, panelKey, recKey } from '@/lib/shortcuts'
 import { siteLabel, siteOrNull } from '@/lib/collection/site'
 
 const { tabId, windowId, status, refresh } = useActiveTab()
@@ -86,7 +86,7 @@ usePanelView(windowId, () => (showSettings.value = true))
 
 const { filter, choose } = useView()
 const { labels } = useHistory(site)
-const mac = isMacPlatform(currentPlatform())
+const mac = isMacPlatform()
 const undoKey = mac ? '⌘Z' : 'Ctrl+Z'
 const redoKey = mac ? '⇧⌘Z' : 'Ctrl+Shift+Z'
 const recShortcut = mac ? '⌥V' : 'Alt+V'

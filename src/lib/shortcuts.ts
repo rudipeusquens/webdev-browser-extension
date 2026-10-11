@@ -13,7 +13,7 @@ export interface ShortcutGroup {
   rows: ShortcutRow[]
 }
 
-export function isMacPlatform(platform: string): boolean {
+export function isMacPlatform(platform = currentPlatform()): boolean {
   return /^mac/i.test(platform)
 }
 
@@ -49,7 +49,7 @@ export function recKey(
 }
 
 /** The platform as the browser names it, for `isMacPlatform`. */
-export function currentPlatform(): string {
+function currentPlatform(): string {
   const data = (navigator as { userAgentData?: { platform?: string } }).userAgentData
   return data?.platform || navigator.platform || ''
 }

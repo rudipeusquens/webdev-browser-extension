@@ -31,7 +31,7 @@ import type { PageInfo, Rect, Status, Target } from '@/lib/collection/model'
 import { siteOf } from '@/lib/collection/site'
 import { STATUS_BADGE, type Tone, toneOf } from '@/lib/status'
 import { type Filter, loadView, shows, watchView } from '@/lib/view'
-import { currentPlatform, isMacPlatform } from '@/lib/shortcuts'
+import { isMacPlatform } from '@/lib/shortcuts'
 import { truncate } from '@/lib/text'
 import {
   type BackgroundMessage,
@@ -1080,7 +1080,7 @@ const panels = new Set<Browser.runtime.Port>()
 // open; the page keeps its Ctrl+click otherwise (spec section 8).
 const linkSelect = createLinkSelect(pageSelectSurface(document, props.host), {
   host: props.host,
-  mac: isMacPlatform(currentPlatform()),
+  mac: isMacPlatform(),
   active: () => mode.value === 'browse' && panels.size > 0,
   editable: (target) => isEditable(target instanceof Element ? target : null),
 })

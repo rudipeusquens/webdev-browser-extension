@@ -2,12 +2,12 @@
 import { computed } from 'vue'
 import { browser } from 'wxt/browser'
 import { Button } from '@/components/ui/button'
-import { currentPlatform, isMacPlatform, shortcutGroups } from '@/lib/shortcuts'
+import { isMacPlatform, shortcutGroups } from '@/lib/shortcuts'
 
 /** The toolbar shortcut as Chrome assigned it; empty when there is none. */
 defineProps<{ toolbar: string }>()
 
-const groups = computed(() => shortcutGroups(isMacPlatform(currentPlatform())))
+const groups = computed(() => shortcutGroups(isMacPlatform()))
 const NOTES: Record<string, string> = {
   'On the page': 'While no field of the page has the focus.',
   'Browse mode': 'While this panel is open.',
