@@ -160,9 +160,14 @@ export function createRecorder(deps: RecorderDeps) {
     phase = 'idle'
   }
 
-  function armLimit() {
+  /** Records on from `elapsed`: a whole limit from now, parts cut in pauses, and says so. */
+  function go() {
+    phase = 'recording'
+    since = Date.now()
     clearTimeout(limitTimer)
     limitTimer = setTimeout(pause, limit)
+    watchParts()
+    deps.emit({ state: 'recording', limit, elapsed })
   }
 
   /** Cuts a part in the first pause after PART_SOFT, at PART_HARD at the latest. */
@@ -299,7 +304,6 @@ export function createRecorder(deps: RecorderDeps) {
       return
     }
     stream = granted
-    elapsed = 0
     if (!record(0)) {
       release()
       return fail('mic-failed')
@@ -309,12 +313,8 @@ export function createRecorder(deps: RecorderDeps) {
     } catch {
       // No level: parts are cut at PART_HARD only.
     }
-    phase = 'recording'
     limit = next
-    since = Date.now()
-    armLimit()
-    watchParts()
-    deps.emit({ state: 'recording', limit, elapsed: 0 })
+    go()
   }
 
   /**
@@ -344,11 +344,7 @@ export function createRecorder(deps: RecorderDeps) {
       deps.emit({ state: 'failed', error: 'mic-lost', retry: true })
       return
     }
-    since = Date.now()
-    phase = 'recording'
-    armLimit()
-    watchParts()
-    deps.emit({ state: 'recording', limit, elapsed })
+    go()
   }
 
   function stop(job: string, request: TranscribeRequest) {
