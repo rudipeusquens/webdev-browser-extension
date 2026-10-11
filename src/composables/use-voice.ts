@@ -7,6 +7,7 @@ import { computed, onScopeDispose, ref, shallowRef } from 'vue'
 import { browser, type Browser } from 'wxt/browser'
 import {
   type HandedTo,
+  isActive,
   isBusy,
   isHeld,
   isVoiceState,
@@ -48,7 +49,7 @@ export function useVoice(
   /** A recording that ended by itself, kept for a stop (Retry) or a cancel. */
   const holds = computed(() => isHeld(state.value))
   /** Something runs or is held: a cancel has work to do. */
-  const active = computed(() => busy.value || holds.value)
+  const active = computed(() => isActive(state.value))
   /** Whether something was recorded that a stop hands over. */
   const recording = computed(
     () => ['recording', 'paused'].includes(state.value.state) || holds.value,
@@ -131,6 +132,7 @@ export function useVoice(
     busy,
     paused,
     holds,
+    active,
     recording,
     start() {
       if (busy.value) return

@@ -769,7 +769,7 @@ function onPinClick(e: MouseEvent, id: string) {
 /** Esc on the page: a drag ends, a dictation ends, then the popover closes and keeps its pin. */
 function cancel() {
   if (drag.value) drag.value = null
-  else if (voice.busy.value || voice.holds.value) voice.cancel()
+  else if (voice.active.value) voice.cancel()
   else void leave()
 }
 

@@ -109,6 +109,9 @@ export const isBusy = (now: RecordingState) =>
 export const isHeld = (now: RecordingState) =>
   now.state === 'failed' && now.error === 'mic-lost' && now.retry
 
+/** Something runs or is held: a cancel (Esc) has work to do. */
+export const isActive = (now: RecordingState) => isBusy(now) || isHeld(now)
+
 /**
  * Background → popover or panel. A recording ends in exactly one of `handed` (its audio is a
  * job now, transcribed in the background), `idle` (cancelled, or nothing was recorded) or

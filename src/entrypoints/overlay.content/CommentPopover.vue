@@ -7,7 +7,7 @@ import type { Rect, Status } from '@/lib/collection/model'
 import type { BackgroundMessage, VoiceReadyReply } from '@/lib/messages'
 import { isMacPlatform } from '@/lib/shortcuts'
 import type { JobView } from '@/lib/voice/jobs'
-import { dictationFailure, isBusy, isHeld, type RecordingState } from '@/lib/voice/protocol'
+import { dictationFailure, isActive, isBusy, type RecordingState } from '@/lib/voice/protocol'
 import { CommentGuard } from './comment-guard'
 import { popoverKey, spaceKey } from './keys'
 import { placeNear } from './place'
@@ -82,8 +82,6 @@ const recording = computed(
   () => props.voice.state === 'recording' || props.voice.state === 'paused',
 )
 const voiceBusy = computed(() => isBusy(props.voice))
-/** A recording that ended by itself, held until Retry sends it or Esc drops it. */
-const holds = computed(() => isHeld(props.voice))
 const transcribing = computed(() => props.job?.state === 'transcribing')
 // A dictation's stop saves too: its text follows.
 const canSave = computed(
@@ -217,7 +215,7 @@ function onKeydown(e: KeyboardEvent) {
     if (!transcribing.value) emit('dictate')
   }
   // Escape ends a running dictation first, then closes and keeps the pin.
-  else if (voiceBusy.value || holds.value) emit('voice-cancel')
+  else if (isActive(props.voice)) emit('voice-cancel')
   else emit('close')
 }
 
