@@ -16,6 +16,7 @@ import {
 } from '../collection/ops'
 import { collectionKey, LEGACY_KEY, readSite, unreadableKey } from '../collection/store'
 import { jsonBytes, setOrRemove } from '../storage'
+import { plural } from '../text'
 import { isLegacyCollection } from '../collection/validate'
 import type { CollectionMessage, Reply } from '../messages'
 import { applyStep, forgetHistory, loadHistory, saveHistory, stepBetween } from './history'
@@ -56,8 +57,6 @@ function apply(c: Collection, msg: CollectionMessage, now: string): Collection |
       return emptyBin(c)
   }
 }
-
-const plural = (n: number, word: string) => `${n} ${word}${n === 1 ? '' : 's'}`
 
 /** What Undo and Redo call the change `msg` made from `before` to `after`. */
 function labelOf(msg: CollectionMessage, before: Collection, after: Collection): string {

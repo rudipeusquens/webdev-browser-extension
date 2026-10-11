@@ -10,7 +10,7 @@ import type {
 } from '../collection/model'
 import { CURATED_STYLES, LIMITS } from '../collection/model'
 import { groupByPage } from '../collection/ops'
-import { clean, collapse } from '../text'
+import { clean, collapse, plural } from '../text'
 import { blockquote, inlineCode, quoted } from './escape'
 
 const PREAMBLE = `Collected in the browser with webdev-browser-extension. Each item is a comment on a spot in the
@@ -26,7 +26,6 @@ export interface FormatOptions {
   missing?: ReadonlySet<string>
 }
 
-const count = (n: number, word: string) => `${n} ${word}${n === 1 ? '' : 's'}`
 /** A page heading shows at most this much of a URL; the page key is stored whole. */
 const URL_SHOWN = 300
 const size = (r: { width: number; height: number }) =>
@@ -101,7 +100,7 @@ function itemLines(item: Annotation): string[] {
       const total = target.elements.length + target.moreCount
       const lines = [`- Area: ${placed(target.rect)}`, `- Container: ${located(target.container)}`]
       if (total > 0) {
-        lines.push(`- Contains ${count(total, 'element')}:`)
+        lines.push(`- Contains ${plural(total, 'element')}:`)
         lines.push(...target.elements.map(areaElementLine))
         if (target.moreCount > 0) lines.push(`  - …and ${target.moreCount} more`)
       }
@@ -123,7 +122,7 @@ export function formatCollection(c: Collection, options: FormatOptions = {}): st
   const groups = groupByPage(c)
   const items = groups.reduce((n, group) => n + group.items.length, 0)
   const blocks = [
-    `# UI feedback: ${count(items, 'item')} on ${count(groups.length, 'page')}`,
+    `# UI feedback: ${plural(items, 'item')} on ${plural(groups.length, 'page')}`,
     PREAMBLE,
   ]
   for (const group of groups) {

@@ -1,4 +1,5 @@
-// Cleaning of page-derived strings before they are stored or written to the prompt.
+// Cleaning of page-derived strings before they are stored or written to the prompt, and
+// counts as the panel and the prompt write them.
 
 // Characters that show nothing a reader notices, but that a model reads: controls, format
 // characters (zero widths, bidirectional controls that make text read differently than it is
@@ -56,3 +57,6 @@ export function truncate(s: string, max: number): string {
 export function clean(s: string, max = Number.POSITIVE_INFINITY): string {
   return truncate(collapse(s).trim(), max)
 }
+
+/** `n` and `word`, plural unless `n` is 1: `2 pins`. */
+export const plural = (n: number, word: string) => `${n} ${word}${n === 1 ? '' : 's'}`

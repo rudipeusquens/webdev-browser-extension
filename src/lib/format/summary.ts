@@ -1,7 +1,7 @@
 // One short line per item for the side panel list.
 
 import type { Target } from '../collection/model'
-import { truncate } from '../text'
+import { plural, truncate } from '../text'
 
 const tagName = (openingTag: string) => /^<([^\s>]+)/.exec(openingTag)?.[1] ?? 'element'
 
@@ -15,9 +15,7 @@ export function targetSummary(target: Target): string {
     }
     case 'text':
       return `"${truncate(target.selected, 60)}"`
-    case 'area': {
-      const count = target.elements.length + target.moreCount
-      return `Area with ${count} element${count === 1 ? '' : 's'}`
-    }
+    case 'area':
+      return `Area with ${plural(target.elements.length + target.moreCount, 'element')}`
   }
 }

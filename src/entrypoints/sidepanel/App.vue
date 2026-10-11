@@ -53,6 +53,7 @@ import { jobsKey, parseJobs } from '@/lib/voice/jobs'
 import { useSiteCollection } from '@/composables/use-site-collection'
 import { useStored } from '@/composables/use-stored'
 import { emptyCollection, pick } from '@/lib/collection/ops'
+import { plural } from '@/lib/text'
 import { type Filter, shows } from '@/lib/view'
 import { useView } from './use-view'
 import { useHistory } from './use-history'
@@ -169,7 +170,6 @@ const groups = computed(() => {
 const clearable = computed(() => items.value.filter((item) => item.status !== 'deleted').length)
 const binned = computed(() => items.value.filter((item) => item.status === 'deleted'))
 const binPages = computed(() => new Set(binned.value.map((item) => item.pageKey)).size)
-const plural = (n: number, word: string) => `${n} ${word}${n === 1 ? '' : 's'}`
 const mode = computed(() => (status.value.kind === 'active' ? status.value.mode : undefined))
 const pinsShown = computed(() => status.value.kind !== 'active' || status.value.pins)
 /** The origin of the active page, when it is a site that can be remembered. */

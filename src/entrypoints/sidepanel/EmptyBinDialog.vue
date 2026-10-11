@@ -10,13 +10,12 @@ import {
   AlertDialogTitle,
 } from '@/components/ui/alert-dialog'
 import { buttonVariants } from '@/components/ui/button'
+import { plural } from '@/lib/text'
 
 /** `pins` and `pages`: the deleted pins and their pages; `site`: such as `localhost:3000`. */
 defineProps<{ pins: number; pages: number; site: string }>()
 const open = defineModel<boolean>('open', { required: true })
 const emit = defineEmits<{ confirm: [] }>()
-
-const plural = (n: number, word: string) => `${n} ${word}${n === 1 ? '' : 's'}`
 </script>
 
 <template>
