@@ -5,7 +5,11 @@ import { browser } from 'wxt/browser'
 import type { KeyChanged, KeyTestReply, Reply, VoiceSettingsMessage } from '../messages'
 import { deleteKey, loadKey, storeKey } from '../voice/key'
 import { checkKey, VoiceFailure } from '../voice/openrouter'
-import { VOICE_KEY } from '../voice/settings'
+import { loadVoiceSettings, VOICE_KEY } from '../voice/settings'
+import { serial } from './serial'
+
+/** One change of the settings at a time: each merges into what the one before wrote. */
+const inOrder = serial()
 
 async function testKey(): Promise<KeyTestReply> {
   const key = await loadKey()
@@ -32,10 +36,13 @@ function announceKey() {
 export async function setVoice(message: VoiceSettingsMessage): Promise<Reply | KeyTestReply> {
   switch (message.type) {
     case 'voice:set':
-      await browser.storage.local.set({
-        [VOICE_KEY]: { model: message.model, language: message.language, limit: message.limit },
+      // Only the fields that changed; the others stay as stored.
+      return inOrder(async () => {
+        const stored = await loadVoiceSettings()
+        const { model = stored.model, language = stored.language, limit = stored.limit } = message
+        await browser.storage.local.set({ [VOICE_KEY]: { model, language, limit } })
+        return { ok: true }
       })
-      return { ok: true }
     case 'voice:key:save':
       await storeKey(message.key)
       announceKey()
