@@ -25,15 +25,19 @@ const RAISE_EVERY = 1000
 
 const isOpenModal = (d: HTMLDialogElement) => d.isConnected && d.open && d.matches(':modal')
 
-/** Open modal dialogs in the shadow tree of `host`, including nested components. */
-function modalsInside(host: Element): HTMLDialogElement[] {
+/**
+ * Open modal dialogs in `root` and the shadow trees inside it, including nested components;
+ * the shadow tree of `skip`, if it is in `root` itself, is left out.
+ */
+function modalsIn(root: Document | ShadowRoot, skip?: Element): HTMLDialogElement[] {
   const found: HTMLDialogElement[] = []
-  const root = shadowRootOf(host)
-  if (!root) return found
   for (const dialog of root.querySelectorAll('dialog')) {
     if (isOpenModal(dialog)) found.push(dialog)
   }
-  for (const el of root.querySelectorAll('*')) found.push(...modalsInside(el))
+  for (const el of root.querySelectorAll('*')) {
+    const inner = el === skip ? null : shadowRootOf(el)
+    if (inner) found.push(...modalsIn(inner))
+  }
   return found
 }
 
@@ -129,9 +133,10 @@ export function keepOnTop(host: HTMLElement, shadow: ShadowRoot): Layer {
   // mutations inside shadow trees do not reach the document observer.
   function onFocusIn(event: Event) {
     const target = event.target
-    if (!(target instanceof Element) || target === host || !shadowRootOf(target)) return
+    const root = target instanceof Element && target !== host ? shadowRootOf(target) : null
+    if (!root) return
     let raise = false
-    for (const dialog of modalsInside(target)) raise = track(dialog) || raise
+    for (const dialog of modalsIn(root)) raise = track(dialog) || raise
     if (raise) place(true)
   }
 
@@ -139,12 +144,7 @@ export function keepOnTop(host: HTMLElement, shadow: ShadowRoot): Layer {
 
   const observer = new MutationObserver(onMutations)
   host.setAttribute('popover', 'manual')
-  for (const dialog of document.querySelectorAll('dialog')) {
-    if (isOpenModal(dialog)) track(dialog)
-  }
-  for (const el of document.querySelectorAll('*')) {
-    if (el !== host) for (const dialog of modalsInside(el)) track(dialog)
-  }
+  for (const dialog of modalsIn(document, host)) track(dialog)
   observer.observe(document.documentElement, OBSERVED)
   document.addEventListener('toggle', onToggle, true)
   document.addEventListener('focusin', onFocusIn, true)
