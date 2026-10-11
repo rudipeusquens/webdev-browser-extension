@@ -164,14 +164,6 @@ const sizeOf = (r: Rect) =>
 const describe = (el: Element, r: Rect, component?: string | null) =>
   [tagOf(el), component, sizeOf(r)].filter(Boolean).join(' · ')
 
-const hoverRect = computed(() =>
-  hovered.value && mode.value === 'element' && !draft.value ? rectOf(hovered.value) : null,
-)
-const hoverLabel = computed(() =>
-  hovered.value && hoverRect.value
-    ? describe(hovered.value, hoverRect.value, componentOf(hovered.value))
-    : '',
-)
 const dragRect = computed(() => drag.value && rectBetween(drag.value.from, drag.value.to))
 // A selected text is measured once per frame, before anything is written: box and lines.
 const draftText = computed(() => {
@@ -263,8 +255,16 @@ function hover(el: Element | null) {
   hovered.value = el
 }
 
-// Also used by hoverLabel above: a computed, first read once the overlay renders.
 const { componentOf } = useComponentNames(hovered, mode)
+
+const hoverRect = computed(() =>
+  hovered.value && mode.value === 'element' && !draft.value ? rectOf(hovered.value) : null,
+)
+const hoverLabel = computed(() =>
+  hovered.value && hoverRect.value
+    ? describe(hovered.value, hoverRect.value, componentOf(hovered.value))
+    : '',
+)
 
 function setMode(next: Mode) {
   if (mode.value === next) return
