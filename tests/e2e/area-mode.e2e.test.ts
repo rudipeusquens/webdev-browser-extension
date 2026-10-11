@@ -1,41 +1,30 @@
 import type { Page } from 'puppeteer'
-import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest'
+import { beforeEach, describe, expect, it } from 'vitest'
 import type { AreaTarget, Collection } from '../../src/lib/collection/model'
-import { clickAction, contentRealm, launch, type Session, startFixtureServer } from './harness'
+import { contentRealm, useBrowser, useFixtureServer } from './harness'
 import {
   clickInOverlay,
-  overlayMounted,
+  GLASS,
+  inOverlay,
   overlayText,
+  PIN,
+  POPOVER,
   sleep,
+  startOverlay,
   storedCollection,
   waitForItems,
   waitInOverlay,
 } from './overlay-helpers'
 
-const GLASS = '[data-testid="overlay-glass"]'
 const DRAG = '[data-testid="overlay-area"]'
-const POPOVER = '[data-testid="overlay-popover"]'
 
 describe('marking an area', () => {
-  let server: Awaited<ReturnType<typeof startFixtureServer>>
-  let session: Session
+  const server = useFixtureServer()
+  const session = useBrowser()
   let panel: Page
 
-  beforeAll(async () => {
-    server = await startFixtureServer()
-    session = await launch()
-  })
-
   beforeEach(async () => {
-    await session.page.goto(`${server.origin}/plain/`)
-    panel = await clickAction(session)
-    await panel.evaluate(() => chrome.storage.local.clear())
-    await overlayMounted(session)
-  })
-
-  afterAll(async () => {
-    await session?.browser.close()
-    await server?.close()
+    panel = await startOverlay(session, `${server.origin}/plain/`)
   })
 
   /** Viewport corners just outside the three cards. */
@@ -95,18 +84,14 @@ describe('marking an area', () => {
     ).toBe(0)
     expect(await session.page.evaluate(() => document.getSelection()?.toString())).toBe('')
     await panel.waitForSelector('::-p-text(Area with 3 elements)')
-    await waitInOverlay(session, '[data-testid="overlay-pin"]')
+    await waitInOverlay(session, PIN)
   })
 
   it('opens nothing for a click without dragging', async () => {
     await areaMode()
     await session.page.mouse.click(200, 200)
     await sleep(300)
-    const realm = await contentRealm(session)
-    const open = await realm.evaluate(
-      (sel) => !!globalThis.__webdevOverlay?.shadow?.querySelector(sel),
-      POPOVER,
-    )
+    const open = await inOverlay(session, POPOVER)
     expect(open).toBe(false)
   })
 
@@ -188,7 +173,7 @@ describe('marking an area', () => {
     await session.page.keyboard.press('Enter')
     await waitForItems(panel, 1)
     await waitInOverlay(session, POPOVER, false)
-    await clickInOverlay(session, '[data-testid="overlay-pin"]')
+    await clickInOverlay(session, PIN)
     await waitInOverlay(session, POPOVER)
     expect(await overlayText(session, POPOVER)).toContain('Pin 1')
   })

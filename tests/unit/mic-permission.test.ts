@@ -45,7 +45,6 @@ describe('askMicrophone', () => {
 describe('the microphone page', () => {
   beforeEach(() => {
     vi.useFakeTimers()
-    fakeBrowser.reset()
   })
 
   afterEach(() => {

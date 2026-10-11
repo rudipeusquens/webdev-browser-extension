@@ -1,21 +1,12 @@
-import { mount } from '@vue/test-utils'
 import { afterEach, describe, expect, it } from 'vitest'
-import { defineComponent } from 'vue'
 import { useTracking } from '@/entrypoints/overlay.content/use-tracking'
+import { withSetup } from './helpers/with-setup'
 
 const frames = () => new Promise((done) => requestAnimationFrame(() => setTimeout(done, 0)))
 
 function mountTracking() {
-  let tracking: ReturnType<typeof useTracking> | undefined
-  const wrapper = mount(
-    defineComponent({
-      setup() {
-        tracking = useTracking()
-        return () => null
-      },
-    }),
-  )
-  return { wrapper, frame: () => tracking?.frame.value, layout: () => tracking?.layout.value }
+  const { result: tracking, wrapper } = withSetup(useTracking)
+  return { wrapper, frame: () => tracking.frame.value, layout: () => tracking.layout.value }
 }
 
 afterEach(() => {

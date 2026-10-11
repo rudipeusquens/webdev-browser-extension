@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 import { fakeBrowser } from 'wxt/testing/fake-browser'
 import { LIMITS } from '@/lib/collection/model'
 import { addAnnotation, emptyCollection } from '@/lib/collection/ops'
@@ -19,8 +19,6 @@ const onA = addAnnotation(emptyCollection(A), elementInput('a1', `${A}/x`), 'now
 const onB = addAnnotation(emptyCollection(B), elementInput('b1', `${B}/y`), 'now')
 
 describe('collection store', () => {
-  beforeEach(() => fakeBrowser.reset())
-
   it('keeps each site under its own key', () => {
     expect(collectionKey(A)).toBe('collection:http://localhost:3000')
     expect(COLLECTION_PREFIX).toBe('collection:')

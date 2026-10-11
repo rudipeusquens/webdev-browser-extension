@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it } from 'vitest'
+import { describe, expect, it } from 'vitest'
 import { fakeBrowser } from 'wxt/testing/fake-browser'
 import { loadLabels } from '@/lib/background/history'
 import { createWriter } from '@/lib/background/writer'
@@ -17,8 +17,6 @@ const add = (id: string, comment = 'Make it wider.', url = URL_A): CollectionMes
 const stored = async () => fakeBrowser.storage.local.get(null)
 
 describe('createWriter', () => {
-  beforeEach(() => fakeBrowser.reset())
-
   it('stores an added item with number 1 and a trimmed comment', async () => {
     const { write } = createWriter(() => 'T1')
     expect(await write(SITE, add('a1', '  Wider.\n'))).toEqual({ ok: true })
@@ -230,8 +228,6 @@ describe('createWriter', () => {
 })
 
 describe('the split of the old collection', () => {
-  beforeEach(() => fakeBrowser.reset())
-
   const onA = addAnnotation(emptyCollection(SITE), elementInput('a1', URL_A), 'T')
   const onB = addAnnotation(emptyCollection(OTHER), elementInput('b1', `${OTHER}/x`), 'T')
 
@@ -284,8 +280,6 @@ describe('the split of the old collection', () => {
 })
 
 describe('drafts and dictations', () => {
-  beforeEach(() => fakeBrowser.reset())
-
   const draft = (id: string, comment = ''): CollectionMessage => ({
     type: 'annotation:add',
     ...elementInput(id, URL_A, comment),

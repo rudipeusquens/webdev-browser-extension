@@ -1,22 +1,14 @@
-import { mount } from '@vue/test-utils'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { defineComponent, nextTick } from 'vue'
+import { nextTick } from 'vue'
 import { usePage } from '@/entrypoints/overlay.content/use-page'
+import { withSetup } from './helpers/with-setup'
 
 type WithNavigation = { navigation?: EventTarget }
 
 /** Mounts a component that uses `usePage` and returns its page key ref. */
 function mountPage() {
-  let key: ReturnType<typeof usePage>['key'] | undefined
-  const wrapper = mount(
-    defineComponent({
-      setup() {
-        key = usePage().key
-        return () => null
-      },
-    }),
-  )
-  return { wrapper, key: () => key?.value }
+  const { result: page, wrapper } = withSetup(usePage)
+  return { wrapper, key: () => page.key.value }
 }
 
 beforeEach(() => {

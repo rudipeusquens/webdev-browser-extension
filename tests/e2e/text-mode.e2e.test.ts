@@ -1,74 +1,51 @@
 import type { Page } from 'puppeteer'
-import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest'
+import { beforeAll, beforeEach, describe, expect, it } from 'vitest'
 import type { Collection, TextTarget } from '../../src/lib/collection/model'
 import { formatCollection } from '../../src/lib/format/markdown'
-import { clickAction, contentRealm, launch, type Session, startFixtureServer } from './harness'
+import { grantPermissions, contentRealm, useBrowser, useFixtureServer } from './harness'
 import {
   centerOf,
+  CHIP,
   clickInOverlay,
+  comment,
   dragSelect,
+  GLASS,
+  inOverlay,
   overlayCenter,
-  overlayMounted,
+  PIN,
+  POPOVER,
   sleep,
+  startOverlay,
   storedCollection,
   textEnds,
   waitForItems,
   waitInOverlay,
 } from './overlay-helpers'
 
-const CHIP = '[data-testid="overlay-chip"]'
-const POPOVER = '[data-testid="overlay-popover"]'
 const HIGHLIGHT = '[data-testid="overlay-text-highlight"]'
 
 describe('marking text', () => {
-  let server: Awaited<ReturnType<typeof startFixtureServer>>
-  let session: Session
+  const server = useFixtureServer()
+  const session = useBrowser()
   let panel: Page
 
   beforeAll(async () => {
-    server = await startFixtureServer()
-    session = await launch()
-    await session.browser
-      .defaultBrowserContext()
-      .overridePermissions(`chrome-extension://${session.extensionId}`, [
-        'clipboard-read',
-        'clipboard-sanitized-write',
-      ])
+    await grantPermissions(session)
   })
 
   beforeEach(async () => {
-    await session.page.goto(`${server.origin}/plain/text.html`)
-    panel = await clickAction(session)
-    await panel.evaluate(() => chrome.storage.local.clear())
-    await overlayMounted(session)
+    panel = await startOverlay(session, `${server.origin}/plain/text.html`)
   })
-
-  afterAll(async () => {
-    await session?.browser.close()
-    await server?.close()
-  })
-
-  /** Whether `selector` is in the overlay right now. */
-  async function inOverlay(selector: string) {
-    const realm = await contentRealm(session)
-    return realm.evaluate(
-      (sel) => !!globalThis.__webdevOverlay?.shadow?.querySelector(sel),
-      selector,
-    )
-  }
 
   /** The chip does not show up, also not a moment later. */
   async function expectNoChip() {
     await sleep(400)
-    expect(await inOverlay(CHIP)).toBe(false)
+    expect(await inOverlay(session, CHIP)).toBe(false)
   }
 
-  async function comment(text: string) {
+  async function commentSelection(text: string) {
     await clickInOverlay(session, CHIP)
-    await waitInOverlay(session, POPOVER)
-    await session.page.keyboard.type(text)
-    await session.page.keyboard.press('Enter')
-    await waitInOverlay(session, POPOVER, false)
+    await comment(session, text)
   }
 
   const textTarget = async (n = 1) => {
@@ -80,7 +57,7 @@ describe('marking text', () => {
     await dragSelect(session.page, 'h3', 'Email notifcations')
     await clickInOverlay(session, CHIP)
     await waitInOverlay(session, POPOVER)
-    expect(await inOverlay(HIGHLIGHT)).toBe(true)
+    expect(await inOverlay(session, HIGHLIGHT)).toBe(true)
     await session.page.keyboard.type('Typo, should be notifications.')
     await session.page.keyboard.press('Enter')
 
@@ -95,8 +72,8 @@ describe('marking text', () => {
       els.map((el) => el.localName),
     )
     expect(matches).toEqual(['h3'])
-    expect(await inOverlay(CHIP)).toBe(false)
-    expect(await inOverlay(HIGHLIGHT)).toBe(false)
+    expect(await inOverlay(session, CHIP)).toBe(false)
+    expect(await inOverlay(session, HIGHLIGHT)).toBe(false)
 
     await panel.waitForSelector('[data-testid="item"] ::-p-text(Typo, should be)')
     await panel.click('[data-testid="copy-prompt"]')
@@ -111,8 +88,8 @@ describe('marking text', () => {
 
   it('puts a pin at the selection that opens the comment again', async () => {
     await dragSelect(session.page, '#intro', 'contact you')
-    await comment('Friendlier wording')
-    await clickInOverlay(session, '[data-testid="overlay-pin"]')
+    await commentSelection('Friendlier wording')
+    await clickInOverlay(session, PIN)
     await waitInOverlay(session, POPOVER)
     const realm = await contentRealm(session)
     const value = await realm.evaluate(
@@ -124,7 +101,7 @@ describe('marking text', () => {
         )?.value,
     )
     expect(value).toBe('Friendlier wording')
-    expect(await inOverlay(HIGHLIGHT)).toBe(true)
+    expect(await inOverlay(session, HIGHLIGHT)).toBe(true)
   })
 
   it('saves what was selected although the page replaces it meanwhile', async () => {
@@ -165,7 +142,7 @@ describe('marking text', () => {
     await session.page.mouse.down()
     await session.page.mouse.move(to.end.x, to.end.y, { steps: 10 })
     await session.page.mouse.up()
-    await comment('Across the form')
+    await commentSelection('Across the form')
 
     const target = await textTarget()
     expect(target.selected.startsWith('Before the form')).toBe(true)
@@ -183,7 +160,7 @@ describe('marking text', () => {
     await session.page.mouse.down()
     await session.page.mouse.move(to.end.x, to.end.y, { steps: 8 })
     await session.page.mouse.up()
-    await comment('Hidden parts')
+    await commentSelection('Hidden parts')
     expect((await textTarget()).selected).toBe('Visible start visible end')
   })
 
@@ -220,7 +197,7 @@ describe('marking text', () => {
     })
     await clickInOverlay(session, CHIP)
     await sleep(400)
-    expect(await inOverlay(POPOVER)).toBe(false)
+    expect(await inOverlay(session, POPOVER)).toBe(false)
     expect((await storedCollection(panel))?.items.length ?? 0).toBe(0)
   })
 
@@ -237,7 +214,7 @@ describe('marking text', () => {
     // Esc closes it and keeps the pin as a draft (spec section 8).
     await session.page.keyboard.press('Escape')
     await waitInOverlay(session, POPOVER, false)
-    expect(await inOverlay(HIGHLIGHT)).toBe(false)
+    expect(await inOverlay(session, HIGHLIGHT)).toBe(false)
     const kept = (await waitForItems(panel, 1)) as unknown as Collection
     expect(kept.items[0]).toMatchObject({ comment: '', draft: true })
   })
@@ -252,9 +229,7 @@ describe('marking text', () => {
   })
 
   it('hides the chip of a selection scrolled out of its scroll container', async () => {
-    await session.page.goto(`${server.origin}/plain/`)
-    panel = await clickAction(session)
-    await overlayMounted(session)
+    panel = await startOverlay(session, `${server.origin}/plain/`, { clear: false })
     await dragSelect(session.page, '.scroll-box p', 'Scrollable')
     await waitInOverlay(session, CHIP)
     await session.page.$eval('.scroll-box', (el) => el.scrollTo({ top: 200, behavior: 'instant' }))
@@ -274,8 +249,8 @@ describe('marking text', () => {
 
   it('offers the chip for a selection released over a pin', async () => {
     await dragSelect(session.page, '#intro', 'contact you')
-    await comment('Friendlier wording')
-    const pin = await overlayCenter(session, '[data-testid="overlay-pin"]')
+    await commentSelection('Friendlier wording')
+    const pin = await overlayCenter(session, PIN)
     const { start } = await textEnds(session.page, '#intro', 'Choose')
     await session.page.mouse.move(start.x, start.y)
     await session.page.mouse.down()
@@ -286,10 +261,10 @@ describe('marking text', () => {
 
   it('brings no chip back after a pin was clicked with text selected', async () => {
     await dragSelect(session.page, '#intro', 'contact you')
-    await comment('Friendlier wording')
+    await commentSelection('Friendlier wording')
     await dragSelect(session.page, 'h3', 'Email')
     await waitInOverlay(session, CHIP)
-    await clickInOverlay(session, '[data-testid="overlay-pin"]')
+    await clickInOverlay(session, PIN)
     await waitInOverlay(session, POPOVER)
     await sleep(200)
     await session.page.keyboard.press('Escape')
@@ -299,7 +274,7 @@ describe('marking text', () => {
 
   it('brings no chip back for a selection that was pinned', async () => {
     await dragSelect(session.page, 'h3', 'Email')
-    await comment('Shorter')
+    await commentSelection('Shorter')
     await expectNoChip()
   })
 
@@ -312,7 +287,7 @@ describe('marking text', () => {
 
   it('records an element without the options of a select inside it', async () => {
     await session.page.keyboard.press('e')
-    await waitInOverlay(session, '[data-testid="overlay-glass"]')
+    await waitInOverlay(session, GLASS)
     const { x, y } = await centerOf(session.page, '#plan')
     await session.page.mouse.move(x, y)
     await session.page.keyboard.press('ArrowUp')
@@ -328,23 +303,11 @@ describe('marking text', () => {
 })
 
 describe('marking text on a huge page', () => {
-  let server: Awaited<ReturnType<typeof startFixtureServer>>
-  let session: Session
-
-  beforeAll(async () => {
-    server = await startFixtureServer()
-    session = await launch()
-  })
-
-  afterAll(async () => {
-    await session?.browser.close()
-    await server?.close()
-  })
+  const server = useFixtureServer()
+  const session = useBrowser()
 
   it('stays quick when everything is selected', async () => {
-    await session.page.goto(`${server.origin}/plain/big.html`)
-    const panel = await clickAction(session)
-    await overlayMounted(session)
+    const panel = await startOverlay(session, `${server.origin}/plain/big.html`, { clear: false })
     await session.page.click('h1')
     await session.page.keyboard.down('Control')
     await session.page.keyboard.press('a')
@@ -363,9 +326,7 @@ describe('marking text on a huge page', () => {
   })
 
   it('keeps scrolling smooth while a huge selection is offered and commented', async () => {
-    await session.page.goto(`${server.origin}/plain/big.html`)
-    await clickAction(session)
-    await overlayMounted(session)
+    await startOverlay(session, `${server.origin}/plain/big.html`, { clear: false })
     await session.page.click('h1')
     await session.page.keyboard.down('Control')
     await session.page.keyboard.press('a')

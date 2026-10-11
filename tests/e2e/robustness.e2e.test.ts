@@ -1,38 +1,23 @@
 import type { KeyInput, Page } from 'puppeteer'
-import { afterAll, beforeAll, describe, expect, it } from 'vitest'
-import { clickAction, launch, type Session, startFixtureServer } from './harness'
+import { describe, expect, it } from 'vitest'
+import { clickAction, useBrowser, useFixtureServer } from './harness'
 import {
   centerOf,
   markElement,
   overlayMounted,
   overlayText,
   sleep,
+  startOverlay,
   storedCollection,
   waitForItems,
   waitInOverlay,
 } from './overlay-helpers'
 
 describe('hostile pages and untrusted events', () => {
-  let server: Awaited<ReturnType<typeof startFixtureServer>>
-  let session: Session
+  const server = useFixtureServer()
+  const session = useBrowser()
 
-  beforeAll(async () => {
-    server = await startFixtureServer()
-    session = await launch()
-  })
-
-  afterAll(async () => {
-    await session?.browser.close()
-    await server?.close()
-  })
-
-  async function activate(path: string): Promise<Page> {
-    await session.page.goto(`${server.origin}${path}`)
-    const panel = await clickAction(session)
-    await panel.evaluate(() => chrome.storage.local.clear())
-    await overlayMounted(session)
-    return panel
-  }
+  const activate = (path: string) => startOverlay(session, `${server.origin}${path}`)
 
   async function storedSelector(panel: Page) {
     const c = await waitForItems(panel, 1)

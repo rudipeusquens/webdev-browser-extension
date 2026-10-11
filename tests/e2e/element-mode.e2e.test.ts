@@ -1,36 +1,23 @@
 import type { Page } from 'puppeteer'
-import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest'
-import { clickAction, launch, type Session, startFixtureServer } from './harness'
+import { beforeEach, describe, expect, it } from 'vitest'
+import { useBrowser, useFixtureServer } from './harness'
 import {
   centerOf,
   markElement,
-  overlayMounted,
   overlayText,
   sleep,
+  startOverlay,
   waitForItems,
   waitInOverlay,
 } from './overlay-helpers'
 
 describe('element mode', () => {
-  let server: Awaited<ReturnType<typeof startFixtureServer>>
-  let session: Session
+  const server = useFixtureServer()
+  const session = useBrowser()
   let panel: Page
 
-  beforeAll(async () => {
-    server = await startFixtureServer()
-    session = await launch()
-  })
-
   beforeEach(async () => {
-    await session.page.goto(`${server.origin}/plain/`)
-    panel = await clickAction(session)
-    await panel.evaluate(() => chrome.storage.local.clear())
-    await overlayMounted(session)
-  })
-
-  afterAll(async () => {
-    await session?.browser.close()
-    await server?.close()
+    panel = await startOverlay(session, `${server.origin}/plain/`)
   })
 
   const label = () => overlayText(session, '[data-testid="overlay-hover-label"]')

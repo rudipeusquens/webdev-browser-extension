@@ -1,18 +1,15 @@
-import { beforeEach, describe, expect, it } from 'vitest'
-import { fakeBrowser } from 'wxt/testing/fake-browser'
+import { describe, expect, it } from 'vitest'
 import { createDictations } from '@/lib/background/dictations'
 import { createNotes } from '@/lib/background/notes'
 import { addAnnotation, emptyCollection } from '@/lib/collection/ops'
 import { NOTE_LIMITS, NOTES_KEY, parseNotes } from '@/lib/notes/model'
 import { copyable, interrupted, type JobView, jobsKey, parseJobs } from '@/lib/voice/jobs'
+import { stored } from './helpers/background'
 import { elementInput } from './helpers/collection'
 
-const stored = async (key: string) => (await fakeBrowser.storage.local.get(key))[key]
 const items = async () => parseNotes(await stored(NOTES_KEY)).items
 
 describe('the Rec notes', () => {
-  beforeEach(() => fakeBrowser.reset())
-
   it('are made waiting for their text, filled, marked and deleted', async () => {
     const notes = createNotes(() => 'T1')
     const { id, evicted } = await notes.create({ job: { state: 'transcribing' } })
@@ -85,8 +82,6 @@ describe('the Rec notes', () => {
 })
 
 describe("the pins' dictation states", () => {
-  beforeEach(() => fakeBrowser.reset())
-
   const SITE = 'http://localhost:3000'
 
   it('are set and cleared per pin, and the key goes with the last', async () => {

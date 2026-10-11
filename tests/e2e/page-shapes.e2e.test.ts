@@ -1,5 +1,5 @@
 import type { Page } from 'puppeteer'
-import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest'
+import { beforeEach, describe, expect, it } from 'vitest'
 import type {
   AreaTarget,
   Collection,
@@ -7,43 +7,30 @@ import type {
   Target,
   TextTarget,
 } from '../../src/lib/collection/model'
-import { clickAction, contentRealm, launch, type Session, startFixtureServer } from './harness'
+import { contentRealm, useBrowser, useFixtureServer } from './harness'
 import {
   centerOf,
+  CHIP,
   clickInOverlay,
   dragSelect,
-  overlayMounted,
+  GLASS,
+  inOverlay,
+  POPOVER,
   sleep,
+  startOverlay,
   storedCollection,
   waitForItems,
   waitInOverlay,
 } from './overlay-helpers'
 
-const CHIP = '[data-testid="overlay-chip"]'
-const GLASS = '[data-testid="overlay-glass"]'
-const POPOVER = '[data-testid="overlay-popover"]'
-
 // Layouts and elements that ordinary pages use and that Chrome treats in its own way.
 describe('marking on pages of every shape', () => {
-  let server: Awaited<ReturnType<typeof startFixtureServer>>
-  let session: Session
+  const server = useFixtureServer()
+  const session = useBrowser()
   let panel: Page
 
-  beforeAll(async () => {
-    server = await startFixtureServer()
-    session = await launch()
-  })
-
   beforeEach(async () => {
-    await session.page.goto(`${server.origin}/plain/shapes.html`)
-    panel = await clickAction(session)
-    await panel.evaluate(() => chrome.storage.local.clear())
-    await overlayMounted(session)
-  })
-
-  afterAll(async () => {
-    await session?.browser.close()
-    await server?.close()
+    panel = await startOverlay(session, `${server.origin}/plain/shapes.html`)
   })
 
   async function save(comment: string): Promise<Target> {
@@ -163,10 +150,6 @@ describe('marking on pages of every shape', () => {
     })
     expect(value).toBe('banana bread')
     await sleep(200)
-    const glass = await realm.evaluate(
-      (sel) => !!globalThis.__webdevOverlay?.shadow?.querySelector(sel),
-      GLASS,
-    )
-    expect(glass).toBe(false)
+    expect(await inOverlay(session, GLASS)).toBe(false)
   })
 })

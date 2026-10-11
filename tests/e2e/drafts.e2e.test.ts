@@ -1,19 +1,24 @@
 import type { Page } from 'puppeteer'
-import { afterAll, beforeAll, describe, expect, it } from 'vitest'
+import { beforeAll, describe, expect, it } from 'vitest'
 import {
+  grantPermissions,
   clickAction,
   contentRealm,
-  launch,
-  type Session,
-  startFixtureServer,
+  panelUrl,
   startOverlayAgain,
+  triggerAction,
+  useBrowser,
+  useFixtureServer,
 } from './harness'
 import {
   clickInOverlay,
+  markAndStore,
   markElement,
   overlayMounted,
   overlayText,
+  POPOVER,
   sleep,
+  startOverlay,
   storedCollection,
   waitForItems,
   waitInOverlay,
@@ -22,17 +27,6 @@ import {
 // Pins are never lost (spec section 8): a popover left without Save keeps its pin, a new one
 // as a grey draft that Copy as prompt leaves out; only Delete throws a new pin away.
 
-const POPOVER = '[data-testid="overlay-popover"]'
-
-const panelUrl = (s: Session) => `chrome-extension://${s.extensionId}/sidepanel.html`
-
-/** Uses the toolbar action on `page`, without waiting for a panel. */
-async function useAction(s: Session, page: Page) {
-  const extension = (await s.browser.extensions()).get(s.extensionId)
-  if (!extension) throw new Error('extension is not installed')
-  await page.triggerExtensionAction(extension)
-}
-
 interface Item {
   number: number
   comment: string
@@ -40,18 +34,9 @@ interface Item {
 }
 
 describe('drafts', () => {
-  let server: Awaited<ReturnType<typeof startFixtureServer>>
-  let session: Session
+  const server = useFixtureServer()
+  const session = useBrowser()
   let panel: Page
-
-  async function mark(selector: string, comment: string, count: number) {
-    await markElement(session, selector)
-    await session.page.keyboard.type(comment)
-    await session.page.keyboard.press('Enter')
-    await waitForItems(panel, count)
-    await waitInOverlay(session, POPOVER, false)
-    await session.page.keyboard.press('Escape')
-  }
 
   /** The popover's comment field: its text, and whether it has the focus. */
   async function field() {
@@ -79,30 +64,13 @@ describe('drafts', () => {
     (await items(count)).find((i) => i.number === number)
 
   beforeAll(async () => {
-    server = await startFixtureServer()
-    session = await launch()
-    await session.browser
-      .defaultBrowserContext()
-      .overridePermissions(`chrome-extension://${session.extensionId}`, [
-        'clipboard-read',
-        'clipboard-sanitized-write',
-      ])
+    await grantPermissions(session)
     // Pin 1 on another page of the site, pins 2 and 3 on this one.
-    await session.page.goto(`${server.origin}/plain/text.html`)
-    panel = await clickAction(session)
-    await panel.evaluate(() => chrome.storage.local.clear())
-    await overlayMounted(session)
-    await mark('h1', 'Elsewhere', 1)
-    await session.page.goto(`${server.origin}/plain/`)
-    panel = await clickAction(session)
-    await overlayMounted(session)
-    await mark('h1', 'First', 2)
-    await mark('button[type="submit"]', 'Second', 3)
-  })
-
-  afterAll(async () => {
-    await session?.browser.close()
-    await server?.close()
+    panel = await startOverlay(session, `${server.origin}/plain/text.html`)
+    await markAndStore(session, panel, 'h1', 'Elsewhere', 1)
+    panel = await startOverlay(session, `${server.origin}/plain/`, { clear: false })
+    await markAndStore(session, panel, 'h1', 'First', 2)
+    await markAndStore(session, panel, 'button[type="submit"]', 'Second', 3)
   })
 
   it('keeps a new pin as a grey draft when another pin is clicked, and opens that one', async () => {
@@ -186,15 +154,13 @@ describe('drafts', () => {
     expect(session.page.url()).toBe(`${server.origin}/plain/text.html`)
     expect(await byNumber(7, 7)).toMatchObject({ comment: 'Before leaving', draft: true })
     await panel.click('[data-testid="filter-open"]')
-    await session.page.goto(`${server.origin}/plain/`)
-    panel = await clickAction(session)
-    await overlayMounted(session)
+    panel = await startOverlay(session, `${server.origin}/plain/`, { clear: false })
   })
 
   it('keeps the text when the toolbar closes the panel and opens it again', async () => {
     await markElement(session, '.card')
     await session.page.keyboard.type('While closed')
-    await useAction(session, session.page)
+    await triggerAction(session, session.page)
     for (
       let i = 0;
       i < 50 && session.browser.targets().some((t) => t.url() === panelUrl(session));

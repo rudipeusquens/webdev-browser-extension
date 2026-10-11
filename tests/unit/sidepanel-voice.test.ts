@@ -1,26 +1,19 @@
-import { flushPromises, mount, type VueWrapper } from '@vue/test-utils'
+import { flushPromises } from '@vue/test-utils'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { fakeBrowser } from 'wxt/testing/fake-browser'
-import App from '@/entrypoints/sidepanel/App.vue'
 import { PANEL_VIEW_KEY } from '@/lib/messages'
 import { deleteKey, storeKey } from '@/lib/voice/key'
 import { VOICE_KEY } from '@/lib/voice/settings'
+import { body, byTestId, click, closePanel, mountPanel, teardownPanel } from './helpers/panel'
 
 // A well-formed but fake key, assembled at runtime so this file never contains one.
 const KEY = 'sk-or-v1-' + '77ab'.repeat(16)
 const WINDOW = 7
 
-let wrapper: VueWrapper | undefined
 let sendMessage: ReturnType<typeof vi.spyOn>
 let microphone: { state: PermissionState; onchange: (() => void) | null }
 
-const body = () => document.body.textContent ?? ''
 const find = (id: string) => document.querySelector<HTMLElement>(`[data-testid="${id}"]`)
-const byTestId = (id: string) => {
-  const el = find(id)
-  if (!el) throw new Error(`no ${id}`)
-  return el
-}
 
 /** Lets IndexedDB answer: it takes a few tasks, more than one flushPromises. */
 async function settle() {
@@ -37,14 +30,8 @@ async function keyChanged(sender: object = { id: fakeBrowser.runtime.id }) {
   await settle()
 }
 
-async function render() {
-  wrapper = mount(App, { attachTo: document.body })
-  await flushPromises()
-  return wrapper
-}
-
 async function openSettings() {
-  await render()
+  await mountPanel()
   byTestId('open-settings').click()
   await settle()
 }
@@ -65,7 +52,6 @@ async function choose(id: string, value: string) {
 
 describe('side panel: voice settings', () => {
   beforeEach(() => {
-    fakeBrowser.reset()
     vi.spyOn(fakeBrowser.tabs, 'query').mockResolvedValue([{ id: 1, windowId: WINDOW }] as never)
     vi.spyOn(fakeBrowser.tabs, 'sendMessage').mockRejectedValue(new Error('No overlay.'))
     sendMessage = vi
@@ -79,9 +65,7 @@ describe('side panel: voice settings', () => {
   })
 
   afterEach(() => {
-    wrapper?.unmount()
-    wrapper = undefined
-    document.body.innerHTML = ''
+    teardownPanel()
     vi.restoreAllMocks()
   })
 
@@ -97,8 +81,7 @@ describe('side panel: voice settings', () => {
     it('is saved through the background and the field is emptied', async () => {
       await openSettings()
       await type('voice-key-input', KEY)
-      byTestId('voice-key-save').click()
-      await flushPromises()
+      await click('voice-key-save')
       expect(sendMessage).toHaveBeenCalledWith({ type: 'voice:key:save', key: KEY })
       expect((byTestId('voice-key-input') as HTMLInputElement).value).toBe('')
     })
@@ -106,8 +89,7 @@ describe('side panel: voice settings', () => {
     it('is checked for its shape before it is sent', async () => {
       await openSettings()
       await type('voice-key-input', 'not a key')
-      byTestId('voice-key-save').click()
-      await flushPromises()
+      await click('voice-key-save')
       expect(sendMessage).not.toHaveBeenCalledWith(
         expect.objectContaining({ type: 'voice:key:save' }),
       )
@@ -142,8 +124,7 @@ describe('side panel: voice settings', () => {
       await storeKey(KEY)
       await openSettings()
       sendMessage.mockResolvedValueOnce(reply as never)
-      byTestId('voice-key-test').click()
-      await flushPromises()
+      await click('voice-key-test')
       expect(sendMessage).toHaveBeenCalledWith({ type: 'voice:key:test' })
       expect(byTestId('voice-key-result').textContent).toContain(text)
     })
@@ -151,8 +132,7 @@ describe('side panel: voice settings', () => {
     it('is removed through the background', async () => {
       await storeKey(KEY)
       await openSettings()
-      byTestId('voice-key-remove').click()
-      await flushPromises()
+      await click('voice-key-remove')
       expect(sendMessage).toHaveBeenCalledWith({ type: 'voice:key:remove' })
     })
   })
@@ -176,13 +156,11 @@ describe('side panel: voice settings', () => {
       await openSettings()
       await choose('voice-model', 'custom')
       await type('voice-custom-model', 'whisper')
-      byTestId('voice-custom-save').click()
-      await flushPromises()
+      await click('voice-custom-save')
       expect(sendMessage).not.toHaveBeenCalledWith(expect.objectContaining({ type: 'voice:set' }))
       expect(body()).toContain('Use an OpenRouter model id such as vendor/model.')
       await type('voice-custom-model', 'qwen/qwen3-asr-flash-2026-02-10')
-      byTestId('voice-custom-save').click()
-      await flushPromises()
+      await click('voice-custom-save')
       expect(sendMessage).toHaveBeenCalledWith({
         type: 'voice:set',
         model: 'qwen/qwen3-asr-flash-2026-02-10',
@@ -277,7 +255,7 @@ describe('side panel: voice settings', () => {
 
     it('opens the settings of the panel it names, once', async () => {
       await fakeBrowser.storage.session.set(view(WINDOW))
-      await render()
+      await mountPanel()
       expect(find('voice-settings')).not.toBeNull()
       expect(
         (await fakeBrowser.storage.session.get(PANEL_VIEW_KEY))[PANEL_VIEW_KEY],
@@ -285,7 +263,7 @@ describe('side panel: voice settings', () => {
     })
 
     it('opens them when asked while the panel is open', async () => {
-      await render()
+      await mountPanel()
       expect(find('voice-settings')).toBeNull()
       await fakeBrowser.storage.session.set(view(WINDOW))
       await flushPromises()
@@ -294,13 +272,12 @@ describe('side panel: voice settings', () => {
 
     it('leaves other windows and old requests alone', async () => {
       await fakeBrowser.storage.session.set(view(WINDOW + 1))
-      await render()
+      await mountPanel()
       expect(find('voice-settings')).toBeNull()
       expect((await fakeBrowser.storage.session.get(PANEL_VIEW_KEY))[PANEL_VIEW_KEY]).toBeDefined()
-      wrapper?.unmount()
-      wrapper = undefined
+      closePanel()
       await fakeBrowser.storage.session.set(view(WINDOW, 60_000))
-      await render()
+      await mountPanel()
       expect(find('voice-settings')).toBeNull()
     })
   })

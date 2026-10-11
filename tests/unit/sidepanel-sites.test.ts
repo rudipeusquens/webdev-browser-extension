@@ -1,25 +1,18 @@
-import { flushPromises, mount, type VueWrapper } from '@vue/test-utils'
+import { flushPromises } from '@vue/test-utils'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { fakeBrowser } from 'wxt/testing/fake-browser'
-import App from '@/entrypoints/sidepanel/App.vue'
 import type { Collection } from '@/lib/collection/model'
 import { addAnnotation, emptyCollection } from '@/lib/collection/ops'
 import { collectionKey } from '@/lib/collection/store'
 import { SETTINGS_KEY } from '@/lib/settings'
 import { elementInput } from './helpers/collection'
 import { fakeSites } from './helpers/fake-sites'
+import { byTestId, click, mountPanel, teardownPanel } from './helpers/panel'
 
 const LOCAL = 'http://localhost:3000'
 const STAGING = 'https://staging.example.com'
 const FILES = 'file://'
 
-let wrapper: VueWrapper | undefined
-
-const byTestId = (id: string, root: ParentNode = document) => {
-  const el = root.querySelector<HTMLElement>(`[data-testid="${id}"]`)
-  if (!el) throw new Error(`no ${id}`)
-  return el
-}
 const rows = () => [...document.querySelectorAll<HTMLElement>('[data-testid="site"]')]
 
 function withItems(site: string, page: string, n: number): Collection {
@@ -30,15 +23,12 @@ function withItems(site: string, page: string, n: number): Collection {
 
 async function openSettings(stored: Record<string, unknown>) {
   await fakeBrowser.storage.local.set(stored)
-  wrapper = mount(App, { attachTo: document.body })
-  await flushPromises()
-  byTestId('open-settings').click()
-  await flushPromises()
+  await mountPanel()
+  await click('open-settings')
 }
 
 describe('Settings: sites', () => {
   beforeEach(() => {
-    fakeBrowser.reset()
     fakeSites()
     vi.spyOn(fakeBrowser.tabs, 'query').mockResolvedValue([{ id: 1 }] as never)
     vi.spyOn(fakeBrowser.tabs, 'sendMessage').mockRejectedValue(new Error('No overlay.'))
@@ -46,9 +36,7 @@ describe('Settings: sites', () => {
   })
 
   afterEach(() => {
-    wrapper?.unmount()
-    wrapper = undefined
-    document.body.innerHTML = ''
+    teardownPanel()
     vi.restoreAllMocks()
   })
 

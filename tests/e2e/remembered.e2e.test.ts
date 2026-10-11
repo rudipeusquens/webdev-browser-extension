@@ -1,6 +1,6 @@
 import type { Page } from 'puppeteer'
-import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest'
-import { clickAction, contentRealm, launch, type Session, startFixtureServer } from './harness'
+import { beforeEach, describe, expect, it } from 'vitest'
+import { clickAction, contentRealm, useBrowser, useFixtureServer } from './harness'
 import {
   markElement,
   overlayHosts,
@@ -20,14 +20,9 @@ type ExtensionPage = {
 // Runs a test copy of the build that holds access to localhost from the start: the shipped
 // build asks for it in Chrome's prompt, which tests cannot answer (harness.ts).
 describe('remembered sites', () => {
-  let server: Awaited<ReturnType<typeof startFixtureServer>>
-  let session: Session
+  const server = useFixtureServer()
+  const session = useBrowser({ hostPermissions: ['http://localhost/*'] })
   let panel: Page
-
-  beforeAll(async () => {
-    server = await startFixtureServer()
-    session = await launch({ hostPermissions: ['http://localhost/*'] })
-  })
 
   beforeEach(async () => {
     await session.page.goto(`${server.origin}/plain/`)
@@ -38,11 +33,6 @@ describe('remembered sites', () => {
       await chrome.storage.local.clear()
     })
     await overlayMounted(session)
-  })
-
-  afterAll(async () => {
-    await session?.browser.close()
-    await server?.close()
   })
 
   const hosts = () => overlayHosts(session)

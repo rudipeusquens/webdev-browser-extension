@@ -1,46 +1,31 @@
 import type { Page } from 'puppeteer'
-import { afterAll, beforeAll, describe, expect, it } from 'vitest'
-import { clickAction, launch, serviceWorker, type Session, startFixtureServer } from './harness'
+import { beforeAll, describe, expect, it } from 'vitest'
 import {
-  markElement,
+  grantPermissions,
+  clickAction,
+  serviceWorker,
+  useBrowser,
+  useFixtureServer,
+} from './harness'
+import {
+  markAndSave,
   overlayMounted,
   sleep,
+  startOverlay,
   storedCollection,
   waitForItems,
-  waitInOverlay,
 } from './overlay-helpers'
 
 // Two dev servers side by side: each site has its own feedback (spec section 5).
 describe('one collection per site', () => {
-  let one: Awaited<ReturnType<typeof startFixtureServer>>
-  let two: Awaited<ReturnType<typeof startFixtureServer>>
-  let session: Session
+  const one = useFixtureServer()
+  const two = useFixtureServer()
+  const session = useBrowser()
   let panel: Page
 
   beforeAll(async () => {
-    one = await startFixtureServer()
-    two = await startFixtureServer()
-    session = await launch()
-    await session.browser
-      .defaultBrowserContext()
-      .overridePermissions(`chrome-extension://${session.extensionId}`, [
-        'clipboard-read',
-        'clipboard-sanitized-write',
-      ])
+    await grantPermissions(session)
   })
-
-  afterAll(async () => {
-    await session?.browser.close()
-    await one?.close()
-    await two?.close()
-  })
-
-  async function save(selector: string, comment: string) {
-    await markElement(session, selector)
-    await session.page.keyboard.type(comment)
-    await session.page.keyboard.press('Enter')
-    await waitInOverlay(session, '[data-testid="overlay-popover"]', false)
-  }
 
   /** The comments the panel lists, in order. */
   const listed = () =>
@@ -57,10 +42,8 @@ describe('one collection per site', () => {
   }
 
   it('keeps items, numbers and the copy of each site apart', async () => {
-    await session.page.goto(`${one.origin}/plain/`)
-    panel = await clickAction(session)
-    await overlayMounted(session)
-    await save('h1', 'On the first site')
+    panel = await startOverlay(session, `${one.origin}/plain/`, { clear: false })
+    await markAndSave(session, 'h1', 'On the first site')
     await waitForItems(panel, 1)
 
     await session.page.goto(`${two.origin}/plain/`)
@@ -68,7 +51,7 @@ describe('one collection per site', () => {
     panel = await clickAction(session)
     await overlayMounted(session)
     await waitForListed([])
-    await save('h1', 'On the second site')
+    await markAndSave(session, 'h1', 'On the second site')
     await waitForListed(['On the second site'])
 
     const first = await storedCollection(panel, one.origin)
@@ -82,9 +65,7 @@ describe('one collection per site', () => {
     expect(clipboard).toContain('On the second site')
     expect(clipboard).not.toContain('On the first site')
 
-    await session.page.goto(`${one.origin}/plain/`)
-    panel = await clickAction(session)
-    await overlayMounted(session)
+    panel = await startOverlay(session, `${one.origin}/plain/`, { clear: false })
     await waitForListed(['On the first site'])
   })
 

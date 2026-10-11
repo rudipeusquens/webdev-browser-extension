@@ -1,5 +1,5 @@
 import type { Page } from 'puppeteer'
-import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest'
+import { beforeAll, beforeEach, describe, expect, it } from 'vitest'
 import type {
   AreaTarget,
   CodeOrigin,
@@ -8,21 +8,30 @@ import type {
   TextTarget,
 } from '../../src/lib/collection/model'
 import { formatCollection } from '../../src/lib/format/markdown'
-import { clickAction, launch, type Session, startFixtureServer, startVueDevServer } from './harness'
+import {
+  grantPermissions,
+  clickAction,
+  type Session,
+  useBrowser,
+  useFixtureServer,
+  useVueDevServer,
+} from './harness'
 import {
   centerOf,
+  CHIP,
   clickInOverlay,
   dragSelect,
+  GLASS,
   markElement,
   overlayMounted,
   overlayText,
+  POPOVER,
+  startOverlay,
   storedCollection,
   waitForItems,
   waitInOverlay,
 } from './overlay-helpers'
 
-const POPOVER = '[data-testid="overlay-popover"]'
-const GLASS = '[data-testid="overlay-glass"]'
 const LABEL = '[data-testid="overlay-hover-label"]'
 
 async function save(session: Session, panel: Page, comment: string, count = 1) {
@@ -34,19 +43,12 @@ async function save(session: Session, panel: Page, comment: string, count = 1) {
 }
 
 describe('code origin on a Vue dev server', () => {
-  let app: Awaited<ReturnType<typeof startVueDevServer>>
-  let session: Session
+  const app = useVueDevServer()
+  const session = useBrowser()
   let panel: Page
 
   beforeAll(async () => {
-    app = await startVueDevServer()
-    session = await launch()
-    await session.browser
-      .defaultBrowserContext()
-      .overridePermissions(`chrome-extension://${session.extensionId}`, [
-        'clipboard-read',
-        'clipboard-sanitized-write',
-      ])
+    await grantPermissions(session)
   })
 
   async function open(path: string, ready: string) {
@@ -56,11 +58,6 @@ describe('code origin on a Vue dev server', () => {
     await panel.evaluate(() => chrome.storage.local.clear())
     await overlayMounted(session)
   }
-
-  afterAll(async () => {
-    await session?.browser.close()
-    await app?.close()
-  })
 
   const file = (path: string) => `${app.root}/src/${path}`
 
@@ -103,7 +100,7 @@ describe('code origin on a Vue dev server', () => {
   it('adds the component of a text container', async () => {
     await open('/settings', '.prefs h3')
     await dragSelect(session.page, '.prefs h3', 'Email notifcations')
-    await clickInOverlay(session, '[data-testid="overlay-chip"]')
+    await clickInOverlay(session, CHIP)
     const target = (await save(session, panel, 'Typo')) as TextTarget
     expect(target.container.origin?.chain.at(-1)).toEqual({
       name: 'NotificationPrefs',
@@ -140,29 +137,16 @@ describe('code origin on a Vue dev server', () => {
 })
 
 describe('code origin from other pages', () => {
-  let server: Awaited<ReturnType<typeof startFixtureServer>>
-  let session: Session
+  const server = useFixtureServer()
+  const session = useBrowser()
   let panel: Page
-
-  beforeAll(async () => {
-    server = await startFixtureServer()
-    session = await launch()
-  })
 
   beforeEach(async () => {
     await session.page.goto('about:blank')
   })
 
-  afterAll(async () => {
-    await session?.browser.close()
-    await server?.close()
-  })
-
   async function open(path: string) {
-    await session.page.goto(`${server.origin}${path}`)
-    panel = await clickAction(session)
-    await panel.evaluate(() => chrome.storage.local.clear())
-    await overlayMounted(session)
+    panel = await startOverlay(session, `${server.origin}${path}`)
   }
 
   it('reads Astro source attributes for elements and areas', async () => {

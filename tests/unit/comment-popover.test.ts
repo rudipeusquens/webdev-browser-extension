@@ -210,7 +210,6 @@ describe('CommentPopover: keys and buttons', () => {
 
   beforeEach(() => {
     vi.useFakeTimers()
-    fakeBrowser.reset()
     sendMessage = vi
       .spyOn(fakeBrowser.runtime, 'sendMessage')
       .mockImplementation((async (message: { type: string }) =>

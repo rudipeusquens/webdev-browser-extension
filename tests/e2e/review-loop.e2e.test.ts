@@ -1,10 +1,10 @@
 import type { Page } from 'puppeteer'
-import { afterAll, beforeAll, describe, expect, it } from 'vitest'
-import { clickAction, contentRealm, launch, type Session, startFixtureServer } from './harness'
+import { beforeAll, describe, expect, it } from 'vitest'
+import { grantPermissions, contentRealm, useBrowser, useFixtureServer } from './harness'
 import {
-  markElement,
-  overlayMounted,
+  markAndSave,
   sleep,
+  startOverlay,
   storedCollection,
   waitForItems,
   waitInOverlay,
@@ -12,35 +12,14 @@ import {
 
 // Milestone 6 acceptance: the review loop of spec section 2, on two sites at once.
 describe('the review loop', () => {
-  let one: Awaited<ReturnType<typeof startFixtureServer>>
-  let two: Awaited<ReturnType<typeof startFixtureServer>>
-  let session: Session
+  const one = useFixtureServer()
+  const two = useFixtureServer()
+  const session = useBrowser()
   let panel: Page
 
   beforeAll(async () => {
-    one = await startFixtureServer()
-    two = await startFixtureServer()
-    session = await launch()
-    await session.browser
-      .defaultBrowserContext()
-      .overridePermissions(`chrome-extension://${session.extensionId}`, [
-        'clipboard-read',
-        'clipboard-sanitized-write',
-      ])
+    await grantPermissions(session)
   })
-
-  afterAll(async () => {
-    await session?.browser.close()
-    await one?.close()
-    await two?.close()
-  })
-
-  async function save(selector: string, comment: string) {
-    await markElement(session, selector)
-    await session.page.keyboard.type(comment)
-    await session.page.keyboard.press('Enter')
-    await waitInOverlay(session, '[data-testid="overlay-popover"]', false)
-  }
 
   const clipboard = () => panel.evaluate(() => navigator.clipboard.readText())
   const statuses = async (site: string) =>
@@ -67,18 +46,14 @@ describe('the review loop', () => {
     },
     async () => {
       // The second site gets an item first; it must stay untouched.
-      await session.page.goto(`${two.origin}/plain/`)
-      panel = await clickAction(session)
-      await overlayMounted(session)
-      await save('h1', 'On the other project')
+      panel = await startOverlay(session, `${two.origin}/plain/`, { clear: false })
+      await markAndSave(session, 'h1', 'On the other project')
       await waitForItems(panel, 1)
 
-      await session.page.goto(`${one.origin}/plain/`)
-      panel = await clickAction(session)
-      await overlayMounted(session)
-      await save('h1', 'Bigger heading')
-      await save('button[type="submit"]', 'Wider button')
-      await save('p', 'Shorter text')
+      panel = await startOverlay(session, `${one.origin}/plain/`, { clear: false })
+      await markAndSave(session, 'h1', 'Bigger heading')
+      await markAndSave(session, 'button[type="submit"]', 'Wider button')
+      await markAndSave(session, 'p', 'Shorter text')
       await until(async () => (await statuses(one.origin)).length === 3, 'three items')
 
       let text = await copy('copy-prompt', 'Copied 3 pins')
@@ -89,7 +64,7 @@ describe('the review loop', () => {
         'all done',
       )
 
-      await save('h1', 'Heading still too small')
+      await markAndSave(session, 'h1', 'Heading still too small')
       text = await copy('copy-prompt', 'Copied 1 pin')
       expect(text).toContain('# UI feedback: 1 item on 1 page')
       expect(text).toContain('### 4. Element')

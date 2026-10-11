@@ -1,11 +1,10 @@
-import type { Page } from 'puppeteer'
-import { afterAll, beforeAll, describe, expect, it } from 'vitest'
-import { clickAction, launch, type Session, startFixtureServer } from './harness'
+import { describe, expect, it } from 'vitest'
+import { useBrowser, useFixtureServer } from './harness'
 import {
   markElement,
-  overlayMounted,
   overlayText,
   sleep,
+  startOverlay,
   storedCollection,
   waitForItems,
 } from './overlay-helpers'
@@ -13,26 +12,10 @@ import {
 // Script focus traps pull focus back into their container, so typing and Enter would go to
 // the page: here Enter would submit the page's "Delete this item?" form.
 describe('pages with a script focus trap', () => {
-  let server: Awaited<ReturnType<typeof startFixtureServer>>
-  let session: Session
+  const server = useFixtureServer()
+  const session = useBrowser()
 
-  beforeAll(async () => {
-    server = await startFixtureServer()
-    session = await launch()
-  })
-
-  afterAll(async () => {
-    await session?.browser.close()
-    await server?.close()
-  })
-
-  async function activate(path: string): Promise<Page> {
-    await session.page.goto(`${server.origin}${path}`)
-    const panel = await clickAction(session)
-    await panel.evaluate(() => chrome.storage.local.clear())
-    await overlayMounted(session)
-    return panel
-  }
+  const activate = (path: string) => startOverlay(session, `${server.origin}${path}`)
 
   const submits = () => session.page.evaluate(() => (window as { submits?: number }).submits)
 

@@ -9,16 +9,14 @@ import { jobsKey } from '@/lib/voice/jobs'
 import { deleteKey, storeKey } from '@/lib/voice/key'
 import { DEFAULT_MODEL, VOICE_KEY } from '@/lib/voice/settings'
 import { elementInput } from './helpers/collection'
-import { fakeContextMenus } from './helpers/fake-context-menus'
+import { fakeChrome, send, stored } from './helpers/background'
 import {
   type FakePort,
   fakePort,
-  fakePorts,
   overlaySender,
   panelSender,
   recorderSender,
 } from './helpers/fake-ports'
-import { fakeSites } from './helpers/fake-sites'
 
 // Well-formed but fake keys, assembled at runtime so this file never contains one.
 const KEY = 'sk-or-v1-' + '0a1b'.repeat(16)
@@ -38,37 +36,15 @@ async function flush() {
 /** The top frame of a tab on PAGE, as the sender of an overlay's port or message. */
 const overlayAt = (tabId = 5, url = PAGE) => ({ ...overlaySender(tabId), url })
 
-/** Delivers `message` to the background's onMessage listeners; resolves with the reply. */
-async function send(message: unknown, sender: object): Promise<unknown> {
-  let reply: unknown
-  const responded = new Promise<void>((done) => {
-    void fakeBrowser.runtime.onMessage
-      .trigger(message, sender, (value: unknown) => {
-        reply = value
-        done()
-      })
-      .then((results: unknown[]) => {
-        if (!results.includes(true)) done()
-      })
-  })
-  await responded
-  return reply
-}
-
-const stored = async (key: string) => (await fakeBrowser.storage.local.get(key))[key]
-
 describe('background: dictation', () => {
-  let ports: ReturnType<typeof fakePorts>
+  let ports: ReturnType<typeof fakeChrome>['ports']
 
   beforeEach(async () => {
     // IndexedDB (fake-indexeddb) schedules its work with setImmediate: that stays real.
     vi.useFakeTimers({
       toFake: ['setTimeout', 'clearTimeout', 'setInterval', 'clearInterval', 'Date'],
     })
-    fakeBrowser.reset()
-    fakeSites()
-    fakeContextMenus()
-    ports = fakePorts()
+    ports = fakeChrome().ports
     background.main()
     await storeKey(KEY)
     await flush()
@@ -617,10 +593,7 @@ describe('background: after a restart', () => {
     vi.useFakeTimers({
       toFake: ['setTimeout', 'clearTimeout', 'setInterval', 'clearInterval', 'Date'],
     })
-    fakeBrowser.reset()
-    fakeSites()
-    fakeContextMenus()
-    fakePorts()
+    fakeChrome()
   })
 
   afterEach(() => {
@@ -657,10 +630,7 @@ describe('background: after a restart', () => {
 
 describe('background: requests from the popover', () => {
   beforeEach(() => {
-    fakeBrowser.reset()
-    fakeSites()
-    fakeContextMenus()
-    fakePorts()
+    fakeChrome()
     background.main()
   })
 

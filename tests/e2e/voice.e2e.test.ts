@@ -3,16 +3,17 @@ import { join } from 'node:path'
 import type { Page } from 'puppeteer'
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest'
 import { FAKE_TEXT, startFakeOpenRouter } from './fake-openrouter'
-import { setKey } from './voice-helpers'
+import { offscreenDocuments, setKey } from './voice-helpers'
 import {
+  grantPermissions,
   clickAction,
   EXTENSION_DIR,
   launch,
   serviceWorker,
   type Session,
   setMicrophone,
-  startFixtureServer,
   startOverlayAgain,
+  useFixtureServer,
 } from './harness'
 import {
   clickInOverlay,
@@ -21,6 +22,7 @@ import {
   overlayMounted,
   overlayText,
   sleep,
+  startOverlay,
   waitInOverlay,
 } from './overlay-helpers'
 
@@ -38,7 +40,6 @@ interface ExtensionApi {
       remove(key: string): Promise<void>
     }
   }
-  runtime: { getContexts(filter: { contextTypes: string[] }): Promise<unknown[]> }
 }
 
 interface Item {
@@ -50,31 +51,22 @@ interface Item {
 }
 
 describe('dictating a comment', () => {
-  let server: Awaited<ReturnType<typeof startFixtureServer>>
+  const server = useFixtureServer()
   let fake: Awaited<ReturnType<typeof startFakeOpenRouter>>
   let s: Session
 
   beforeAll(async () => {
-    server = await startFixtureServer()
     fake = await startFakeOpenRouter()
     s = await launch({ openrouter: fake.origin, microphone: 'granted' })
-    await s.browser
-      .defaultBrowserContext()
-      .overridePermissions(`chrome-extension://${s.extensionId}`, [
-        'clipboard-read',
-        'clipboard-sanitized-write',
-      ])
-    await s.page.goto(`${server.origin}/plain/`)
+    await grantPermissions(s)
     // The toolbar click grants activeTab and opens the panel; later tests start overlays
     // without toggling it.
-    await clickAction(s)
-    await overlayMounted(s)
+    await startOverlay(s, `${server.origin}/plain/`, { clear: false })
   })
 
   afterAll(async () => {
     await s?.browser.close()
     await fake?.close()
-    await server?.close()
   })
 
   beforeEach(async () => {
@@ -108,14 +100,6 @@ describe('dictating a comment', () => {
     throw new Error(
       `${selector} never said "${text}": ${await overlayText(s, selector)} (${message})`,
     )
-  }
-
-  async function offscreenDocuments(): Promise<number> {
-    const worker = await serviceWorker(s)
-    return worker.evaluate(async () => {
-      const { runtime } = (globalThis as unknown as { chrome: ExtensionApi }).chrome
-      return (await runtime.getContexts({ contextTypes: ['OFFSCREEN_DOCUMENT'] })).length
-    })
   }
 
   /** Everything in chrome.storage.local. */
@@ -192,8 +176,8 @@ describe('dictating a comment', () => {
     expect(filled?.draft).toBeUndefined()
     expect(await dictations()).toEqual({})
     await waitInOverlay(s, '[data-testid="overlay-pin"][data-transcribing]', false)
-    for (let i = 0; i < 30 && (await offscreenDocuments()) > 0; i++) await sleep(100)
-    expect(await offscreenDocuments()).toBe(0)
+    for (let i = 0; i < 30 && (await offscreenDocuments(s)) > 0; i++) await sleep(100)
+    expect(await offscreenDocuments(s)).toBe(0)
 
     const [request] = fake.transcriptions()
     expect(fake.transcriptions()).toHaveLength(1)
@@ -253,7 +237,7 @@ describe('dictating a comment', () => {
     expect((await overlayText(s, '[data-testid="overlay-voice-status"]'))?.trim()).toBe('')
     await sleep(300)
     expect(fake.transcriptions()).toHaveLength(0)
-    expect(await offscreenDocuments()).toBe(0)
+    expect(await offscreenDocuments(s)).toBe(0)
     await waitInOverlay(s, '[data-testid="overlay-popover"]')
     // The next Esc closes it and keeps the pin as a grey draft.
     await s.page.keyboard.press('Escape')
@@ -381,13 +365,13 @@ describe('dictating a comment', () => {
     await space()
     expect(await contentField(s)).toBe(' ')
     // Audio an earlier test's failure holds may keep a document open; no key opens none.
-    const before = await offscreenDocuments()
+    const before = await offscreenDocuments(s)
     await clickInOverlay(s, '[data-testid="overlay-mic"]')
     await waitForText(
       '[data-testid="overlay-voice-message"]',
       'Add an OpenRouter API key in settings.',
     )
-    expect(await offscreenDocuments()).toBe(before)
+    expect(await offscreenDocuments(s)).toBe(before)
     await clickInOverlay(s, '[data-testid="overlay-voice-settings"]')
     const panel = await panelPage()
     await panel.waitForSelector('[data-testid="voice-settings"]')

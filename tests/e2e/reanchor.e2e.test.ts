@@ -1,28 +1,29 @@
 import type { Page } from 'puppeteer'
-import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest'
+import { beforeEach, describe, expect, it } from 'vitest'
 import type { Collection } from '../../src/lib/collection/model'
 import { formatCollection } from '../../src/lib/format/markdown'
 import {
   clickAction,
   contentRealm,
-  launch,
   type Session,
-  startFixtureServer,
-  startVueDevServer,
+  useBrowser,
+  useFixtureServer,
+  useVueDevServer,
 } from './harness'
 import {
+  CHIP,
   clickInOverlay,
+  comment,
   dragSelect,
   markElement,
   overlayMounted,
+  PIN,
   sleep,
+  startOverlay,
   storedCollection,
   waitForItems,
-  waitInOverlay,
 } from './overlay-helpers'
 
-const POPOVER = '[data-testid="overlay-popover"]'
-const PIN = '[data-testid="overlay-pin"]'
 const NOT_FOUND = '[data-testid="not-found"]'
 
 /** Top-left corners of the overlay's pins, by item number. */
@@ -57,33 +58,13 @@ const pinFor = (r: { right: number; top: number }) => ({
 const near = (a: { x: number; y: number }, b: { x: number; y: number }, by = 3) =>
   Math.abs(a.x - b.x) <= by && Math.abs(a.y - b.y) <= by
 
-async function comment(session: Session, text: string) {
-  await waitInOverlay(session, POPOVER)
-  await session.page.keyboard.type(text)
-  await session.page.keyboard.press('Enter')
-  await waitInOverlay(session, POPOVER, false)
-}
-
 describe('re-anchoring after a reload', () => {
-  let server: Awaited<ReturnType<typeof startFixtureServer>>
-  let session: Session
+  const server = useFixtureServer()
+  const session = useBrowser()
   let panel: Page
 
-  beforeAll(async () => {
-    server = await startFixtureServer()
-    session = await launch()
-  })
-
   beforeEach(async () => {
-    await session.page.goto(`${server.origin}/plain/text.html`)
-    panel = await clickAction(session)
-    await panel.evaluate(() => chrome.storage.local.clear())
-    await overlayMounted(session)
-  })
-
-  afterAll(async () => {
-    await session?.browser.close()
-    await server?.close()
+    panel = await startOverlay(session, `${server.origin}/plain/text.html`)
   })
 
   /** Viewport box of `needle` inside `selector`, the `nth` time it occurs. */
@@ -120,7 +101,7 @@ describe('re-anchoring after a reload', () => {
     await comment(session, 'Element')
     await session.page.keyboard.press('Escape')
     await dragSelect(session.page, '#intro', 'contact you')
-    await clickInOverlay(session, '[data-testid="overlay-chip"]')
+    await clickInOverlay(session, CHIP)
     await comment(session, 'Text')
     await session.page.keyboard.press('a')
     const h3 = await session.page.$eval('h3', (el) => {
@@ -147,7 +128,7 @@ describe('re-anchoring after a reload', () => {
 
   it('moves the text pin to the occurrence whose context fits (review focus 3)', async () => {
     await dragSelect(session.page, '#intro', 'contact you')
-    await clickInOverlay(session, '[data-testid="overlay-chip"]')
+    await clickInOverlay(session, CHIP)
     await comment(session, 'Text')
     await waitForItems(panel, 1)
     await reactivate()
@@ -199,29 +180,16 @@ describe('re-anchoring after a reload', () => {
 })
 
 describe('re-anchoring on a page that changes all the time (review focus 2)', () => {
-  let server: Awaited<ReturnType<typeof startFixtureServer>>
-  let session: Session
-
-  beforeAll(async () => {
-    server = await startFixtureServer()
-    session = await launch()
-  })
-
-  afterAll(async () => {
-    await session?.browser.close()
-    await server?.close()
-  })
+  const server = useFixtureServer()
+  const session = useBrowser()
 
   it('keeps its pins without flapping or long frames', async () => {
-    await session.page.goto(`${server.origin}/plain/busy.html`)
-    const panel = await clickAction(session)
-    await panel.evaluate(() => chrome.storage.local.clear())
-    await overlayMounted(session)
+    const panel = await startOverlay(session, `${server.origin}/plain/busy.html`)
     await markElement(session, 'h1')
     await comment(session, 'Title')
     await session.page.keyboard.press('Escape')
     await dragSelect(session.page, '#intro', 'contact you')
-    await clickInOverlay(session, '[data-testid="overlay-chip"]')
+    await clickInOverlay(session, CHIP)
     await comment(session, 'Text')
     await waitForItems(panel, 2)
     await session.page.evaluate(() => {
@@ -244,26 +212,13 @@ describe('re-anchoring on a page that changes all the time (review focus 2)', ()
 })
 
 describe('re-anchoring text that is gone, inside one huge text node (review focus 2)', () => {
-  let server: Awaited<ReturnType<typeof startFixtureServer>>
-  let session: Session
-
-  beforeAll(async () => {
-    server = await startFixtureServer()
-    session = await launch()
-  })
-
-  afterAll(async () => {
-    await session?.browser.close()
-    await server?.close()
-  })
+  const server = useFixtureServer()
+  const session = useBrowser()
 
   it('keeps searching cheap while the page keeps changing', async () => {
-    await session.page.goto(`${server.origin}/plain/busy.html`)
-    const panel = await clickAction(session)
-    await panel.evaluate(() => chrome.storage.local.clear())
-    await overlayMounted(session)
+    const panel = await startOverlay(session, `${server.origin}/plain/busy.html`)
     await dragSelect(session.page, '#log', 'First entry')
-    await clickInOverlay(session, '[data-testid="overlay-chip"]')
+    await clickInOverlay(session, CHIP)
     await comment(session, 'Log text')
     await waitForItems(panel, 1)
     // The selected words go away; the log stays megabytes long.
@@ -288,18 +243,8 @@ describe('re-anchoring text that is gone, inside one huge text node (review focu
 })
 
 describe('re-anchoring after HMR', () => {
-  let app: Awaited<ReturnType<typeof startVueDevServer>>
-  let session: Session
-
-  beforeAll(async () => {
-    app = await startVueDevServer()
-    session = await launch()
-  })
-
-  afterAll(async () => {
-    await session?.browser.close()
-    await app?.close()
-  })
+  const app = useVueDevServer()
+  const session = useBrowser()
 
   it('finds a re-rendered element again', async () => {
     await session.page.goto(`${app.origin}/settings`)
@@ -338,23 +283,11 @@ describe('re-anchoring after HMR', () => {
 })
 
 describe('an overlay whose extension was reloaded', () => {
-  let server: Awaited<ReturnType<typeof startFixtureServer>>
-  let session: Session
-
-  beforeAll(async () => {
-    server = await startFixtureServer()
-    session = await launch()
-  })
-
-  afterAll(async () => {
-    await session?.browser.close()
-    await server?.close()
-  })
+  const server = useFixtureServer()
+  const session = useBrowser()
 
   it('removes itself', async () => {
-    await session.page.goto(`${server.origin}/plain/`)
-    await clickAction(session)
-    await overlayMounted(session)
+    await startOverlay(session, `${server.origin}/plain/`, { clear: false })
     expect(
       await session.page.evaluate(() => document.querySelectorAll('[data-e2e-host]').length),
     ).toBe(1)

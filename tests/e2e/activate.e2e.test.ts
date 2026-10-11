@@ -1,7 +1,7 @@
-import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 import type { WebWorker } from 'puppeteer'
-import { clickAction, launch, serviceWorker, type Session, startFixtureServer } from './harness'
-import { overlayMounted } from './overlay-helpers'
+import { clickAction, serviceWorker, useBrowser, useFixtureServer } from './harness'
+import { overlayMounted, startOverlay } from './overlay-helpers'
 
 type Command = { name?: string; shortcut?: string }
 type Chrome = {
@@ -34,18 +34,8 @@ const menuEntry = (worker: WebWorker, id: string) =>
   )
 
 describe('activation', () => {
-  let server: Awaited<ReturnType<typeof startFixtureServer>>
-  let session: Session
-
-  beforeAll(async () => {
-    server = await startFixtureServer()
-    session = await launch()
-  })
-
-  afterAll(async () => {
-    await session?.browser.close()
-    await server?.close()
-  })
+  const server = useFixtureServer()
+  const session = useBrowser()
 
   it('opens the side panel on action click', async () => {
     await session.page.goto(`${server.origin}/plain/`)
@@ -79,9 +69,7 @@ describe('activation', () => {
   })
 
   it('starts the overlay from the panel again after a reload, without the toolbar', async () => {
-    await session.page.goto(`${server.origin}/plain/`)
-    const panel = await clickAction(session)
-    await overlayMounted(session)
+    const panel = await startOverlay(session, `${server.origin}/plain/`, { clear: false })
     await panel.waitForSelector('[data-testid="site-pill"][data-state="active"]')
     // A reload drops the overlay; the grant of the toolbar click stays with the tab.
     await session.page.reload()

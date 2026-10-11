@@ -1,24 +1,8 @@
 import assert from 'node:assert/strict'
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
-import { tmpdir } from 'node:os'
-import { join } from 'node:path'
 import { describe, it } from 'node:test'
 
 import { checkBundle } from './check-bundle.mjs'
-
-/** A build folder with `files` (path → text); removed after `use` ran. */
-function withBuild(files, use) {
-  const dir = mkdtempSync(join(tmpdir(), 'bundle-'))
-  try {
-    for (const [path, text] of Object.entries(files)) {
-      mkdirSync(join(dir, path, '..'), { recursive: true })
-      writeFileSync(join(dir, path), text)
-    }
-    return use(dir)
-  } finally {
-    rmSync(dir, { recursive: true, force: true })
-  }
-}
+import { withFolder } from './test-helpers.mjs'
 
 const clean = {
   'manifest.json': '{"manifest_version":3}',
@@ -30,7 +14,7 @@ const clean = {
 describe('checkBundle', () => {
   it('accepts a build with only the known hosts and no dev or dynamic code', () => {
     assert.deepEqual(
-      withBuild(clean, (dir) => checkBundle(dir)),
+      withFolder('bundle', clean, (dir) => checkBundle(dir)),
       [],
     )
   })
@@ -45,7 +29,7 @@ describe('checkBundle', () => {
       ['background.js', 'fetch("http://127.0.0.1:5173/@vite/client")', /dev server/],
       ['chunks/a.js', 'fetch("https://collector.example.com/x")', /collector\.example\.com/],
     ]) {
-      const errors = withBuild({ ...clean, [file]: text }, (dir) => checkBundle(dir))
+      const errors = withFolder('bundle', { ...clean, [file]: text }, (dir) => checkBundle(dir))
       assert.match(errors.join('\n'), rule, `${file}: ${text}`)
     }
   })

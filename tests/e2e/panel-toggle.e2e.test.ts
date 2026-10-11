@@ -1,18 +1,14 @@
-import type { Page } from 'puppeteer'
-import { afterEach, beforeAll, afterAll, beforeEach, describe, expect, it } from 'vitest'
-import { clickAction, contentRealm, launch, type Session, startFixtureServer } from './harness'
-import { markElement, overlayMounted, sleep, waitInOverlay } from './overlay-helpers'
-
-const GLASS = '[data-testid="overlay-glass"]'
-
-const panelUrl = (s: Session) => `chrome-extension://${s.extensionId}/sidepanel.html`
-
-/** Uses the toolbar action on `page`, without waiting for a panel. */
-async function useAction(s: Session, page: Page) {
-  const extension = (await s.browser.extensions()).get(s.extensionId)
-  if (!extension) throw new Error('extension is not installed')
-  await page.triggerExtensionAction(extension)
-}
+import { afterEach, beforeEach, describe, expect, it } from 'vitest'
+import {
+  clickAction,
+  contentRealm,
+  launch,
+  panelUrl,
+  type Session,
+  triggerAction,
+  useFixtureServer,
+} from './harness'
+import { GLASS, markElement, overlayMounted, sleep, waitInOverlay } from './overlay-helpers'
 
 /** Waits until the extension's side panel is closed. */
 async function panelClosed(s: Session) {
@@ -24,12 +20,8 @@ async function panelClosed(s: Session) {
 }
 
 describe('the toolbar action toggles the side panel', () => {
-  let server: Awaited<ReturnType<typeof startFixtureServer>>
+  const server = useFixtureServer()
   let session: Session
-
-  beforeAll(async () => {
-    server = await startFixtureServer()
-  })
 
   beforeEach(async () => {
     session = await launch()
@@ -38,10 +30,6 @@ describe('the toolbar action toggles the side panel', () => {
 
   afterEach(async () => {
     await session?.browser.close()
-  })
-
-  afterAll(async () => {
-    await server?.close()
   })
 
   it('closes on a second click and leaves the page in browse mode with its pins', async () => {
@@ -60,7 +48,7 @@ describe('the toolbar action toggles the side panel', () => {
       g.before = globalThis.__webdevOverlay?.shadow
     })
 
-    await useAction(session, session.page)
+    await triggerAction(session, session.page)
     await panelClosed(session)
     await waitInOverlay(session, GLASS, false)
     await waitInOverlay(session, '[data-testid="overlay-pin"]')
@@ -83,7 +71,7 @@ describe('the toolbar action toggles the side panel', () => {
     await other.goto(`${server.origin}/svg/`)
     await other.bringToFront()
     await panel.waitForSelector('[data-testid="site-pill"][data-state="idle"]')
-    await useAction(session, other)
+    await triggerAction(session, other)
     await overlayMounted({ ...session, page: other })
     await panel.waitForSelector('[data-testid="site-pill"][data-state="active"]')
     expect(panel.isClosed()).toBe(false)

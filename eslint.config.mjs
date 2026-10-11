@@ -6,6 +6,8 @@ import { defineConfig, globalIgnores } from 'eslint/config'
 import globals from 'globals'
 import tseslint from 'typescript-eslint'
 
+const NO_KEY_MESSAGE = 'The overlay never reads the OpenRouter key.'
+
 // `eslint-config-prettier` stays last — it turns off rules that fight Prettier, which owns
 // formatting.
 export default defineConfig(
@@ -43,25 +45,18 @@ export default defineConfig(
           patterns: [
             {
               regex: 'voice/key(\\.ts)?$',
-              message: 'The overlay never reads the OpenRouter key.',
+              message: NO_KEY_MESSAGE,
             },
           ],
         },
       ],
       'no-restricted-syntax': [
         'error',
-        {
-          selector: 'Identifier[name=/openrouterKey/i]',
-          message: 'The overlay never reads the OpenRouter key.',
-        },
-        {
-          selector: 'Literal[value=/openrouterKey/i]',
-          message: 'The overlay never reads the OpenRouter key.',
-        },
-        {
-          selector: 'TemplateElement[value.raw=/openrouterKey/i]',
-          message: 'The overlay never reads the OpenRouter key.',
-        },
+        ...[
+          'Identifier[name=/openrouterKey/i]',
+          'Literal[value=/openrouterKey/i]',
+          'TemplateElement[value.raw=/openrouterKey/i]',
+        ].map((selector) => ({ selector, message: NO_KEY_MESSAGE })),
       ],
     },
   },

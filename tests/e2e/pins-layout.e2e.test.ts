@@ -1,40 +1,27 @@
 import type { Page } from 'puppeteer'
-import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest'
-import { clickAction, contentRealm, launch, type Session, startFixtureServer } from './harness'
+import { beforeEach, describe, expect, it } from 'vitest'
+import { contentRealm, useBrowser, useFixtureServer } from './harness'
 import {
+  CHIP,
   clickInOverlay,
   dragSelect,
   markElement,
-  overlayMounted,
+  PIN,
+  POPOVER,
   sleep,
+  startOverlay,
   waitForItems,
   waitInOverlay,
 } from './overlay-helpers'
 
-const PIN = '[data-testid="overlay-pin"]'
-const POPOVER = '[data-testid="overlay-popover"]'
-
 // Pins follow the element, not the document (plan Review Focus 5).
 describe('pins in scroll containers and on sticky elements', () => {
-  let server: Awaited<ReturnType<typeof startFixtureServer>>
-  let session: Session
+  const server = useFixtureServer()
+  const session = useBrowser()
   let panel: Page
 
-  beforeAll(async () => {
-    server = await startFixtureServer()
-    session = await launch()
-  })
-
   beforeEach(async () => {
-    await session.page.goto(`${server.origin}/plain/layout.html`)
-    panel = await clickAction(session)
-    await panel.evaluate(() => chrome.storage.local.clear())
-    await overlayMounted(session)
-  })
-
-  afterAll(async () => {
-    await session?.browser.close()
-    await server?.close()
+    panel = await startOverlay(session, `${server.origin}/plain/layout.html`)
   })
 
   async function mark(selector: string, count: number) {
@@ -85,7 +72,7 @@ describe('pins in scroll containers and on sticky elements', () => {
 
   it('hides the pin of text scrolled out of the box that holds it', async () => {
     await dragSelect(session.page, '#textbox', 'Line one')
-    await clickInOverlay(session, '[data-testid="overlay-chip"]')
+    await clickInOverlay(session, CHIP)
     await waitInOverlay(session, POPOVER)
     await session.page.keyboard.type('Text in a scroll box')
     await session.page.keyboard.press('Enter')

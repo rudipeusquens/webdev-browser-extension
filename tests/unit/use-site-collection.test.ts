@@ -1,32 +1,22 @@
-import { flushPromises, mount } from '@vue/test-utils'
-import { defineComponent, nextTick, ref } from 'vue'
+import { flushPromises } from '@vue/test-utils'
+import { nextTick, ref } from 'vue'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { fakeBrowser } from 'wxt/testing/fake-browser'
 import { useSiteCollection } from '@/composables/use-site-collection'
 import { addAnnotation, emptyCollection } from '@/lib/collection/ops'
 import { collectionKey } from '@/lib/collection/store'
 import { elementInput } from './helpers/collection'
+import { withSetup } from './helpers/with-setup'
 
 const A = 'http://localhost:3000'
 const B = 'http://localhost:5173'
 
 function mountWith(site: ReturnType<typeof ref<string | null>>) {
-  let state: ReturnType<typeof useSiteCollection> | undefined
-  mount(
-    defineComponent({
-      setup() {
-        state = useSiteCollection(site as never)
-        return () => null
-      },
-    }),
-  )
-  if (!state) throw new Error('not set up')
-  return state
+  return withSetup(() => useSiteCollection(site as never)).result
 }
 
 describe('useSiteCollection', () => {
   beforeEach(async () => {
-    fakeBrowser.reset()
     await fakeBrowser.storage.local.set({
       [collectionKey(A)]: addAnnotation(emptyCollection(A), elementInput('a1', `${A}/`), 'T'),
       [collectionKey(B)]: addAnnotation(emptyCollection(B), elementInput('b1', `${B}/`), 'T'),

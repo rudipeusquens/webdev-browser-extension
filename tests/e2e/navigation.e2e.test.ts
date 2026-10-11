@@ -1,53 +1,30 @@
 import type { Page } from 'puppeteer'
-import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest'
+import { beforeEach, describe, expect, it } from 'vitest'
 import type { Collection } from '../../src/lib/collection/model'
 import { formatCollection } from '../../src/lib/format/markdown'
-import { clickAction, contentRealm, launch, type Session, startFixtureServer } from './harness'
+import { contentRealm, useBrowser, useFixtureServer } from './harness'
 import {
+  markAndStore,
   markElement,
-  overlayMounted,
+  PIN,
+  POPOVER,
   sleep,
+  startOverlay,
   storedCollection,
   waitForItems,
   waitInOverlay,
 } from './overlay-helpers'
 
-const PIN = '[data-testid="overlay-pin"]'
-const POPOVER = '[data-testid="overlay-popover"]'
-
 describe('client-side navigation', () => {
-  let server: Awaited<ReturnType<typeof startFixtureServer>>
-  let session: Session
+  const server = useFixtureServer()
+  const session = useBrowser()
   let panel: Page
 
-  beforeAll(async () => {
-    server = await startFixtureServer()
-    session = await launch()
-  })
-
   beforeEach(async () => {
-    await session.page.goto(`${server.origin}/spa/?page=a`)
-    panel = await clickAction(session)
-    await panel.evaluate(() => chrome.storage.local.clear())
-    await overlayMounted(session)
-  })
-
-  afterAll(async () => {
-    await session?.browser.close()
-    await server?.close()
+    panel = await startOverlay(session, `${server.origin}/spa/?page=a`)
   })
 
   const url = (page: string) => `${server.origin}/spa/?page=${page}`
-
-  async function mark(selector: string, comment: string, count: number) {
-    await markElement(session, selector)
-    await session.page.keyboard.type(comment)
-    await session.page.keyboard.press('Enter')
-    await waitForItems(panel, count)
-    // Stored before the overlay hears back: Escape would only close the popover.
-    await waitInOverlay(session, POPOVER, false)
-    await session.page.keyboard.press('Escape')
-  }
 
   /** Clicks the app's own link to `page`: pushState, no reload. */
   async function follow(page: string) {
@@ -81,11 +58,11 @@ describe('client-side navigation', () => {
   }
 
   it('switches pins and the current group with the URL, and groups the prompt by page', async () => {
-    await mark('#a-button', 'On page A', 1)
+    await markAndStore(session, panel, '#a-button', 'On page A', 1)
     await waitForPins(1)
     await follow('b')
     await waitForPins(0)
-    await mark('#b-button', 'On page B', 2)
+    await markAndStore(session, panel, '#b-button', 'On page B', 2)
     await waitForPins(1)
     await panel.waitForFunction(
       (key) =>
@@ -134,9 +111,9 @@ describe('client-side navigation', () => {
   })
 
   it('shows the pins of the last page after quick navigations', async () => {
-    await mark('#a-button', 'On A', 1)
+    await markAndStore(session, panel, '#a-button', 'On A', 1)
     await follow('b')
-    await mark('#b-button', 'On B', 2)
+    await markAndStore(session, panel, '#b-button', 'On B', 2)
     await session.page.evaluate(() => {
       const go = (window as unknown as { navigateTo(name: string): void }).navigateTo
       for (const name of ['a', 'b', 'a', 'c', 'b', 'a']) go(name)

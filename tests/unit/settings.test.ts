@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it } from 'vitest'
+import { describe, expect, it } from 'vitest'
 import { fakeBrowser } from 'wxt/testing/fake-browser'
 import { isSiteOrigin, loadSettings, originPattern, SETTINGS_KEY } from '@/lib/settings'
 
@@ -31,8 +31,6 @@ describe('originPattern', () => {
 })
 
 describe('loadSettings', () => {
-  beforeEach(() => fakeBrowser.reset())
-
   const OFF = { pageTitles: false, contextMenu: false }
 
   it('has defaults, and falls back to them for stored garbage', async () => {

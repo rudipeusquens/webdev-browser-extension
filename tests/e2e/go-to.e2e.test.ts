@@ -1,59 +1,28 @@
 import type { Page } from 'puppeteer'
-import { afterAll, beforeAll, describe, expect, it } from 'vitest'
+import { describe, expect, it } from 'vitest'
+import { contentRealm, startOverlayAgain, useBrowser, useFixtureServer } from './harness'
 import {
-  clickAction,
-  contentRealm,
-  launch,
-  startOverlayAgain,
-  type Session,
-  startFixtureServer,
-} from './harness'
-import { markElement, overlayMounted, sleep, waitForItems, waitInOverlay } from './overlay-helpers'
+  inOverlay,
+  markAndStore,
+  overlayMounted,
+  PIN,
+  POPOVER,
+  sleep,
+  startOverlay,
+} from './overlay-helpers'
 
-const POPOVER = '[data-testid="overlay-popover"]'
+const HIGHLIGHT = '[data-testid="overlay-highlight"]'
 
 describe('the panel and the pages of the collection', () => {
-  let server: Awaited<ReturnType<typeof startFixtureServer>>
-  let session: Session
+  const server = useFixtureServer()
+  const session = useBrowser()
   let panel: Page
 
-  beforeAll(async () => {
-    server = await startFixtureServer()
-    session = await launch()
-  })
-
-  afterAll(async () => {
-    await session?.browser.close()
-    await server?.close()
-  })
-
-  async function mark(selector: string, comment: string, count: number) {
-    await markElement(session, selector)
-    await session.page.keyboard.type(comment)
-    await session.page.keyboard.press('Enter')
-    await waitForItems(panel, count)
-    await waitInOverlay(session, POPOVER, false)
-    await session.page.keyboard.press('Escape')
-  }
-
-  async function inOverlay(selector: string) {
-    const realm = await contentRealm(session)
-    return realm.evaluate(
-      (sel) => !!globalThis.__webdevOverlay?.shadow?.querySelector(sel),
-      selector,
-    )
-  }
-
   it('opens another page of the collection with Go to, with the overlay running', async () => {
-    await session.page.goto(`${server.origin}/plain/`)
-    panel = await clickAction(session)
-    await panel.evaluate(() => chrome.storage.local.clear())
-    await overlayMounted(session)
-    await mark('h1', 'On the plain page', 1)
-    await session.page.goto(`${server.origin}/plain/text.html`)
-    panel = await clickAction(session)
-    await overlayMounted(session)
-    await mark('h1', 'On the text page', 2)
+    panel = await startOverlay(session, `${server.origin}/plain/`)
+    await markAndStore(session, panel, 'h1', 'On the plain page', 1)
+    panel = await startOverlay(session, `${server.origin}/plain/text.html`, { clear: false })
+    await markAndStore(session, panel, 'h1', 'On the text page', 2)
 
     const go = await panel.waitForSelector('[data-testid="page-group"] [data-testid="page-link"]')
     await go?.click()
@@ -63,9 +32,8 @@ describe('the panel and the pages of the collection', () => {
       `${server.origin}/plain/`,
     )
     await overlayMounted(session)
-    for (let i = 0; i < 30 && !(await inOverlay('[data-testid="overlay-pin"]')); i++)
-      await sleep(100)
-    expect(await inOverlay('[data-testid="overlay-pin"]')).toBe(true)
+    for (let i = 0; i < 30 && !(await inOverlay(session, PIN)); i++) await sleep(100)
+    expect(await inOverlay(session, PIN)).toBe(true)
     await panel.waitForFunction(() =>
       [...document.querySelectorAll('[data-testid="page-group"]')][0]?.textContent?.includes(
         'This page',
@@ -74,14 +42,9 @@ describe('the panel and the pages of the collection', () => {
   })
 
   it('jumps from an entry to its item on another page: opens it, scrolls, opens its popover', async () => {
-    await session.page.goto(`${server.origin}/plain/`)
-    panel = await clickAction(session)
-    await panel.evaluate(() => chrome.storage.local.clear())
-    await overlayMounted(session)
-    await mark('button[type="submit"]', 'Make the button wider', 1)
-    await session.page.goto(`${server.origin}/plain/text.html`)
-    panel = await clickAction(session)
-    await overlayMounted(session)
+    panel = await startOverlay(session, `${server.origin}/plain/`)
+    await markAndStore(session, panel, 'button[type="submit"]', 'Make the button wider', 1)
+    panel = await startOverlay(session, `${server.origin}/plain/text.html`, { clear: false })
     await session.page.waitForFunction(() => document.readyState === 'complete')
 
     const entry = await panel.waitForSelector(
@@ -94,8 +57,8 @@ describe('the panel and the pages of the collection', () => {
       `${server.origin}/plain/`,
     )
     await overlayMounted(session)
-    for (let i = 0; i < 50 && !(await inOverlay(POPOVER)); i++) await sleep(100)
-    expect(await inOverlay(POPOVER)).toBe(true)
+    for (let i = 0; i < 50 && !(await inOverlay(session, POPOVER)); i++) await sleep(100)
+    expect(await inOverlay(session, POPOVER)).toBe(true)
     const realm = await contentRealm(session)
     expect(
       await realm.evaluate(
@@ -111,43 +74,37 @@ describe('the panel and the pages of the collection', () => {
   })
 
   it('drops the highlight when the panel closes', async () => {
-    await session.page.goto(`${server.origin}/plain/`)
-    panel = await clickAction(session)
-    await panel.evaluate(() => chrome.storage.local.clear())
-    await overlayMounted(session)
-    await mark('h1', 'Highlight me', 1)
+    panel = await startOverlay(session, `${server.origin}/plain/`)
+    await markAndStore(session, panel, 'h1', 'Highlight me', 1)
     await panel.hover('[data-testid="item"]')
-    for (let i = 0; i < 30 && !(await inOverlay('[data-testid="overlay-highlight"]')); i++) {
+    for (let i = 0; i < 30 && !(await inOverlay(session, HIGHLIGHT)); i++) {
       await sleep(100)
     }
-    expect(await inOverlay('[data-testid="overlay-highlight"]')).toBe(true)
+    expect(await inOverlay(session, HIGHLIGHT)).toBe(true)
     await panel.close()
-    for (let i = 0; i < 30 && (await inOverlay('[data-testid="overlay-highlight"]')); i++) {
+    for (let i = 0; i < 30 && (await inOverlay(session, HIGHLIGHT)); i++) {
       await sleep(100)
     }
-    expect(await inOverlay('[data-testid="overlay-highlight"]')).toBe(false)
+    expect(await inOverlay(session, HIGHLIGHT)).toBe(false)
   })
 
   it('drops the highlight when the panel closes after a second toolbar click', async () => {
-    await session.page.goto(`${server.origin}/plain/`)
-    panel = await clickAction(session)
-    await panel.evaluate(() => chrome.storage.local.clear())
-    await overlayMounted(session)
-    await mark('h1', 'Highlight me again', 1)
+    panel = await startOverlay(session, `${server.origin}/plain/`)
+    await markAndStore(session, panel, 'h1', 'Highlight me again', 1)
     // The overlay starts again on the same tab while the panel stays open, as the page's
     // context menu entry does it (a second toolbar click closes the panel).
     await startOverlayAgain(session)
     await overlayMounted(session)
     await sleep(500)
     await panel.hover('[data-testid="item"]')
-    for (let i = 0; i < 30 && !(await inOverlay('[data-testid="overlay-highlight"]')); i++) {
+    for (let i = 0; i < 30 && !(await inOverlay(session, HIGHLIGHT)); i++) {
       await sleep(100)
     }
-    expect(await inOverlay('[data-testid="overlay-highlight"]')).toBe(true)
+    expect(await inOverlay(session, HIGHLIGHT)).toBe(true)
     await panel.close()
-    for (let i = 0; i < 30 && (await inOverlay('[data-testid="overlay-highlight"]')); i++) {
+    for (let i = 0; i < 30 && (await inOverlay(session, HIGHLIGHT)); i++) {
       await sleep(100)
     }
-    expect(await inOverlay('[data-testid="overlay-highlight"]')).toBe(false)
+    expect(await inOverlay(session, HIGHLIGHT)).toBe(false)
   })
 })
