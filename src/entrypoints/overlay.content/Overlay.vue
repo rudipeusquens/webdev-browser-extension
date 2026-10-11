@@ -56,7 +56,6 @@ import { pageShortcut } from './keys'
 import { createLinkSelect, pageSelectSurface } from './link-select'
 import { forwardsWheel, isEditable, pickAt, TargetPath, wheelTarget } from './picker'
 import {
-  areaIn,
   boxOf,
   clippersOf,
   inBounds,
@@ -64,10 +63,14 @@ import {
   type LiveAnchor,
   linesOf,
   notRendered,
+  onArea,
+  onElement,
+  onRange,
   outlineBox,
   pinPositions,
   placeItems,
   pruneLive,
+  toRect,
   visibleBounds,
 } from './pins'
 import type { Layer } from './top-layer'
@@ -259,7 +262,7 @@ const chipLine = computed(() => {
   const anchor = chip.value?.anchor
   if (!anchor || mode.value !== 'browse' || draft.value) return null
   const r = anchor.getBoundingClientRect()
-  const line = { x: r.x, y: r.y, width: r.width, height: r.height }
+  const line = toRect(r)
   // The page hid the selection's end (a menu closed): it would sit in the corner.
   if (notRendered(line)) return null
   // From the first character to the last: a long selection keeps its chip at the edge while
@@ -555,8 +558,7 @@ function select(el: Element | null) {
   const asked = marking(target, [el])
   const key = openDraft({
     kind: 'element',
-    el,
-    rect: () => boxOf(el),
+    ...onElement(el),
     target,
     live: el,
     label: (r) => describe(el, r, componentOf(el)),
@@ -587,8 +589,7 @@ function selectArea(rect: Rect) {
   const dy = rect.y - at.y
   openDraft({
     kind: 'area',
-    el: container,
-    rect: () => areaIn(boxOf(container), dx, dy, rect.width, rect.height),
+    ...onArea(container, dx, dy, rect.width, rect.height),
     target,
     live: container,
     label: labelOf(target, container),
@@ -720,20 +721,14 @@ function commentOnSelection() {
   if (!captured) return
   // What was read: measuring it on every frame stays cheap however much was selected.
   const { target, range: read } = captured
-  const el = rangeContainer(read)
-  const rect = () => {
-    const r = read.getBoundingClientRect()
-    return { x: r.x, y: r.y, width: r.width, height: r.height }
-  }
+  const placed = onRange(read)
   openDraft({
     kind: 'text',
-    el,
-    rect,
-    range: read,
+    ...placed,
     target,
     live: read,
-    label: labelOf(target, el),
-    ...marking(target, [el]),
+    label: labelOf(target, placed.el),
+    ...marking(target, [placed.el]),
   })
 }
 

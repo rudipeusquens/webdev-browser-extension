@@ -24,11 +24,28 @@ export interface Placement {
   range?: Range
 }
 
-const toRect = (r: DOMRect): Rect => ({ x: r.x, y: r.y, width: r.width, height: r.height })
+export const toRect = (r: DOMRect): Rect => ({ x: r.x, y: r.y, width: r.width, height: r.height })
 
 export const boxOf = (el: Element): Rect => toRect(rectOf(el))
 
-const onElement = (el: Element): Placement => ({ el, rect: () => boxOf(el) })
+/** The placement on an element's own box. */
+export const onElement = (el: Element): Placement => ({ el, rect: () => boxOf(el) })
+
+/** The placement of a selection; its element is looked up once, here. */
+export const onRange = (range: Range): Placement => ({
+  el: rangeContainer(range),
+  range,
+  rect: () => toRect(range.getBoundingClientRect()),
+})
+
+/** The placement of an area `dx`, `dy` inside the box of `el` (see `areaIn`). */
+export const onArea = (
+  el: Element,
+  dx: number,
+  dy: number,
+  width: number,
+  height: number,
+): Placement => ({ el, rect: () => areaIn(boxOf(el), dx, dy, width, height) })
 
 const liveElement = (anchor: LiveAnchor | undefined) =>
   anchor instanceof Element && isConnected(anchor) ? anchor : undefined
@@ -36,8 +53,6 @@ const liveElement = (anchor: LiveAnchor | undefined) =>
 /** A selection still on the page: a range whose nodes were removed collapses into their parent. */
 export const isLiveRange = (anchor: LiveAnchor | undefined): anchor is Range =>
   anchor instanceof Range && !anchor.collapsed && anchor.startContainer.isConnected
-
-const liveRange = (anchor: LiveAnchor | undefined) => (isLiveRange(anchor) ? anchor : undefined)
 
 function place(item: Annotation, anchor: LiveAnchor | undefined, doc: Document) {
   const { target } = item
@@ -47,14 +62,7 @@ function place(item: Annotation, anchor: LiveAnchor | undefined, doc: Document) 
       return el && onElement(el)
     }
     case 'text': {
-      const range = liveRange(anchor)
-      if (range) {
-        return {
-          el: rangeContainer(range),
-          range,
-          rect: () => toRect(range.getBoundingClientRect()),
-        }
-      }
+      if (isLiveRange(anchor)) return onRange(anchor)
       const el = queryFirst(doc, target.container.selector)
       return el && onElement(el)
     }
@@ -65,7 +73,7 @@ function place(item: Annotation, anchor: LiveAnchor | undefined, doc: Document) 
       const dx = target.rect.x - target.container.box.x
       const dy = target.rect.y - target.container.box.y
       const { width, height } = target.rect
-      return { el, rect: () => areaIn(boxOf(el), dx, dy, width, height) }
+      return onArea(el, dx, dy, width, height)
     }
   }
 }
@@ -77,7 +85,7 @@ export const notRendered = (r: Rect) => r.width === 0 && r.height === 0
  * An area `dx`, `dy` inside the container's box `box`; without a box while the container is
  * not rendered, as an element's own target would be.
  */
-export function areaIn(box: Rect, dx: number, dy: number, width: number, height: number): Rect {
+function areaIn(box: Rect, dx: number, dy: number, width: number, height: number): Rect {
   if (notRendered(box)) return { x: 0, y: 0, width: 0, height: 0 }
   return { x: box.x + dx, y: box.y + dy, width, height }
 }
@@ -228,7 +236,7 @@ export function linesOf(range: Range, viewportHeight: number): { rect: Rect; lin
         height: bottom - top,
       }
     } else if (lines.length < MAX_LINES) {
-      lines.push({ x: r.x, y: r.y, width: r.width, height: r.height })
+      lines.push(toRect(r))
     }
   }
   const rect =
