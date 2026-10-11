@@ -4,7 +4,7 @@
 import { onBeforeUnmount, onMounted, type Ref, ref } from 'vue'
 import { browser } from 'wxt/browser'
 import { BLOCKED_PREFIX, FAILED_PREFIX, isBlocked, isFailed } from '@/lib/background/tab-status'
-import { siteOf } from '@/lib/collection/site'
+import { siteOrNull } from '@/lib/collection/site'
 import { isOverlayStatus, isPanelMessage, type Mode } from '@/lib/messages'
 
 /**
@@ -18,11 +18,8 @@ export type TabStatus =
   | { kind: 'idle'; url?: string }
 
 function sameSite(url: string, pageKey: string): boolean {
-  try {
-    return siteOf(url) === siteOf(pageKey)
-  } catch {
-    return false
-  }
+  const site = siteOrNull(url)
+  return site !== null && site === siteOrNull(pageKey)
 }
 
 export function useActiveTab(): {

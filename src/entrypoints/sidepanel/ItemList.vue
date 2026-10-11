@@ -14,6 +14,7 @@ import { nextTick, useTemplateRef, watch } from 'vue'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import type { PageGroup } from '@/lib/collection/ops'
+import { siteOrNull } from '@/lib/collection/site'
 import type { Pointed } from './use-overlay-lines'
 import { targetSummary } from '@/lib/format/summary'
 import { isSiteOrigin } from '@/lib/settings'
@@ -91,13 +92,9 @@ function pathOf(key: string): string {
   }
 }
 
-/** Go to works for pages on the web only. */
+/** Go to works for pages on the web only: the site of local files is no origin. */
 function openable(url: string): boolean {
-  try {
-    return isSiteOrigin(new URL(url).origin)
-  } catch {
-    return false
-  }
+  return isSiteOrigin(siteOrNull(url))
 }
 
 const ICONS = { element: SquareMousePointerIcon, text: TextSelectIcon, area: SquareDashedIcon }

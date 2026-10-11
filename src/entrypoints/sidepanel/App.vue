@@ -57,18 +57,13 @@ import { type Filter, shows } from '@/lib/view'
 import { useView } from './use-view'
 import { useHistory } from './use-history'
 import { currentPlatform, isMacPlatform, panelKey, recKey } from '@/lib/shortcuts'
-import { siteLabel, siteOf } from '@/lib/collection/site'
+import { siteLabel, siteOrNull } from '@/lib/collection/site'
 
 const { tabId, windowId, status, refresh } = useActiveTab()
 /** The site of the active tab's page, known while its overlay answers. */
-const site = computed(() => {
-  if (status.value.kind !== 'active') return null
-  try {
-    return siteOf(status.value.pageKey)
-  } catch {
-    return null
-  }
-})
+const site = computed(() =>
+  status.value.kind === 'active' ? siteOrNull(status.value.pageKey) : null,
+)
 const { collection: stored, loading } = useSiteCollection(site)
 /** Rec's notes, the same on every site (spec section 8). */
 const storedNotes = useStored(ref(NOTES_KEY), parseNotes).value
@@ -210,16 +205,9 @@ const startText = computed(() => {
  * A page without the overlay that the panel can start it on: Chrome tells the panel its
  * address only where the extension may run already (spec section 8).
  */
-const startable = computed(() => {
-  const now = status.value
-  if (now.kind !== 'idle' || !now.url) return false
-  try {
-    siteOf(now.url)
-    return true
-  } catch {
-    return false
-  }
-})
+const startable = computed(
+  () => status.value.kind === 'idle' && siteOrNull(status.value.url) !== null,
+)
 
 const copyStatus = ref('')
 /** Texts the clipboard did not take, offered for copying by hand one after the other. */

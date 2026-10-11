@@ -16,6 +16,16 @@ export function siteOf(url: string): string {
   throw new Error('Not a page of a site.')
 }
 
+/** `siteOf(url)`, or null without a URL and for a page of no site. */
+export function siteOrNull(url?: string): string | null {
+  if (!url) return null
+  try {
+    return siteOf(url)
+  } catch {
+    return null
+  }
+}
+
 /** A site as `siteOf` writes it. */
 export function isSite(x: unknown): x is string {
   return x === FILES || isSiteOrigin(x)

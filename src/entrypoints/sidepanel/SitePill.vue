@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed, onBeforeUnmount, ref, useTemplateRef } from 'vue'
 import { Button } from '@/components/ui/button'
-import { siteLabel, siteOf } from '@/lib/collection/site'
+import { siteLabel, siteOrNull } from '@/lib/collection/site'
 import { isSiteOrigin } from '@/lib/settings'
 import type { TabStatus } from './use-active-tab'
 
@@ -19,13 +19,7 @@ const HIDE_AFTER = 200
 /** The tab's site, where the overlay or Chrome tells it. */
 const site = computed(() => {
   const s = props.status
-  const url = s.kind === 'active' ? s.pageKey : s.url
-  if (!url) return null
-  try {
-    return siteOf(url)
-  } catch {
-    return null
-  }
+  return siteOrNull(s.kind === 'active' ? s.pageKey : s.url)
 })
 
 const label = computed(() => {
