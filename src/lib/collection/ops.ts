@@ -139,13 +139,16 @@ export function markCopied(c: Collection, ids: readonly string[], now: string): 
   }
 }
 
+/** The pages that hold any of `items`, in their order. */
+function pagesOf(pages: Collection['pages'], items: Annotation[]): Collection['pages'] {
+  const keys = new Set(items.map((item) => item.pageKey))
+  return Object.fromEntries(Object.entries(pages).filter(([key]) => keys.has(key)))
+}
+
 /** The items with these ids and their pages, as a collection for the formatter. */
 export function pick(c: Collection, ids: ReadonlySet<string>): Collection {
   const items = c.items.filter((item) => ids.has(item.id))
-  const pages = Object.fromEntries(
-    Object.entries(c.pages).filter(([key]) => items.some((item) => item.pageKey === key)),
-  )
-  return { ...c, pages, items }
+  return { ...c, pages: pagesOf(c.pages, items), items }
 }
 
 /** Clear all: every open and done item of the site is deleted; Restore and Undo undo it. */
@@ -167,12 +170,11 @@ export function emptyBin(c: Collection): Collection {
   const kept = c.items.filter((item) => item.status !== 'deleted')
   if (kept.length === c.items.length) return c
   if (kept.length === 0) return emptyCollection(c.site)
-  const pages = new Set(kept.map((item) => item.pageKey))
   const ids = new Set(kept.map((item) => item.id))
   return {
     ...c,
     items: kept,
-    pages: Object.fromEntries(Object.entries(c.pages).filter(([key]) => pages.has(key))),
+    pages: pagesOf(c.pages, kept),
     lastCopy: c.lastCopy.filter((id) => ids.has(id)),
   }
 }
