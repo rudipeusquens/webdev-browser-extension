@@ -1181,15 +1181,15 @@ onBeforeUnmount(() => {
       @wheel="onWheel"
       @contextmenu.prevent
     />
-    <template v-for="outline in outlines" :key="outline.id">
-      <div
-        data-testid="overlay-outline"
-        :data-strong="outline.strong"
-        class="pointer-events-none fixed top-0 left-0 z-[2147483647] rounded-[3px] will-change-transform"
-        :class="[outline.dashed ? 'border-dashed' : 'border-solid', outline.tone]"
-        :style="outline.style"
-      />
-    </template>
+    <div
+      v-for="outline in outlines"
+      :key="outline.id"
+      data-testid="overlay-outline"
+      :data-strong="outline.strong"
+      class="pointer-events-none fixed top-0 left-0 z-[2147483647] rounded-[3px] will-change-transform"
+      :class="[outline.dashed ? 'border-dashed' : 'border-solid', outline.tone]"
+      :style="outline.style"
+    />
     <HoverBox v-if="hoverRect" :rect="hoverRect" :label="hoverLabel" />
     <HoverBox
       v-if="highlight && !draft"
