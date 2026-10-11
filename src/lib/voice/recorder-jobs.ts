@@ -27,7 +27,10 @@ function cut(text: string, max: number): { text: string; cut: boolean } {
     : { text, cut: false }
 }
 
-/** One part of a recording (cut at a limit, in a pause or at PART_HARD): a model transcribes it in one go. */
+/**
+ * One part of a recording (cut at a limit, in a pause or at PART_HARD): a model transcribes it
+ * in one go.
+ */
 export interface Segment {
   audio: Blob
   ms: number
