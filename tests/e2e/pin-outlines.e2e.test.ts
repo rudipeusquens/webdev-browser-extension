@@ -2,10 +2,13 @@ import type { Page } from 'puppeteer'
 import { beforeAll, beforeEach, describe, expect, it } from 'vitest'
 import { grantPermissions, contentRealm, useBrowser, useFixtureServer } from './harness'
 import {
+  CHIP,
   clickInOverlay,
   dragSelect,
+  GLASS,
   markElement,
   overlayCenter,
+  PIN,
   POPOVER,
   sleep,
   startOverlay,
@@ -106,7 +109,7 @@ describe('pin outlines', () => {
 
   it('outlines a marked area with a dashed line', async () => {
     await session.page.keyboard.press('a')
-    await waitInOverlay(session, '[data-testid="overlay-glass"]')
+    await waitInOverlay(session, GLASS)
     await session.page.mouse.move(420, 60)
     await session.page.mouse.down()
     await session.page.mouse.move(620, 160, { steps: 6 })
@@ -129,7 +132,7 @@ describe('pin outlines', () => {
 
   it('shades a marked text, drawn by the browser', async () => {
     await dragSelect(session.page, '#textbox', 'Line one')
-    await clickInOverlay(session, '[data-testid="overlay-chip"]')
+    await clickInOverlay(session, CHIP)
     await saveComment(1)
     await session.page.evaluate(() => getSelection()?.removeAllRanges())
     expect(await marked('webdev-pins-open')).toEqual(['Line one'])
@@ -146,9 +149,9 @@ describe('pin outlines', () => {
 
   it('shades a text stronger while its pin is hovered', async () => {
     await dragSelect(session.page, '#textbox', 'Line one')
-    await clickInOverlay(session, '[data-testid="overlay-chip"]')
+    await clickInOverlay(session, CHIP)
     await saveComment(1)
-    const pin = await overlayCenter(session, '[data-testid="overlay-pin"]')
+    const pin = await overlayCenter(session, PIN)
     await session.page.mouse.move(pin.x, pin.y)
     await sleep(150)
     expect(await marked('webdev-pins-open-strong')).toEqual(['Line one'])
@@ -172,7 +175,7 @@ describe('pin outlines', () => {
     await markElement(session, '#row-1')
     await saveComment(1)
     expect((await drawn('overlay-outline'))[0]?.strong).toBe(false)
-    const pin = await overlayCenter(session, '[data-testid="overlay-pin"]')
+    const pin = await overlayCenter(session, PIN)
     await session.page.mouse.move(pin.x, pin.y)
     expect((await drawn('overlay-outline'))[0]?.strong).toBe(true)
     await session.page.mouse.move(700, 700)
@@ -183,7 +186,7 @@ describe('pin outlines', () => {
     await markElement(session, '#row-1')
     await saveComment(1)
     await dragSelect(session.page, '#textbox', 'Line one')
-    await clickInOverlay(session, '[data-testid="overlay-chip"]')
+    await clickInOverlay(session, CHIP)
     await saveComment(2)
     await session.page.evaluate(() => getSelection()?.removeAllRanges())
     await panel.click('[data-testid="filter-all"]')
@@ -243,7 +246,7 @@ describe('pin outlines', () => {
     await panel.mouse.move(0, 0)
 
     // Its popover marks it in its color too.
-    const pin = await overlayCenter(session, '[data-testid="overlay-pin"]')
+    const pin = await overlayCenter(session, PIN)
     await session.page.mouse.click(pin.x, pin.y)
     await waitInOverlay(session, POPOVER)
     expect((await colors()).marking).toBe(green)
@@ -265,7 +268,7 @@ describe('pin outlines', () => {
     await markElement(session, '#row-1')
     await saveComment(1)
     await panel.click('[data-testid="filter-all"]')
-    const pin = await overlayCenter(session, '[data-testid="overlay-pin"]')
+    const pin = await overlayCenter(session, PIN)
     await session.page.mouse.click(pin.x, pin.y)
     await waitInOverlay(session, POPOVER)
     const realm = await contentRealm(session)
@@ -292,7 +295,7 @@ describe('pin outlines', () => {
   it('does not keep the stronger outline after its pin was hidden under the pointer', async () => {
     await markElement(session, '#row-1')
     await saveComment(1)
-    const pin = await overlayCenter(session, '[data-testid="overlay-pin"]')
+    const pin = await overlayCenter(session, PIN)
     await session.page.mouse.move(pin.x, pin.y)
     expect((await drawn('overlay-outline'))[0]?.strong).toBe(true)
     // The pin goes away under the pointer: no mouseleave.

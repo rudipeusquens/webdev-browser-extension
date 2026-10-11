@@ -172,11 +172,11 @@ export async function waitForItems(extensionPage: Page, count: number) {
 /** Element mode, hover `selector`, click it: the comment popover opens. */
 export async function markElement(s: Session, selector: string) {
   await s.page.keyboard.press('e')
-  await waitInOverlay(s, '[data-testid="overlay-glass"]')
+  await waitInOverlay(s, GLASS)
   const { x, y } = await centerOf(s.page, selector)
   await s.page.mouse.move(x, y)
   await s.page.mouse.click(x, y)
-  await waitInOverlay(s, '[data-testid="overlay-popover"]')
+  await waitInOverlay(s, POPOVER)
 }
 
 /** Types `text` into the open comment popover and saves it with Enter. */

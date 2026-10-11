@@ -2,6 +2,7 @@ import type { Page } from 'puppeteer'
 import { beforeEach, describe, expect, it } from 'vitest'
 import { contentRealm, useBrowser, useFixtureServer } from './harness'
 import {
+  CHIP,
   clickInOverlay,
   dragSelect,
   markElement,
@@ -71,7 +72,7 @@ describe('pins in scroll containers and on sticky elements', () => {
 
   it('hides the pin of text scrolled out of the box that holds it', async () => {
     await dragSelect(session.page, '#textbox', 'Line one')
-    await clickInOverlay(session, '[data-testid="overlay-chip"]')
+    await clickInOverlay(session, CHIP)
     await waitInOverlay(session, POPOVER)
     await session.page.keyboard.type('Text in a scroll box')
     await session.page.keyboard.press('Enter')

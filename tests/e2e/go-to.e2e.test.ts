@@ -17,6 +17,7 @@ describe('the panel and the pages of the collection', () => {
   const server = useFixtureServer()
   const session = useBrowser()
   let panel: Page
+
   it('opens another page of the collection with Go to, with the overlay running', async () => {
     panel = await startOverlay(session, `${server.origin}/plain/`)
     await markAndStore(session, panel, 'h1', 'On the plain page', 1)

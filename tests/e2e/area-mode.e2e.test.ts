@@ -7,6 +7,7 @@ import {
   GLASS,
   inOverlay,
   overlayText,
+  PIN,
   POPOVER,
   sleep,
   startOverlay,
@@ -16,6 +17,7 @@ import {
 } from './overlay-helpers'
 
 const DRAG = '[data-testid="overlay-area"]'
+
 describe('marking an area', () => {
   const server = useFixtureServer()
   const session = useBrowser()
@@ -82,7 +84,7 @@ describe('marking an area', () => {
     ).toBe(0)
     expect(await session.page.evaluate(() => document.getSelection()?.toString())).toBe('')
     await panel.waitForSelector('::-p-text(Area with 3 elements)')
-    await waitInOverlay(session, '[data-testid="overlay-pin"]')
+    await waitInOverlay(session, PIN)
   })
 
   it('opens nothing for a click without dragging', async () => {
@@ -171,7 +173,7 @@ describe('marking an area', () => {
     await session.page.keyboard.press('Enter')
     await waitForItems(panel, 1)
     await waitInOverlay(session, POPOVER, false)
-    await clickInOverlay(session, '[data-testid="overlay-pin"]')
+    await clickInOverlay(session, PIN)
     await waitInOverlay(session, POPOVER)
     expect(await overlayText(session, POPOVER)).toContain('Pin 1')
   })

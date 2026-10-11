@@ -1,13 +1,13 @@
 import { beforeAll, describe, expect, it } from 'vitest'
 import type { Collection } from '../../src/lib/collection/model'
 import { formatCollection } from '../../src/lib/format/markdown'
-import { grantPermissions, clickAction, useBrowser, useFixtureServer } from './harness'
+import { grantPermissions, useBrowser, useFixtureServer } from './harness'
 import {
   clickInOverlay,
   comment,
   dragSelect,
   markElement,
-  overlayMounted,
+  startOverlay,
   storedCollection,
   waitForItems,
   waitInOverlay,
@@ -24,9 +24,7 @@ describe('all three marking types', () => {
 
   it('end up in one prompt', async () => {
     const page = session.page
-    await page.goto(`${server.origin}/plain/`)
-    const panel = await clickAction(session)
-    await overlayMounted(session)
+    const panel = await startOverlay(session, `${server.origin}/plain/`, { clear: false })
 
     await markElement(session, 'button[type="submit"]')
     await comment(session, 'Make it wider')

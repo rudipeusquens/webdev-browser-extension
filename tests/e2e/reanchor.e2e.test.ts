@@ -11,6 +11,7 @@ import {
   useVueDevServer,
 } from './harness'
 import {
+  CHIP,
   clickInOverlay,
   comment,
   dragSelect,
@@ -100,7 +101,7 @@ describe('re-anchoring after a reload', () => {
     await comment(session, 'Element')
     await session.page.keyboard.press('Escape')
     await dragSelect(session.page, '#intro', 'contact you')
-    await clickInOverlay(session, '[data-testid="overlay-chip"]')
+    await clickInOverlay(session, CHIP)
     await comment(session, 'Text')
     await session.page.keyboard.press('a')
     const h3 = await session.page.$eval('h3', (el) => {
@@ -127,7 +128,7 @@ describe('re-anchoring after a reload', () => {
 
   it('moves the text pin to the occurrence whose context fits (review focus 3)', async () => {
     await dragSelect(session.page, '#intro', 'contact you')
-    await clickInOverlay(session, '[data-testid="overlay-chip"]')
+    await clickInOverlay(session, CHIP)
     await comment(session, 'Text')
     await waitForItems(panel, 1)
     await reactivate()
@@ -188,7 +189,7 @@ describe('re-anchoring on a page that changes all the time (review focus 2)', ()
     await comment(session, 'Title')
     await session.page.keyboard.press('Escape')
     await dragSelect(session.page, '#intro', 'contact you')
-    await clickInOverlay(session, '[data-testid="overlay-chip"]')
+    await clickInOverlay(session, CHIP)
     await comment(session, 'Text')
     await waitForItems(panel, 2)
     await session.page.evaluate(() => {
@@ -217,7 +218,7 @@ describe('re-anchoring text that is gone, inside one huge text node (review focu
   it('keeps searching cheap while the page keeps changing', async () => {
     const panel = await startOverlay(session, `${server.origin}/plain/busy.html`)
     await dragSelect(session.page, '#log', 'First entry')
-    await clickInOverlay(session, '[data-testid="overlay-chip"]')
+    await clickInOverlay(session, CHIP)
     await comment(session, 'Log text')
     await waitForItems(panel, 1)
     // The selected words go away; the log stays megabytes long.

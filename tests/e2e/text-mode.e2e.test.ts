@@ -7,9 +7,12 @@ import {
   centerOf,
   CHIP,
   clickInOverlay,
+  comment,
   dragSelect,
+  GLASS,
   inOverlay,
   overlayCenter,
+  PIN,
   POPOVER,
   sleep,
   startOverlay,
@@ -40,12 +43,9 @@ describe('marking text', () => {
     expect(await inOverlay(session, CHIP)).toBe(false)
   }
 
-  async function comment(text: string) {
+  async function commentSelection(text: string) {
     await clickInOverlay(session, CHIP)
-    await waitInOverlay(session, POPOVER)
-    await session.page.keyboard.type(text)
-    await session.page.keyboard.press('Enter')
-    await waitInOverlay(session, POPOVER, false)
+    await comment(session, text)
   }
 
   const textTarget = async (n = 1) => {
@@ -88,8 +88,8 @@ describe('marking text', () => {
 
   it('puts a pin at the selection that opens the comment again', async () => {
     await dragSelect(session.page, '#intro', 'contact you')
-    await comment('Friendlier wording')
-    await clickInOverlay(session, '[data-testid="overlay-pin"]')
+    await commentSelection('Friendlier wording')
+    await clickInOverlay(session, PIN)
     await waitInOverlay(session, POPOVER)
     const realm = await contentRealm(session)
     const value = await realm.evaluate(
@@ -142,7 +142,7 @@ describe('marking text', () => {
     await session.page.mouse.down()
     await session.page.mouse.move(to.end.x, to.end.y, { steps: 10 })
     await session.page.mouse.up()
-    await comment('Across the form')
+    await commentSelection('Across the form')
 
     const target = await textTarget()
     expect(target.selected.startsWith('Before the form')).toBe(true)
@@ -160,7 +160,7 @@ describe('marking text', () => {
     await session.page.mouse.down()
     await session.page.mouse.move(to.end.x, to.end.y, { steps: 8 })
     await session.page.mouse.up()
-    await comment('Hidden parts')
+    await commentSelection('Hidden parts')
     expect((await textTarget()).selected).toBe('Visible start visible end')
   })
 
@@ -249,8 +249,8 @@ describe('marking text', () => {
 
   it('offers the chip for a selection released over a pin', async () => {
     await dragSelect(session.page, '#intro', 'contact you')
-    await comment('Friendlier wording')
-    const pin = await overlayCenter(session, '[data-testid="overlay-pin"]')
+    await commentSelection('Friendlier wording')
+    const pin = await overlayCenter(session, PIN)
     const { start } = await textEnds(session.page, '#intro', 'Choose')
     await session.page.mouse.move(start.x, start.y)
     await session.page.mouse.down()
@@ -261,10 +261,10 @@ describe('marking text', () => {
 
   it('brings no chip back after a pin was clicked with text selected', async () => {
     await dragSelect(session.page, '#intro', 'contact you')
-    await comment('Friendlier wording')
+    await commentSelection('Friendlier wording')
     await dragSelect(session.page, 'h3', 'Email')
     await waitInOverlay(session, CHIP)
-    await clickInOverlay(session, '[data-testid="overlay-pin"]')
+    await clickInOverlay(session, PIN)
     await waitInOverlay(session, POPOVER)
     await sleep(200)
     await session.page.keyboard.press('Escape')
@@ -274,7 +274,7 @@ describe('marking text', () => {
 
   it('brings no chip back for a selection that was pinned', async () => {
     await dragSelect(session.page, 'h3', 'Email')
-    await comment('Shorter')
+    await commentSelection('Shorter')
     await expectNoChip()
   })
 
@@ -287,7 +287,7 @@ describe('marking text', () => {
 
   it('records an element without the options of a select inside it', async () => {
     await session.page.keyboard.press('e')
-    await waitInOverlay(session, '[data-testid="overlay-glass"]')
+    await waitInOverlay(session, GLASS)
     const { x, y } = await centerOf(session.page, '#plan')
     await session.page.mouse.move(x, y)
     await session.page.keyboard.press('ArrowUp')

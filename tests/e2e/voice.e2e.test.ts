@@ -22,6 +22,7 @@ import {
   overlayMounted,
   overlayText,
   sleep,
+  startOverlay,
   waitInOverlay,
 } from './overlay-helpers'
 
@@ -39,7 +40,6 @@ interface ExtensionApi {
       remove(key: string): Promise<void>
     }
   }
-  runtime: { getContexts(filter: { contextTypes: string[] }): Promise<unknown[]> }
 }
 
 interface Item {
@@ -59,11 +59,9 @@ describe('dictating a comment', () => {
     fake = await startFakeOpenRouter()
     s = await launch({ openrouter: fake.origin, microphone: 'granted' })
     await grantPermissions(s)
-    await s.page.goto(`${server.origin}/plain/`)
     // The toolbar click grants activeTab and opens the panel; later tests start overlays
     // without toggling it.
-    await clickAction(s)
-    await overlayMounted(s)
+    await startOverlay(s, `${server.origin}/plain/`, { clear: false })
   })
 
   afterAll(async () => {

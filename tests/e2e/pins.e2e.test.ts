@@ -11,6 +11,8 @@ import {
   clickInOverlay,
   markAndSave,
   overlayMounted,
+  PIN,
+  POPOVER,
   sleep,
   startOverlay,
   storedCollection,
@@ -34,7 +36,7 @@ describe('pins and editing', () => {
   })
 
   async function pinCenter() {
-    await waitInOverlay(session, '[data-testid="overlay-pin"]')
+    await waitInOverlay(session, PIN)
     await sleep(100)
     const realm = await contentRealm(session)
     return realm.evaluate(() => {
@@ -79,7 +81,7 @@ describe('pins and editing', () => {
     await session.page.keyboard.press('Escape')
     const pin = await pinCenter()
     await session.page.mouse.click(pin?.x ?? 0, pin?.y ?? 0)
-    await waitInOverlay(session, '[data-testid="overlay-popover"]')
+    await waitInOverlay(session, POPOVER)
     const realm = await contentRealm(session)
     const value = await realm.evaluate(
       () =>
@@ -126,7 +128,7 @@ describe('pins and editing', () => {
     await session.page.evaluate(() => window.scrollTo(0, 2000))
     await panel.waitForSelector('[data-testid="item"] button')
     await panel.click('[data-testid="item"] button')
-    await waitInOverlay(session, '[data-testid="overlay-popover"]')
+    await waitInOverlay(session, POPOVER)
     const visible = await session.page.$eval(BUTTON, (el) => {
       const r = el.getBoundingClientRect()
       return r.top >= 0 && r.bottom <= innerHeight
@@ -139,7 +141,7 @@ describe('pins and editing', () => {
     await session.page.keyboard.press('Escape')
     await session.page.$eval(BUTTON, (el) => ((el as HTMLElement).style.display = 'none'))
     await panel.click('[data-testid="item"] button')
-    await waitInOverlay(session, '[data-testid="overlay-popover"]')
+    await waitInOverlay(session, POPOVER)
     await sleep(200)
     const realm = await contentRealm(session)
     const popover = () =>
@@ -230,7 +232,7 @@ describe('pins and editing', () => {
     await session.page.mouse.click(pin?.x ?? 0, pin?.y ?? 0)
     // Once the popover was seen for a moment: a click before that is held back.
     await clickInOverlay(session, '[data-testid="overlay-delete"]')
-    await waitInOverlay(session, '[data-testid="overlay-popover"]', false)
+    await waitInOverlay(session, POPOVER, false)
     await waitForPins([])
     const c = await storedCollection(panel)
     expect(c?.items.map((i) => i.status)).toEqual(['deleted'])
@@ -250,7 +252,7 @@ describe('pins and editing', () => {
     await session.page.mouse.click(pin?.x ?? 0, pin?.y ?? 0)
     await panel.waitForSelector('[data-testid="item"][data-pointed="open"]')
     await session.page.keyboard.press('Escape')
-    await waitInOverlay(session, '[data-testid="overlay-popover"]', false)
+    await waitInOverlay(session, POPOVER, false)
     await session.page.mouse.move(5, 5)
     await panel.waitForFunction(() => !document.querySelector('[data-testid="item"][data-pointed]'))
   })

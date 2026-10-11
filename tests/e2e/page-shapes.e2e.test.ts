@@ -14,6 +14,7 @@ import {
   clickInOverlay,
   dragSelect,
   GLASS,
+  inOverlay,
   POPOVER,
   sleep,
   startOverlay,
@@ -149,10 +150,6 @@ describe('marking on pages of every shape', () => {
     })
     expect(value).toBe('banana bread')
     await sleep(200)
-    const glass = await realm.evaluate(
-      (sel) => !!globalThis.__webdevOverlay?.shadow?.querySelector(sel),
-      GLASS,
-    )
-    expect(glass).toBe(false)
+    expect(await inOverlay(session, GLASS)).toBe(false)
   })
 })

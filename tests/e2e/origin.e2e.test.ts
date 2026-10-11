@@ -18,6 +18,7 @@ import {
 } from './harness'
 import {
   centerOf,
+  CHIP,
   clickInOverlay,
   dragSelect,
   GLASS,
@@ -99,7 +100,7 @@ describe('code origin on a Vue dev server', () => {
   it('adds the component of a text container', async () => {
     await open('/settings', '.prefs h3')
     await dragSelect(session.page, '.prefs h3', 'Email notifcations')
-    await clickInOverlay(session, '[data-testid="overlay-chip"]')
+    await clickInOverlay(session, CHIP)
     const target = (await save(session, panel, 'Typo')) as TextTarget
     expect(target.container.origin?.chain.at(-1)).toEqual({
       name: 'NotificationPrefs',
