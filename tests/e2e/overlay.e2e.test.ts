@@ -1,6 +1,6 @@
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
-import { clickAction, contentRealm, launch, type Session, startFixtureServer } from './harness'
-import { markElement, overlayMounted } from './overlay-helpers'
+import { contentRealm, launch, type Session, startFixtureServer } from './harness'
+import { markElement, startOverlay } from './overlay-helpers'
 
 describe('overlay on a hostile page', () => {
   let server: Awaited<ReturnType<typeof startFixtureServer>>
@@ -9,9 +9,7 @@ describe('overlay on a hostile page', () => {
   beforeAll(async () => {
     server = await startFixtureServer()
     session = await launch()
-    await session.page.goto(`${server.origin}/hostile/`)
-    await clickAction(session)
-    await overlayMounted(session)
+    await startOverlay(session, `${server.origin}/hostile/`, { clear: false })
     // The full-page layer covers everything, so the click marks the layer itself.
     await markElement(session, '.layer')
   })

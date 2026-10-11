@@ -2,6 +2,7 @@ import type { Page } from 'puppeteer'
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest'
 import { FAKE_TEXT, startFakeOpenRouter } from './fake-openrouter'
 import {
+  allowClipboard,
   clickAction,
   launch,
   serviceWorker,
@@ -9,8 +10,8 @@ import {
   setMicrophone,
   startFixtureServer,
 } from './harness'
-import { markElement, overlayMounted, sleep, waitForItems } from './overlay-helpers'
-import { setKey } from './voice-helpers'
+import { markElement, sleep, startOverlay, waitForItems } from './overlay-helpers'
+import { offscreenDocuments, setKey } from './voice-helpers'
 
 // Rec end to end (spec sections 8 and 12): a dictation in the panel without a pin, with
 // Chrome's fake microphone and the shipped build pointed at a local fake OpenRouter. Stopped,
@@ -29,12 +30,8 @@ describe('Rec in the panel', () => {
     server = await startFixtureServer()
     fake = await startFakeOpenRouter()
     s = await launch({ openrouter: fake.origin, microphone: 'granted' })
-    await s.browser
-      .defaultBrowserContext()
-      .overridePermissions(`chrome-extension://${s.extensionId}`, ['clipboard-read'])
-    await s.page.goto(`${server.origin}/plain/`)
-    panel = await clickAction(s)
-    await overlayMounted(s)
+    await allowClipboard(s, ['clipboard-read'])
+    panel = await startOverlay(s, `${server.origin}/plain/`, { clear: false })
   })
 
   afterAll(async () => {
@@ -74,18 +71,6 @@ describe('Rec in the panel', () => {
     return panel.evaluate(() => navigator.clipboard.readText())
   }
 
-  async function offscreenDocuments(): Promise<number> {
-    const worker = await serviceWorker(s)
-    return worker.evaluate(async () => {
-      const { runtime } = (
-        globalThis as unknown as {
-          chrome: { runtime: { getContexts(f: object): Promise<unknown[]> } }
-        }
-      ).chrome
-      return (await runtime.getContexts({ contextTypes: ['OFFSCREEN_DOCUMENT'] })).length
-    })
-  }
-
   const noteTexts = () =>
     panel.$$eval('[data-testid="note"]', (notes) =>
       notes.map((li) => li.querySelector('[data-testid="note-text"]')?.textContent ?? ''),
@@ -123,8 +108,8 @@ describe('Rec in the panel', () => {
       'provider',
     ])
     expect(await panel.$eval('[data-testid="filter-all"]', (el) => el.textContent)).toContain('0')
-    for (let i = 0; i < 30 && (await offscreenDocuments()) > 0; i++) await sleep(100)
-    expect(await offscreenDocuments()).toBe(0)
+    for (let i = 0; i < 30 && (await offscreenDocuments(s)) > 0; i++) await sleep(100)
+    expect(await offscreenDocuments(s)).toBe(0)
   })
 
   it('leaves the clipboard to Copy as prompt clicked while it was transcribed', async () => {
@@ -197,7 +182,7 @@ describe('Rec in the panel', () => {
     await waitForDictation('idle')
     await sleep(1000)
     expect(fake.transcriptions()).toHaveLength(0)
-    expect(await offscreenDocuments()).toBe(0)
+    expect(await offscreenDocuments(s)).toBe(0)
     expect(await noteTexts()).toEqual([])
   })
 
@@ -208,7 +193,7 @@ describe('Rec in the panel', () => {
     expect(await message?.evaluate((el) => el.textContent)).toContain(
       'Add an OpenRouter API key in settings.',
     )
-    expect(await offscreenDocuments()).toBe(0)
+    expect(await offscreenDocuments(s)).toBe(0)
     await panel.click('[data-testid="rec-settings"]')
     await panel.waitForSelector('[data-testid="voice-settings"]')
     await panel.click('[data-testid="close-settings"]')
@@ -229,10 +214,10 @@ describe('Rec in the panel', () => {
 
   it('ends the recording when the panel closes before the stop', async () => {
     await record(600)
-    expect(await offscreenDocuments()).toBe(1)
+    expect(await offscreenDocuments(s)).toBe(1)
     await panel.evaluate(() => window.close())
-    for (let i = 0; i < 50 && (await offscreenDocuments()) > 0; i++) await sleep(100)
-    expect(await offscreenDocuments()).toBe(0)
+    for (let i = 0; i < 50 && (await offscreenDocuments(s)) > 0; i++) await sleep(100)
+    expect(await offscreenDocuments(s)).toBe(0)
     expect(fake.transcriptions()).toHaveLength(0)
   })
 })

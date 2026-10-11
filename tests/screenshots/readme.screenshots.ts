@@ -12,10 +12,11 @@ import { createServer, type Server } from 'node:http'
 import { extname, join, resolve } from 'node:path'
 import type { Page } from 'puppeteer'
 import { afterAll, beforeAll, expect, it } from 'vitest'
-import { clickAction, contentRealm, launch, type Session } from '../e2e/harness'
+import { allowClipboard, clickAction, contentRealm, launch, type Session } from '../e2e/harness'
 import {
   centerOf,
   clickInOverlay,
+  comment,
   dragSelect,
   markElement,
   overlayMounted,
@@ -87,13 +88,7 @@ beforeAll(async () => {
   session = await launch({ hostPermissions: ['http://localhost/*'] })
   // Copy as prompt writes to the clipboard, and Settings shows the microphone allowed. Every
   // permission not named here is denied to the extension.
-  await session.browser
-    .defaultBrowserContext()
-    .overridePermissions(`chrome-extension://${session.extensionId}`, [
-      'clipboard-read',
-      'clipboard-sanitized-write',
-      'microphone',
-    ])
+  await allowClipboard(session, ['clipboard-read', 'clipboard-sanitized-write', 'microphone'])
   await session.page.setViewport({ ...VIEW, deviceScaleFactor: SCALE })
   await session.page.emulateMediaFeatures([{ name: 'prefers-color-scheme', value: 'light' }])
   await session.page.goto(`http://localhost:${PORT}/settings`)
@@ -117,24 +112,17 @@ afterAll(async () => {
   await new Promise((done) => server?.close(done))
 })
 
-async function comment(text: string) {
-  await waitInOverlay(session, '[data-testid="overlay-popover"]')
-  await session.page.keyboard.type(text)
-  await session.page.keyboard.press('Enter')
-  await waitInOverlay(session, '[data-testid="overlay-popover"]', false)
-}
-
 it('takes the README screenshots', async () => {
   const page = session.page
   await markElement(session, 'button[type="submit"]')
-  await comment('Make this button full width on mobile and a bit less tall.')
+  await comment(session, 'Make this button full width on mobile and a bit less tall.')
   await waitForItems(panel, 1)
 
   await page.keyboard.press('Escape')
   await waitInOverlay(session, '[data-testid="overlay-glass"]', false)
   await dragSelect(page, '.prefs h3', 'Email notifcations')
   await clickInOverlay(session, '[data-testid="overlay-chip"]')
-  await comment('Typo, should be "notifications".')
+  await comment(session, 'Typo, should be "notifications".')
   await waitForItems(panel, 2)
 
   await page.keyboard.press('a')
@@ -157,7 +145,7 @@ it('takes the README screenshots', async () => {
   await page.mouse.down()
   await page.mouse.move(area.to.x, area.to.y, { steps: 10 })
   await page.mouse.up()
-  await comment('Spacing between these cards is uneven.')
+  await comment(session, 'Spacing between these cards is uneven.')
   await waitForItems(panel, 3)
 
   // Browse mode, the pointer away from the pins: the page with its three pins, and the panel.
@@ -229,7 +217,7 @@ it('takes the README screenshots', async () => {
   await deletes[1]?.click()
   await waitForStatus(panel, 'deleted', 1)
   await markElement(session, 'nav a[href="#products"]')
-  await comment('Call this "Catalog", as everywhere else.')
+  await comment(session, 'Call this "Catalog", as everywhere else.')
   await waitForItems(panel, 4)
   await page.keyboard.press('Escape')
   await panel.click('[data-testid="filter-with-deleted"]')

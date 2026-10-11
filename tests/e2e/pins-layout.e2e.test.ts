@@ -1,18 +1,17 @@
 import type { Page } from 'puppeteer'
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest'
-import { clickAction, contentRealm, launch, type Session, startFixtureServer } from './harness'
+import { contentRealm, launch, type Session, startFixtureServer } from './harness'
 import {
   clickInOverlay,
   dragSelect,
   markElement,
-  overlayMounted,
+  PIN,
+  POPOVER,
   sleep,
+  startOverlay,
   waitForItems,
   waitInOverlay,
 } from './overlay-helpers'
-
-const PIN = '[data-testid="overlay-pin"]'
-const POPOVER = '[data-testid="overlay-popover"]'
 
 // Pins follow the element, not the document (plan Review Focus 5).
 describe('pins in scroll containers and on sticky elements', () => {
@@ -26,10 +25,7 @@ describe('pins in scroll containers and on sticky elements', () => {
   })
 
   beforeEach(async () => {
-    await session.page.goto(`${server.origin}/plain/layout.html`)
-    panel = await clickAction(session)
-    await panel.evaluate(() => chrome.storage.local.clear())
-    await overlayMounted(session)
+    panel = await startOverlay(session, `${server.origin}/plain/layout.html`)
   })
 
   afterAll(async () => {

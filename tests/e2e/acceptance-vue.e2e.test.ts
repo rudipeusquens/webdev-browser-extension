@@ -1,20 +1,26 @@
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 import type { Collection } from '../../src/lib/collection/model'
 import { formatCollection } from '../../src/lib/format/markdown'
-import { clickAction, contentRealm, launch, type Session, startVueDevServer } from './harness'
+import {
+  allowClipboard,
+  clickAction,
+  contentRealm,
+  launch,
+  type Session,
+  startVueDevServer,
+} from './harness'
 import {
   centerOf,
   clickInOverlay,
+  comment,
   dragSelect,
+  GLASS,
   overlayMounted,
   sleep,
   storedCollection,
   waitForItems,
   waitInOverlay,
 } from './overlay-helpers'
-
-const POPOVER = '[data-testid="overlay-popover"]'
-const GLASS = '[data-testid="overlay-glass"]'
 
 // Milestone 4 acceptance: a session over three pages of a Vue app on its dev server, with a
 // reload in between, copies one correct prompt.
@@ -25,12 +31,7 @@ describe('a three-page session on a Vue app', () => {
   beforeAll(async () => {
     app = await startVueDevServer()
     session = await launch()
-    await session.browser
-      .defaultBrowserContext()
-      .overridePermissions(`chrome-extension://${session.extensionId}`, [
-        'clipboard-read',
-        'clipboard-sanitized-write',
-      ])
+    await allowClipboard(session)
   })
 
   afterAll(async () => {
@@ -39,13 +40,6 @@ describe('a three-page session on a Vue app', () => {
   })
 
   const file = (path: string) => `${app.root}/src/${path}`
-
-  async function comment(text: string) {
-    await waitInOverlay(session, POPOVER)
-    await session.page.keyboard.type(text)
-    await session.page.keyboard.press('Enter')
-    await waitInOverlay(session, POPOVER, false)
-  }
 
   /** The app's own link: pushState, no reload. */
   async function follow(label: string, ready: string) {
@@ -76,7 +70,7 @@ describe('a three-page session on a Vue app', () => {
     await session.page.mouse.down()
     await session.page.mouse.move(around.right, around.bottom, { steps: 10 })
     await session.page.mouse.up()
-    await comment('Spacing between these cards is uneven.')
+    await comment(session, 'Spacing between these cards is uneven.')
     await waitForItems(panel, 1)
     await session.page.keyboard.press('Escape')
 
@@ -87,7 +81,7 @@ describe('a three-page session on a Vue app', () => {
     const button = await centerOf(session.page, '#profile button')
     await session.page.mouse.move(button.x, button.y)
     await session.page.mouse.click(button.x, button.y)
-    await comment('Make this button full width on mobile.')
+    await comment(session, 'Make this button full width on mobile.')
     await waitForItems(panel, 2)
     await session.page.keyboard.press('Escape')
 
@@ -95,7 +89,7 @@ describe('a three-page session on a Vue app', () => {
     await follow('About', '#story')
     await dragSelect(session.page, '#story', 'tools for people')
     await clickInOverlay(session, '[data-testid="overlay-chip"]')
-    await comment('Say who the tools are for.')
+    await comment(session, 'Say who the tools are for.')
     await waitForItems(panel, 3)
 
     // A full reload of About: the pin is back at the sentence.

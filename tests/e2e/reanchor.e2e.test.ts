@@ -12,17 +12,17 @@ import {
 } from './harness'
 import {
   clickInOverlay,
+  comment,
   dragSelect,
   markElement,
   overlayMounted,
+  PIN,
   sleep,
+  startOverlay,
   storedCollection,
   waitForItems,
-  waitInOverlay,
 } from './overlay-helpers'
 
-const POPOVER = '[data-testid="overlay-popover"]'
-const PIN = '[data-testid="overlay-pin"]'
 const NOT_FOUND = '[data-testid="not-found"]'
 
 /** Top-left corners of the overlay's pins, by item number. */
@@ -57,13 +57,6 @@ const pinFor = (r: { right: number; top: number }) => ({
 const near = (a: { x: number; y: number }, b: { x: number; y: number }, by = 3) =>
   Math.abs(a.x - b.x) <= by && Math.abs(a.y - b.y) <= by
 
-async function comment(session: Session, text: string) {
-  await waitInOverlay(session, POPOVER)
-  await session.page.keyboard.type(text)
-  await session.page.keyboard.press('Enter')
-  await waitInOverlay(session, POPOVER, false)
-}
-
 describe('re-anchoring after a reload', () => {
   let server: Awaited<ReturnType<typeof startFixtureServer>>
   let session: Session
@@ -75,10 +68,7 @@ describe('re-anchoring after a reload', () => {
   })
 
   beforeEach(async () => {
-    await session.page.goto(`${server.origin}/plain/text.html`)
-    panel = await clickAction(session)
-    await panel.evaluate(() => chrome.storage.local.clear())
-    await overlayMounted(session)
+    panel = await startOverlay(session, `${server.origin}/plain/text.html`)
   })
 
   afterAll(async () => {
@@ -213,10 +203,7 @@ describe('re-anchoring on a page that changes all the time (review focus 2)', ()
   })
 
   it('keeps its pins without flapping or long frames', async () => {
-    await session.page.goto(`${server.origin}/plain/busy.html`)
-    const panel = await clickAction(session)
-    await panel.evaluate(() => chrome.storage.local.clear())
-    await overlayMounted(session)
+    const panel = await startOverlay(session, `${server.origin}/plain/busy.html`)
     await markElement(session, 'h1')
     await comment(session, 'Title')
     await session.page.keyboard.press('Escape')
@@ -258,10 +245,7 @@ describe('re-anchoring text that is gone, inside one huge text node (review focu
   })
 
   it('keeps searching cheap while the page keeps changing', async () => {
-    await session.page.goto(`${server.origin}/plain/busy.html`)
-    const panel = await clickAction(session)
-    await panel.evaluate(() => chrome.storage.local.clear())
-    await overlayMounted(session)
+    const panel = await startOverlay(session, `${server.origin}/plain/busy.html`)
     await dragSelect(session.page, '#log', 'First entry')
     await clickInOverlay(session, '[data-testid="overlay-chip"]')
     await comment(session, 'Log text')
@@ -352,9 +336,7 @@ describe('an overlay whose extension was reloaded', () => {
   })
 
   it('removes itself', async () => {
-    await session.page.goto(`${server.origin}/plain/`)
-    await clickAction(session)
-    await overlayMounted(session)
+    await startOverlay(session, `${server.origin}/plain/`, { clear: false })
     expect(
       await session.page.evaluate(() => document.querySelectorAll('[data-e2e-host]').length),
     ).toBe(1)

@@ -1,11 +1,19 @@
 import type { Page } from 'puppeteer'
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest'
-import { clickAction, contentRealm, launch, type Session, startFixtureServer } from './harness'
+import {
+  allowClipboard,
+  clickAction,
+  contentRealm,
+  launch,
+  type Session,
+  startFixtureServer,
+} from './harness'
 import {
   clickInOverlay,
-  markElement,
+  markAndSave,
   overlayMounted,
   sleep,
+  startOverlay,
   storedCollection,
   waitForItems,
   waitInOverlay,
@@ -21,32 +29,17 @@ describe('pins and editing', () => {
   beforeAll(async () => {
     server = await startFixtureServer()
     session = await launch()
-    await session.browser
-      .defaultBrowserContext()
-      .overridePermissions(`chrome-extension://${session.extensionId}`, [
-        'clipboard-read',
-        'clipboard-sanitized-write',
-      ])
+    await allowClipboard(session)
   })
 
   beforeEach(async () => {
-    await session.page.goto(`${server.origin}/plain/`)
-    panel = await clickAction(session)
-    await panel.evaluate(() => chrome.storage.local.clear())
-    await overlayMounted(session)
+    panel = await startOverlay(session, `${server.origin}/plain/`)
   })
 
   afterAll(async () => {
     await session?.browser.close()
     await server?.close()
   })
-
-  async function save(selector: string, comment: string) {
-    await markElement(session, selector)
-    await session.page.keyboard.type(comment)
-    await session.page.keyboard.press('Enter')
-    await waitInOverlay(session, '[data-testid="overlay-popover"]', false)
-  }
 
   async function pinCenter() {
     await waitInOverlay(session, '[data-testid="overlay-pin"]')
@@ -74,7 +67,7 @@ describe('pins and editing', () => {
   }
 
   it('pins the saved element and follows scrolling', async () => {
-    await save(BUTTON, 'Wider')
+    await markAndSave(session, BUTTON, 'Wider')
     await expectPinOnButton()
     const realm = await contentRealm(session)
     expect(
@@ -90,7 +83,7 @@ describe('pins and editing', () => {
   })
 
   it('edits a comment from its pin and keeps the number', async () => {
-    await save(BUTTON, 'Wider')
+    await markAndSave(session, BUTTON, 'Wider')
     await session.page.keyboard.press('Escape')
     const pin = await pinCenter()
     await session.page.mouse.click(pin?.x ?? 0, pin?.y ?? 0)
@@ -117,7 +110,7 @@ describe('pins and editing', () => {
   })
 
   it('shows the pin again after activating on the reloaded page', async () => {
-    await save(BUTTON, 'Wider')
+    await markAndSave(session, BUTTON, 'Wider')
     await waitForItems(panel, 1)
     await session.page.reload()
     await clickAction(session)
@@ -126,7 +119,7 @@ describe('pins and editing', () => {
   })
 
   it('highlights the target while its panel entry is hovered', async () => {
-    await save(BUTTON, 'Wider')
+    await markAndSave(session, BUTTON, 'Wider')
     await session.page.keyboard.press('Escape')
     await panel.waitForSelector('[data-testid="item"]')
     await panel.hover('[data-testid="item"]')
@@ -136,7 +129,7 @@ describe('pins and editing', () => {
   })
 
   it('scrolls to the target and opens it when its panel entry is clicked', async () => {
-    await save(BUTTON, 'Wider')
+    await markAndSave(session, BUTTON, 'Wider')
     await session.page.keyboard.press('Escape')
     await session.page.evaluate(() => window.scrollTo(0, 2000))
     await panel.waitForSelector('[data-testid="item"] button')
@@ -150,7 +143,7 @@ describe('pins and editing', () => {
   })
 
   it("opens a hidden target's popover in the middle, and next to the target once shown", async () => {
-    await save(BUTTON, 'Hidden later')
+    await markAndSave(session, BUTTON, 'Hidden later')
     await session.page.keyboard.press('Escape')
     await session.page.$eval(BUTTON, (el) => ((el as HTMLElement).style.display = 'none'))
     await panel.click('[data-testid="item"] button')
@@ -224,7 +217,7 @@ describe('pins and editing', () => {
   }
 
   it('pins only what the filter shows, in the color of its status', async () => {
-    await save(BUTTON, 'Wider')
+    await markAndSave(session, BUTTON, 'Wider')
     await waitForPins([{ number: '1', color: 'bg-blue-600' }])
     await panel.click('[data-testid="copy-prompt"]')
     await panel.waitForSelector('::-p-text(Copied 1 pin)')
@@ -239,7 +232,7 @@ describe('pins and editing', () => {
   })
 
   it('deletes from the popover; + Deleted shows the item in red', async () => {
-    await save(BUTTON, 'Wider')
+    await markAndSave(session, BUTTON, 'Wider')
     await waitForPins([{ number: '1', color: 'bg-blue-600' }])
     const pin = await pinCenter()
     await session.page.mouse.click(pin?.x ?? 0, pin?.y ?? 0)
@@ -258,7 +251,7 @@ describe('pins and editing', () => {
   })
 
   it('marks the entry of a pin under the pointer, and of the item being edited', async () => {
-    await save(BUTTON, 'Wider')
+    await markAndSave(session, BUTTON, 'Wider')
     const pin = await pinCenter()
     await session.page.mouse.move(pin?.x ?? 0, pin?.y ?? 0)
     await panel.waitForSelector('[data-testid="item"][data-pointed="hovered"]')

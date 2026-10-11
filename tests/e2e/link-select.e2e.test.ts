@@ -1,18 +1,17 @@
 import type { Page } from 'puppeteer'
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest'
-import { clickAction, contentRealm, launch, type Session, startFixtureServer } from './harness'
+import { contentRealm, launch, type Session, startFixtureServer } from './harness'
 import {
   centerOf,
+  CHIP,
   clickInOverlay,
   dragSelect,
-  overlayMounted,
+  POPOVER,
   sleep,
+  startOverlay,
   textEnds,
   waitInOverlay,
 } from './overlay-helpers'
-
-const CHIP = '[data-testid="overlay-chip"]'
-const POPOVER = '[data-testid="overlay-popover"]'
 
 declare global {
   var linkClicks: number
@@ -30,10 +29,7 @@ describe('Ctrl+drag in Browse mode', () => {
   })
 
   beforeEach(async () => {
-    await session.page.goto(`${server.origin}/plain/links.html`)
-    panel = await clickAction(session)
-    await panel.evaluate(() => chrome.storage.local.clear())
-    await overlayMounted(session)
+    panel = await startOverlay(session, `${server.origin}/plain/links.html`)
   })
 
   afterAll(async () => {

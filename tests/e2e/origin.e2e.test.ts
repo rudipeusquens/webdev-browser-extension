@@ -8,21 +8,29 @@ import type {
   TextTarget,
 } from '../../src/lib/collection/model'
 import { formatCollection } from '../../src/lib/format/markdown'
-import { clickAction, launch, type Session, startFixtureServer, startVueDevServer } from './harness'
+import {
+  allowClipboard,
+  clickAction,
+  launch,
+  type Session,
+  startFixtureServer,
+  startVueDevServer,
+} from './harness'
 import {
   centerOf,
   clickInOverlay,
   dragSelect,
+  GLASS,
   markElement,
   overlayMounted,
   overlayText,
+  POPOVER,
+  startOverlay,
   storedCollection,
   waitForItems,
   waitInOverlay,
 } from './overlay-helpers'
 
-const POPOVER = '[data-testid="overlay-popover"]'
-const GLASS = '[data-testid="overlay-glass"]'
 const LABEL = '[data-testid="overlay-hover-label"]'
 
 async function save(session: Session, panel: Page, comment: string, count = 1) {
@@ -41,12 +49,7 @@ describe('code origin on a Vue dev server', () => {
   beforeAll(async () => {
     app = await startVueDevServer()
     session = await launch()
-    await session.browser
-      .defaultBrowserContext()
-      .overridePermissions(`chrome-extension://${session.extensionId}`, [
-        'clipboard-read',
-        'clipboard-sanitized-write',
-      ])
+    await allowClipboard(session)
   })
 
   async function open(path: string, ready: string) {
@@ -159,10 +162,7 @@ describe('code origin from other pages', () => {
   })
 
   async function open(path: string) {
-    await session.page.goto(`${server.origin}${path}`)
-    panel = await clickAction(session)
-    await panel.evaluate(() => chrome.storage.local.clear())
-    await overlayMounted(session)
+    panel = await startOverlay(session, `${server.origin}${path}`)
   }
 
   it('reads Astro source attributes for elements and areas', async () => {

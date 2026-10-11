@@ -1,9 +1,10 @@
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 import type { Collection } from '../../src/lib/collection/model'
 import { formatCollection } from '../../src/lib/format/markdown'
-import { clickAction, launch, type Session, startFixtureServer } from './harness'
+import { allowClipboard, clickAction, launch, type Session, startFixtureServer } from './harness'
 import {
   clickInOverlay,
+  comment,
   dragSelect,
   markElement,
   overlayMounted,
@@ -20,25 +21,13 @@ describe('all three marking types', () => {
   beforeAll(async () => {
     server = await startFixtureServer()
     session = await launch()
-    await session.browser
-      .defaultBrowserContext()
-      .overridePermissions(`chrome-extension://${session.extensionId}`, [
-        'clipboard-read',
-        'clipboard-sanitized-write',
-      ])
+    await allowClipboard(session)
   })
 
   afterAll(async () => {
     await session?.browser.close()
     await server?.close()
   })
-
-  async function comment(text: string) {
-    await waitInOverlay(session, '[data-testid="overlay-popover"]')
-    await session.page.keyboard.type(text)
-    await session.page.keyboard.press('Enter')
-    await waitInOverlay(session, '[data-testid="overlay-popover"]', false)
-  }
 
   it('end up in one prompt', async () => {
     const page = session.page
@@ -47,14 +36,14 @@ describe('all three marking types', () => {
     await overlayMounted(session)
 
     await markElement(session, 'button[type="submit"]')
-    await comment('Make it wider')
+    await comment(session, 'Make it wider')
     await waitForItems(panel, 1)
 
     await page.keyboard.press('Escape')
     await waitInOverlay(session, '[data-testid="overlay-glass"]', false)
     await dragSelect(page, '#title', 'Example shop')
     await clickInOverlay(session, '[data-testid="overlay-chip"]')
-    await comment('Use the brand name')
+    await comment(session, 'Use the brand name')
     await waitForItems(panel, 2)
 
     await page.keyboard.press('a')
@@ -76,7 +65,7 @@ describe('all three marking types', () => {
     await page.mouse.down()
     await page.mouse.move(to.x, to.y, { steps: 10 })
     await page.mouse.up()
-    await comment('Even spacing')
+    await comment(session, 'Even spacing')
     await waitForItems(panel, 3)
 
     await panel.click('[data-testid="copy-prompt"]')

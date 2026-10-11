@@ -1,7 +1,7 @@
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 import { formatCollection } from '../../src/lib/format/markdown'
 import type { Collection } from '../../src/lib/collection/model'
-import { clickAction, launch, type Session, startFixtureServer } from './harness'
+import { allowClipboard, clickAction, launch, type Session, startFixtureServer } from './harness'
 import { centerOf, storedCollection, waitInOverlay } from './overlay-helpers'
 
 describe('marking an element end to end', () => {
@@ -11,12 +11,7 @@ describe('marking an element end to end', () => {
   beforeAll(async () => {
     server = await startFixtureServer()
     session = await launch()
-    await session.browser
-      .defaultBrowserContext()
-      .overridePermissions(`chrome-extension://${session.extensionId}`, [
-        'clipboard-read',
-        'clipboard-sanitized-write',
-      ])
+    await allowClipboard(session)
   })
 
   afterAll(async () => {

@@ -1,18 +1,14 @@
-import type { Page } from 'puppeteer'
 import { afterEach, beforeAll, afterAll, beforeEach, describe, expect, it } from 'vitest'
-import { clickAction, contentRealm, launch, type Session, startFixtureServer } from './harness'
-import { markElement, overlayMounted, sleep, waitInOverlay } from './overlay-helpers'
-
-const GLASS = '[data-testid="overlay-glass"]'
-
-const panelUrl = (s: Session) => `chrome-extension://${s.extensionId}/sidepanel.html`
-
-/** Uses the toolbar action on `page`, without waiting for a panel. */
-async function useAction(s: Session, page: Page) {
-  const extension = (await s.browser.extensions()).get(s.extensionId)
-  if (!extension) throw new Error('extension is not installed')
-  await page.triggerExtensionAction(extension)
-}
+import {
+  clickAction,
+  contentRealm,
+  launch,
+  panelUrl,
+  type Session,
+  startFixtureServer,
+  useAction,
+} from './harness'
+import { GLASS, markElement, overlayMounted, sleep, waitInOverlay } from './overlay-helpers'
 
 /** Waits until the extension's side panel is closed. */
 async function panelClosed(s: Session) {

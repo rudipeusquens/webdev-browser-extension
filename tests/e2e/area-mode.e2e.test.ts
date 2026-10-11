@@ -1,21 +1,21 @@
 import type { Page } from 'puppeteer'
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest'
 import type { AreaTarget, Collection } from '../../src/lib/collection/model'
-import { clickAction, contentRealm, launch, type Session, startFixtureServer } from './harness'
+import { contentRealm, launch, type Session, startFixtureServer } from './harness'
 import {
   clickInOverlay,
-  overlayMounted,
+  GLASS,
+  inOverlay,
   overlayText,
+  POPOVER,
   sleep,
+  startOverlay,
   storedCollection,
   waitForItems,
   waitInOverlay,
 } from './overlay-helpers'
 
-const GLASS = '[data-testid="overlay-glass"]'
 const DRAG = '[data-testid="overlay-area"]'
-const POPOVER = '[data-testid="overlay-popover"]'
-
 describe('marking an area', () => {
   let server: Awaited<ReturnType<typeof startFixtureServer>>
   let session: Session
@@ -27,10 +27,7 @@ describe('marking an area', () => {
   })
 
   beforeEach(async () => {
-    await session.page.goto(`${server.origin}/plain/`)
-    panel = await clickAction(session)
-    await panel.evaluate(() => chrome.storage.local.clear())
-    await overlayMounted(session)
+    panel = await startOverlay(session, `${server.origin}/plain/`)
   })
 
   afterAll(async () => {
@@ -102,11 +99,7 @@ describe('marking an area', () => {
     await areaMode()
     await session.page.mouse.click(200, 200)
     await sleep(300)
-    const realm = await contentRealm(session)
-    const open = await realm.evaluate(
-      (sel) => !!globalThis.__webdevOverlay?.shadow?.querySelector(sel),
-      POPOVER,
-    )
+    const open = await inOverlay(session, POPOVER)
     expect(open).toBe(false)
   })
 

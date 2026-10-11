@@ -1,18 +1,17 @@
 import type { Page } from 'puppeteer'
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest'
-import { clickAction, contentRealm, launch, type Session, startFixtureServer } from './harness'
+import { allowClipboard, contentRealm, launch, type Session, startFixtureServer } from './harness'
 import {
   clickInOverlay,
   dragSelect,
   markElement,
   overlayCenter,
-  overlayMounted,
+  POPOVER,
   sleep,
+  startOverlay,
   waitForItems,
   waitInOverlay,
 } from './overlay-helpers'
-
-const POPOVER = '[data-testid="overlay-popover"]'
 
 interface Drawn {
   x: number
@@ -33,19 +32,11 @@ describe('pin outlines', () => {
   beforeAll(async () => {
     server = await startFixtureServer()
     session = await launch()
-    await session.browser
-      .defaultBrowserContext()
-      .overridePermissions(`chrome-extension://${session.extensionId}`, [
-        'clipboard-read',
-        'clipboard-sanitized-write',
-      ])
+    await allowClipboard(session)
   })
 
   beforeEach(async () => {
-    await session.page.goto(`${server.origin}/plain/layout.html`)
-    panel = await clickAction(session)
-    await panel.evaluate(() => chrome.storage.local.clear())
-    await overlayMounted(session)
+    panel = await startOverlay(session, `${server.origin}/plain/layout.html`)
   })
 
   afterAll(async () => {

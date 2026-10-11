@@ -7,7 +7,7 @@ import {
   startFixtureServer,
   startOverlayAgain,
 } from './harness'
-import { overlayHosts, overlayMounted } from './overlay-helpers'
+import { overlayHosts, overlayMounted, startOverlay } from './overlay-helpers'
 
 describe('activating twice on the same tab', () => {
   let server: Awaited<ReturnType<typeof startFixtureServer>>
@@ -66,9 +66,7 @@ describe('activating twice on the same tab', () => {
   })
 
   it('stays when the page fakes the start of another overlay', async () => {
-    await session.page.goto(`${server.origin}/plain/`)
-    await clickAction(session)
-    await overlayMounted(session)
+    await startOverlay(session, `${server.origin}/plain/`, { clear: false })
     await session.page.evaluate((id) => {
       document.dispatchEvent(
         new CustomEvent(`${id}:overlay:wxt:content-script-started`, {

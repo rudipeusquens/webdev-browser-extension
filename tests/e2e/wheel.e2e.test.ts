@@ -1,6 +1,6 @@
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
-import { clickAction, launch, type Session, startFixtureServer, startOverlayAgain } from './harness'
-import { centerOf, overlayMounted, sleep, waitInOverlay } from './overlay-helpers'
+import { launch, type Session, startFixtureServer, startOverlayAgain } from './harness'
+import { centerOf, overlayMounted, sleep, startOverlay, waitInOverlay } from './overlay-helpers'
 
 // Element and area mode cover the page with a glass: the wheel must scroll as it does without
 // it, also on pages that scroll smoothly (spec section 8).
@@ -11,9 +11,7 @@ describe('the wheel in element mode', () => {
   beforeAll(async () => {
     server = await startFixtureServer()
     session = await launch()
-    await session.page.goto(`${server.origin}/plain/smooth.html`)
-    await clickAction(session)
-    await overlayMounted(session)
+    await startOverlay(session, `${server.origin}/plain/smooth.html`, { clear: false })
   })
 
   afterAll(async () => {

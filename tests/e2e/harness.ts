@@ -7,8 +7,10 @@ import vue from '@vitejs/plugin-vue'
 import puppeteer, {
   type Browser,
   type CDPSession,
+  type Permission,
   type Page,
   type Realm,
+  type Target,
   type WebWorker,
 } from 'puppeteer'
 import { createServer as createViteServer } from 'vite'
@@ -106,6 +108,10 @@ export interface LaunchOptions {
 
 const OPENROUTER = 'https://openrouter.ai'
 
+/** Matches the extension's service worker target. */
+const isWorker = (extensionId: string) => (t: Target) =>
+  t.type() === 'service_worker' && t.url() === `chrome-extension://${extensionId}/background.js`
+
 /** Every JavaScript file of the build, relative to `dir`. */
 async function scripts(dir: string): Promise<string[]> {
   const files = await readdir(dir, { recursive: true })
@@ -162,11 +168,7 @@ export async function launch(options: LaunchOptions = {}): Promise<Session> {
     browser.once('disconnected', () => void rm(dir, { recursive: true, force: true }))
   }
   const extensionId = await browser.installExtension(dir)
-  await browser.waitForTarget(
-    (t) =>
-      t.type() === 'service_worker' &&
-      t.url() === `chrome-extension://${extensionId}/background.js`,
-  )
+  await browser.waitForTarget(isWorker(extensionId))
   const page = await browser.newPage()
   const session = { browser, extensionId, page }
   if (options.microphone) await setMicrophone(session, options.microphone)
@@ -195,13 +197,19 @@ export async function setMicrophone(s: Session, setting: MicrophoneSetting): Pro
   })
 }
 
+/** Lets the extension use the clipboard in the tests, as a user would grant it. */
+export function allowClipboard(
+  s: Session,
+  permissions: Permission[] = ['clipboard-read', 'clipboard-sanitized-write'],
+): Promise<void> {
+  return s.browser
+    .defaultBrowserContext()
+    .overridePermissions(`chrome-extension://${s.extensionId}`, permissions)
+}
+
 /** The extension's service worker. */
 export async function serviceWorker(s: Session): Promise<WebWorker> {
-  const target = await s.browser.waitForTarget(
-    (t) =>
-      t.type() === 'service_worker' &&
-      t.url() === `chrome-extension://${s.extensionId}/background.js`,
-  )
+  const target = await s.browser.waitForTarget(isWorker(s.extensionId))
   const worker = await target.worker()
   if (!worker) throw new Error('the service worker is not running')
   return worker
@@ -229,14 +237,20 @@ export async function startOverlayAgain(s: Session): Promise<void> {
   })
 }
 
-/** Clicks the toolbar action on `s.page` and returns the side panel page. */
-export async function clickAction(s: Session): Promise<Page> {
+/** The URL of the extension's side panel. */
+export const panelUrl = (s: Session) => `chrome-extension://${s.extensionId}/sidepanel.html`
+
+/** Uses the toolbar action on `page`, without waiting for a panel. */
+export async function useAction(s: Session, page: Page): Promise<void> {
   const extension = (await s.browser.extensions()).get(s.extensionId)
   if (!extension) throw new Error('extension is not installed')
-  await s.page.triggerExtensionAction(extension)
-  const target = await s.browser.waitForTarget(
-    (t) => t.url() === `chrome-extension://${s.extensionId}/sidepanel.html`,
-  )
+  await page.triggerExtensionAction(extension)
+}
+
+/** Clicks the toolbar action on `s.page` and returns the side panel page. */
+export async function clickAction(s: Session): Promise<Page> {
+  await useAction(s, s.page)
+  const target = await s.browser.waitForTarget((t) => t.url() === panelUrl(s))
   const panel = await target.asPage()
   // A headless side panel reports a 0×0 viewport otherwise.
   await panel.setViewport({ width: 400, height: 800 })

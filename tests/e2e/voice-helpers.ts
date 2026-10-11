@@ -25,3 +25,16 @@ export async function setKey(s: Session, key: string | null): Promise<void> {
     KEY_DB,
   )
 }
+
+/** How many offscreen documents the extension has open, asked in the service worker. */
+export async function offscreenDocuments(s: Session): Promise<number> {
+  const worker = await serviceWorker(s)
+  return worker.evaluate(async () => {
+    const { runtime } = (
+      globalThis as unknown as {
+        chrome: { runtime: { getContexts(f: object): Promise<unknown[]> } }
+      }
+    ).chrome
+    return (await runtime.getContexts({ contextTypes: ['OFFSCREEN_DOCUMENT'] })).length
+  })
+}

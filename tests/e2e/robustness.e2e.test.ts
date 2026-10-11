@@ -7,6 +7,7 @@ import {
   overlayMounted,
   overlayText,
   sleep,
+  startOverlay,
   storedCollection,
   waitForItems,
   waitInOverlay,
@@ -26,13 +27,7 @@ describe('hostile pages and untrusted events', () => {
     await server?.close()
   })
 
-  async function activate(path: string): Promise<Page> {
-    await session.page.goto(`${server.origin}${path}`)
-    const panel = await clickAction(session)
-    await panel.evaluate(() => chrome.storage.local.clear())
-    await overlayMounted(session)
-    return panel
-  }
+  const activate = (path: string) => startOverlay(session, `${server.origin}${path}`)
 
   async function storedSelector(panel: Page) {
     const c = await waitForItems(panel, 1)

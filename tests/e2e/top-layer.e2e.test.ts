@@ -9,6 +9,7 @@ import {
   overlayMounted,
   overlayText,
   sleep,
+  startOverlay,
   storedCollection,
   waitForItems,
   waitInOverlay,
@@ -167,10 +168,7 @@ describe('overlay under a page cover', () => {
   })
 
   beforeEach(async () => {
-    await session.page.goto(`${server.origin}/covering/`)
-    panel = await clickAction(session)
-    await panel.evaluate(() => chrome.storage.local.clear())
-    await overlayMounted(session)
+    panel = await startOverlay(session, `${server.origin}/covering/`)
   })
 
   afterAll(async () => {

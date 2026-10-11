@@ -1,16 +1,15 @@
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 import type { AreaTarget, Collection, TextTarget } from '../../src/lib/collection/model'
-import { clickAction, launch, type Session, startFixtureServer } from './harness'
+import { launch, type Session, startFixtureServer } from './harness'
 import {
   clickInOverlay,
+  comment,
   dragSelect,
-  overlayMounted,
   sleep,
+  startOverlay,
   waitForItems,
   waitInOverlay,
 } from './overlay-helpers'
-
-const POPOVER = '[data-testid="overlay-popover"]'
 
 // Text and area marking on the pages that broke element marking before: named elements
 // shadowing document members, modal dialogs and script focus traps.
@@ -28,20 +27,7 @@ describe('text and area marking on hostile pages', () => {
     await server?.close()
   })
 
-  async function open(path: string) {
-    await session.page.goto(`${server.origin}${path}`)
-    const panel = await clickAction(session)
-    await panel.evaluate(() => chrome.storage.local.clear())
-    await overlayMounted(session)
-    return panel
-  }
-
-  async function comment(text: string) {
-    await waitInOverlay(session, POPOVER)
-    await session.page.keyboard.type(text)
-    await session.page.keyboard.press('Enter')
-    await waitInOverlay(session, POPOVER, false)
-  }
+  const open = (path: string) => startOverlay(session, `${server.origin}${path}`)
 
   async function dragAround(selector: string, margin = 6) {
     const { from, to } = await session.page.$$eval(
@@ -71,11 +57,11 @@ describe('text and area marking on hostile pages', () => {
     const panel = await open('/clobbered/')
     await dragSelect(session.page, '#intro', 'forms with these names')
     await clickInOverlay(session, '[data-testid="overlay-chip"]')
-    await comment('Wording')
+    await comment(session, 'Wording')
     await session.page.keyboard.press('a')
     await waitInOverlay(session, '[data-testid="overlay-glass"]')
     await dragAround('.card', 4)
-    await comment('Cards')
+    await comment(session, 'Cards')
     const stored = (await waitForItems(panel, 2)) as unknown as Collection
     expect(Object.values(stored.pages)[0]?.title).toBe('Clobbered fixture')
     const text = stored.items[0]?.target as TextTarget
@@ -91,11 +77,11 @@ describe('text and area marking on hostile pages', () => {
     await sleep(200)
     await dragSelect(session.page, 'dialog p', 'Inside the modal')
     await clickInOverlay(session, '[data-testid="overlay-chip"]')
-    await comment('Shorter')
+    await comment(session, 'Shorter')
     await session.page.keyboard.press('a')
     await waitInOverlay(session, '[data-testid="overlay-glass"]')
     await dragAround('#inside, #close')
-    await comment('Align the buttons')
+    await comment(session, 'Align the buttons')
     const stored = (await waitForItems(panel, 2)) as unknown as Collection
     expect((stored.items[0]?.target as TextTarget).selected).toBe('Inside the modal')
     const area = stored.items[1]?.target as AreaTarget
@@ -106,7 +92,7 @@ describe('text and area marking on hostile pages', () => {
     const panel = await open('/trap/')
     await dragSelect(session.page, '#question', 'Delete this item')
     await clickInOverlay(session, '[data-testid="overlay-chip"]')
-    await comment('Say which item')
+    await comment(session, 'Say which item')
     const stored = (await waitForItems(panel, 1)) as unknown as Collection
     expect((stored.items[0]?.target as TextTarget).selected).toBe('Delete this item')
     expect(

@@ -1,11 +1,10 @@
-import type { Page } from 'puppeteer'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
-import { clickAction, launch, type Session, startFixtureServer } from './harness'
+import { launch, type Session, startFixtureServer } from './harness'
 import {
   markElement,
-  overlayMounted,
   overlayText,
   sleep,
+  startOverlay,
   storedCollection,
   waitForItems,
 } from './overlay-helpers'
@@ -26,13 +25,7 @@ describe('pages with a script focus trap', () => {
     await server?.close()
   })
 
-  async function activate(path: string): Promise<Page> {
-    await session.page.goto(`${server.origin}${path}`)
-    const panel = await clickAction(session)
-    await panel.evaluate(() => chrome.storage.local.clear())
-    await overlayMounted(session)
-    return panel
-  }
+  const activate = (path: string) => startOverlay(session, `${server.origin}${path}`)
 
   const submits = () => session.page.evaluate(() => (window as { submits?: number }).submits)
 

@@ -1,7 +1,7 @@
 import type { Page } from 'puppeteer'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
-import { clickAction, contentRealm, launch, type Session, startFixtureServer } from './harness'
-import { markElement, overlayMounted, sleep, waitForItems, waitInOverlay } from './overlay-helpers'
+import { contentRealm, launch, type Session, startFixtureServer } from './harness'
+import { markElement, sleep, startOverlay, waitForItems, waitInOverlay } from './overlay-helpers'
 
 interface Clickable {
   name: string
@@ -41,9 +41,7 @@ describe('everything clickable shows the pointer', () => {
   beforeAll(async () => {
     server = await startFixtureServer()
     session = await launch()
-    await session.page.goto(`${server.origin}/plain/`)
-    panel = await clickAction(session)
-    await overlayMounted(session)
+    panel = await startOverlay(session, `${server.origin}/plain/`, { clear: false })
     await markElement(session, 'button[type="submit"]')
     await session.page.keyboard.type('Make it wider.')
     await session.page.keyboard.press('Enter')
@@ -138,9 +136,7 @@ describe("the panel's layout", () => {
   beforeAll(async () => {
     server = await startFixtureServer()
     session = await launch()
-    await session.page.goto(`${server.origin}/plain/`)
-    panel = await clickAction(session)
-    await overlayMounted(session)
+    panel = await startOverlay(session, `${server.origin}/plain/`, { clear: false })
   })
 
   afterAll(async () => {

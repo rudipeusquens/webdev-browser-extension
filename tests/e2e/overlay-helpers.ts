@@ -1,5 +1,5 @@
 import type { Page } from 'puppeteer'
-import { contentRealm, type Session } from './harness'
+import { clickAction, contentRealm, type Session } from './harness'
 
 declare global {
   // Extension pages have `chrome`; this is the part the tests call inside them.
@@ -17,6 +17,11 @@ declare global {
 }
 
 export const sleep = (ms: number) => new Promise((done) => setTimeout(done, ms))
+
+export const POPOVER = '[data-testid="overlay-popover"]'
+export const GLASS = '[data-testid="overlay-glass"]'
+export const PIN = '[data-testid="overlay-pin"]'
+export const CHIP = '[data-testid="overlay-chip"]'
 
 /** The overlay's host, once `overlayMounted` marked it: a plain div, found this way by tests. */
 export const HOST = '[data-e2e-host]'
@@ -42,6 +47,18 @@ export async function overlayMounted(s: Session): Promise<void> {
 }
 
 /**
+ * Opens `url`, starts the overlay with the toolbar action, and returns the side panel page.
+ * With `clear` (the default) the panel's storage starts empty.
+ */
+export async function startOverlay(s: Session, url: string, { clear = true } = {}): Promise<Page> {
+  await s.page.goto(url)
+  const panel = await clickAction(s)
+  if (clear) await panel.evaluate(() => chrome.storage.local.clear())
+  await overlayMounted(s)
+  return panel
+}
+
+/**
  * How many overlay hosts `s.page` holds, marked or not: the host is a div that is a manual
  * popover (top-layer.ts), which the fixtures that count hosts have none of their own. Counted
  * in the page's world: an isolated world that went with an earlier page would never answer.
@@ -57,6 +74,12 @@ export async function overlayText(s: Session, selector: string): Promise<string 
     (sel) => globalThis.__webdevOverlay?.shadow?.querySelector(sel)?.textContent ?? null,
     selector,
   )
+}
+
+/** Whether `selector` is in the overlay right now. */
+export async function inOverlay(s: Session, selector: string): Promise<boolean> {
+  const realm = await contentRealm(s)
+  return realm.evaluate((sel) => !!globalThis.__webdevOverlay?.shadow?.querySelector(sel), selector)
 }
 
 /** The text in the comment popover's field, or '' without one. */
@@ -154,6 +177,39 @@ export async function markElement(s: Session, selector: string) {
   await s.page.mouse.move(x, y)
   await s.page.mouse.click(x, y)
   await waitInOverlay(s, '[data-testid="overlay-popover"]')
+}
+
+/** Types `text` into the open comment popover and saves it with Enter. */
+export async function comment(s: Session, text: string) {
+  await waitInOverlay(s, POPOVER)
+  await s.page.keyboard.type(text)
+  await s.page.keyboard.press('Enter')
+  await waitInOverlay(s, POPOVER, false)
+}
+
+/** Marks `selector` in element mode and saves a pin with `text`. */
+export async function markAndSave(s: Session, selector: string, text: string) {
+  await markElement(s, selector)
+  await s.page.keyboard.type(text)
+  await s.page.keyboard.press('Enter')
+  await waitInOverlay(s, POPOVER, false)
+}
+
+/** Marks and saves like `markAndSave`, waits for `count` stored items, then leaves with Escape. */
+export async function markAndStore(
+  s: Session,
+  panel: Page,
+  selector: string,
+  text: string,
+  count: number,
+) {
+  await markElement(s, selector)
+  await s.page.keyboard.type(text)
+  await s.page.keyboard.press('Enter')
+  await waitForItems(panel, count)
+  // Stored before the overlay hears back: Escape would only close the popover.
+  await waitInOverlay(s, POPOVER, false)
+  await s.page.keyboard.press('Escape')
 }
 
 /** Center of the first element matching `selector` inside the overlay, once it is there. */

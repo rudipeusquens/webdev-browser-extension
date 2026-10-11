@@ -7,21 +7,20 @@ import type {
   Target,
   TextTarget,
 } from '../../src/lib/collection/model'
-import { clickAction, contentRealm, launch, type Session, startFixtureServer } from './harness'
+import { contentRealm, launch, type Session, startFixtureServer } from './harness'
 import {
   centerOf,
+  CHIP,
   clickInOverlay,
   dragSelect,
-  overlayMounted,
+  GLASS,
+  POPOVER,
   sleep,
+  startOverlay,
   storedCollection,
   waitForItems,
   waitInOverlay,
 } from './overlay-helpers'
-
-const CHIP = '[data-testid="overlay-chip"]'
-const GLASS = '[data-testid="overlay-glass"]'
-const POPOVER = '[data-testid="overlay-popover"]'
 
 // Layouts and elements that ordinary pages use and that Chrome treats in its own way.
 describe('marking on pages of every shape', () => {
@@ -35,10 +34,7 @@ describe('marking on pages of every shape', () => {
   })
 
   beforeEach(async () => {
-    await session.page.goto(`${server.origin}/plain/shapes.html`)
-    panel = await clickAction(session)
-    await panel.evaluate(() => chrome.storage.local.clear())
-    await overlayMounted(session)
+    panel = await startOverlay(session, `${server.origin}/plain/shapes.html`)
   })
 
   afterAll(async () => {

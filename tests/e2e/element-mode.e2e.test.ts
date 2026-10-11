@@ -1,12 +1,12 @@
 import type { Page } from 'puppeteer'
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest'
-import { clickAction, launch, type Session, startFixtureServer } from './harness'
+import { launch, type Session, startFixtureServer } from './harness'
 import {
   centerOf,
   markElement,
-  overlayMounted,
   overlayText,
   sleep,
+  startOverlay,
   waitForItems,
   waitInOverlay,
 } from './overlay-helpers'
@@ -22,10 +22,7 @@ describe('element mode', () => {
   })
 
   beforeEach(async () => {
-    await session.page.goto(`${server.origin}/plain/`)
-    panel = await clickAction(session)
-    await panel.evaluate(() => chrome.storage.local.clear())
-    await overlayMounted(session)
+    panel = await startOverlay(session, `${server.origin}/plain/`)
   })
 
   afterAll(async () => {
