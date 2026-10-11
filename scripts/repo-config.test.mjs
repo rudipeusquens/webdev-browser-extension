@@ -38,7 +38,11 @@ describe('CI', () => {
   })
 
   it('packs the extension and checks the package', () => {
-    assert.match(jobs.get('ci').join('\n'), /^\s+- run: pnpm zip$/m)
+    const steps = jobs.get('ci').join('\n')
+    assert.match(steps, /^\s+- run: pnpm zip$/m)
+    // Built once: the E2E tests run the build that was packed and checked.
+    assert.doesNotMatch(steps, /^\s+- run: pnpm (build|manifest:check|bundle:check)$/m)
+    assert.ok(steps.indexOf('- run: pnpm zip') < steps.indexOf('- run: pnpm test:e2e'))
     const zip = JSON.parse(read('package.json')).scripts.zip
     assert.match(zip, /^wxt zip && /)
     for (const check of ['check-manifest', 'check-bundle', 'check-zip']) {

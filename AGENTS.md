@@ -93,8 +93,8 @@ If Chrome for Testing fails to start because system libraries are missing
 - **pre-push:** `privacy-check --push` on everything the push sends (also commits made by a
   rebase, cherry-pick or `git am`, which run no pre-commit hook), and the ref names
 - **CI** (`.github/workflows/ci.yml`, checks `ci` and `privacy`, required for merging): `ci`
-  runs install → lint → format:check → compile → build → manifest:check → bundle:check → zip →
-  E2E in Chrome for Testing → unit tests → secretlint over all tracked files →
+  runs install → lint → format:check → compile → zip (the one build, with the manifest, bundle
+  and zip checks) → E2E in Chrome for Testing → unit tests → secretlint over all tracked files →
   `privacy-check` over the tree and the full history → gitleaks over the full history;
   `privacy` runs the privacy check with the denylist secret in a job that installs nothing
 - **MCP servers** (`.mcp.json`) start through `pnpm dlx` with an exact version, so the age gate
