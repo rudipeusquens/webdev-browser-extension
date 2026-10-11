@@ -1,9 +1,8 @@
-import { mount } from '@vue/test-utils'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { defineComponent } from 'vue'
 import type { Browser } from 'wxt/browser'
 import { ASK_WAIT, useVoice, type VoiceHandlers } from '@/composables/use-voice'
 import { type FakePort, fakePort } from './helpers/fake-ports'
+import { withSetup } from './helpers/with-setup'
 
 function setup(handlers: VoiceHandlers = {}) {
   const ports: FakePort[] = []
@@ -12,15 +11,7 @@ function setup(handlers: VoiceHandlers = {}) {
     ports.push(port)
     return port as unknown as Browser.runtime.Port
   })
-  let voice!: ReturnType<typeof useVoice>
-  const host = mount(
-    defineComponent({
-      setup() {
-        voice = useVoice(handlers, connect)
-        return () => null
-      },
-    }),
-  )
+  const { result: voice, wrapper: host } = withSetup(() => useVoice(handlers, connect))
   const port = () => ports.at(-1) as FakePort
   return { voice, host, connect, ports, port }
 }
