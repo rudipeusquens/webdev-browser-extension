@@ -44,6 +44,7 @@ import { writeClipboard } from './clipboard'
 import { useDictation } from './use-dictation'
 import { usePanelView } from './use-panel-view'
 import { useMissing } from './use-missing'
+import { openMicPermission } from './mic-permission'
 import { useOverlayLines } from './use-overlay-lines'
 import { usePanelToggle } from './use-panel-toggle'
 import { useSettings } from './use-settings'
@@ -295,10 +296,6 @@ function copyNote(id: string) {
 function retryNote(id: string) {
   dictation.retried(id)
   void change({ type: 'note:retry', id })
-}
-
-function grantMicrophone() {
-  void browser.tabs.create({ url: browser.runtime.getURL('/mic-permission.html') })
 }
 
 /** The open items; then exactly those become done (spec section 7). */
@@ -756,7 +753,7 @@ function setMode(next: unknown) {
             data-testid="rec-grant"
             variant="outline"
             size="xs"
-            @click="grantMicrophone"
+            @click="openMicPermission"
           >
             Grant
           </Button>
