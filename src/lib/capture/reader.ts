@@ -3,7 +3,6 @@
 // used: form fields, scripts, styles and text the page does not show are skipped here, so no
 // field value ever reaches a snapshot (spec section 6). Every walk has a budget.
 
-import { LIMITS } from '../collection/model'
 import { collapse, truncate } from '../text'
 import {
   childNodeAt,
@@ -321,7 +320,7 @@ export function capText(text: string, max: number, cut: boolean): string {
 }
 
 /** The text an element shows, collapsed, capped at `max` (spec section 6). */
-export function shownText(el: Element, view: Window, max: number = LIMITS.text): string {
+export function shownText(el: Element, view: Window, max: number): string {
   const read = readForward(new TextReader(view), el, el, 0, () => ({ stop: false }), max * 8)
   const text = collapse(join(read.pieces)).trim()
   return text ? capText(text, max, read.cut) : ''

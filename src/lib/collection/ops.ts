@@ -1,7 +1,7 @@
 // Pure operations on a collection. They never mutate their input; an operation that changes
 // nothing returns the collection it was given.
 
-import { insertTranscript } from '../voice/transcript'
+import { appendTranscript } from '../voice/transcript'
 import type { Annotation, Collection, PageInfo, Status, Target } from './model'
 import { pageKey } from './page-key'
 import { siteOf } from './site'
@@ -107,8 +107,7 @@ export function fillTranscript(
   const found = c.items.find((item) => item.id === id)
   if (!found) return { collection: c, rest: text }
   if (text.trim() === '') return { collection: c }
-  const end = found.comment.length
-  const { value, cut } = insertTranscript(found.comment, end, end, text.trim())
+  const { value, cut } = appendTranscript(found.comment, text.trim())
   if (value === found.comment && !found.draft) return { collection: c, rest: text }
   const status = found.status === 'done' ? 'open' : found.status
   const next: Annotation = { ...saved(found), comment: value, status, updatedAt: now }

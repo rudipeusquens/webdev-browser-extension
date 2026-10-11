@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it } from 'vitest'
-import { astroSource, combineOrigin, parseVueOrigin, withInspectorLine } from '@/lib/capture/origin'
+import { astroSource, parseVueOrigin, withInspectorLine } from '@/lib/capture/origin'
 import { astroOrigin, inspectorOf } from '@/lib/capture/source-attributes'
 import type { CodeOrigin } from '@/lib/collection/model'
 import { isElementSnapshot } from '@/lib/collection/validate'
@@ -179,15 +179,5 @@ describe('inspector lines', () => {
   it('leaves the origin alone when the inspector names another file', () => {
     expect(withInspectorLine(vue, { file: 'src/components/Other.vue', line: 7 })).toEqual(vue)
     expect(withInspectorLine(vue, { file: 'ard.vue', line: 7 })).toEqual(vue)
-  })
-})
-
-describe('combineOrigin', () => {
-  it('prefers Vue over Astro', () => {
-    const vue: CodeOrigin = { framework: 'vue', chain: [component('Card')] }
-    const astro: CodeOrigin = { framework: 'astro', chain: [{ file: '/srv/site/a.astro' }] }
-    expect(combineOrigin(vue, astro)).toBe(vue)
-    expect(combineOrigin(undefined, astro)).toBe(astro)
-    expect(combineOrigin(undefined, undefined)).toBeUndefined()
   })
 })

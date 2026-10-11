@@ -2,7 +2,7 @@
 // through the background by selector, else the Astro source attributes on the elements.
 
 import { browser } from 'wxt/browser'
-import { combineOrigin, withInspectorLine } from '@/lib/capture/origin'
+import { withInspectorLine } from '@/lib/capture/origin'
 import { astroOrigin, inspectorOf } from '@/lib/capture/source-attributes'
 import type { CodeOrigin, ElementSnapshot, Target } from '@/lib/collection/model'
 import type { OriginReply } from '@/lib/messages'
@@ -41,10 +41,8 @@ export async function readOrigins({ elements, selectors }: Sources): Promise<Ori
   }
   return elements.map((el, i) => {
     const found = vue[i]
-    return combineOrigin(
-      found ? withInspectorLine(found, inspectorOf(el)) : undefined,
-      astroOrigin(el),
-    )
+    // Vue first: inside an Astro page, a Vue island knows its components best.
+    return found ? withInspectorLine(found, inspectorOf(el)) : astroOrigin(el)
   })
 }
 

@@ -268,9 +268,9 @@ function toOverlay(message: OverlayMessage) {
 
 /**
  * Writes the prompt of `ids` to the clipboard, or offers it for manual copying when the
- * clipboard refuses. True when the text was written or offered.
+ * clipboard refuses.
  */
-async function writePrompt(ids: string[], done: string): Promise<boolean> {
+async function writePrompt(ids: string[], done: string): Promise<void> {
   const text = formatCollection(pick(collection.value, new Set(ids)), { missing: missing.value })
   const settle = dictation.copyingOther()
   try {
@@ -278,11 +278,10 @@ async function writePrompt(ids: string[], done: string): Promise<boolean> {
   } catch {
     settle(false)
     fallbacks.value.push({ text, kind: 'prompt' })
-    return true
+    return
   }
   settle(true)
   say(done)
-  return true
 }
 
 const dictation = useDictation(

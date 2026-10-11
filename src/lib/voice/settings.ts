@@ -3,7 +3,7 @@
 // the background writes them.
 
 import { browser } from 'wxt/browser'
-import { hasKeys, isObject } from '../collection/validate'
+import { isObject } from '../collection/validate'
 import { isLimit } from './protocol'
 
 export interface VoiceSettings {
@@ -64,20 +64,7 @@ export const isLanguage = (x: unknown): x is string =>
 export const isApiKey = (x: unknown): x is string =>
   typeof x === 'string' && /^[\x21-\x7e]{8,256}$/.test(x)
 
-export function isVoiceSettings(x: unknown): x is VoiceSettings {
-  return (
-    hasKeys(x, ['model', 'language', 'limit']) &&
-    isModelId(x.model) &&
-    isLanguage(x.language) &&
-    isLimit(x.limit)
-  )
-}
-
-export const defaultVoiceSettings = (): VoiceSettings => ({
-  model: DEFAULT_MODEL,
-  language: 'auto',
-  limit: DEFAULT_LIMIT,
-})
+export const defaultVoiceSettings = (): VoiceSettings => parse(undefined)
 
 /** Each field as stored when it is well-formed, else its default. */
 function parse(value: unknown): VoiceSettings {

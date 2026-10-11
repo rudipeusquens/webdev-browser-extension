@@ -163,8 +163,6 @@ const differ = (a: Selection, b: Selection) => a.start !== b.start || a.end !== 
 export class CommentGuard {
   /** The text as last changed by the user. */
   verified: string
-  /** An unannounced edit was seen. */
-  tampered = false
   private chosen: Selection | null = null
   private pending: Pending[] = []
   private timer: ReturnType<typeof setTimeout> | undefined
@@ -261,7 +259,6 @@ export class CommentGuard {
 
   private reject(): false {
     this.pending = []
-    this.tampered = true
     return false
   }
 

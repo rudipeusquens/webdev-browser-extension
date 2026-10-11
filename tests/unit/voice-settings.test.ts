@@ -1,13 +1,13 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { fakeBrowser } from 'wxt/testing/fake-browser'
 import { loadSettings, SETTINGS_KEY } from '@/lib/settings'
-import { deleteKey, isApiKey, KEY_DB, loadKey, maskKey, storeKey } from '@/lib/voice/key'
+import { deleteKey, KEY_DB, loadKey, maskKey, storeKey } from '@/lib/voice/key'
 import {
   DEFAULT_MODEL,
+  isApiKey,
   isLanguage,
   isModelId,
   DEFAULT_LIMIT,
-  isVoiceSettings,
   LANGUAGES,
   LIMIT_CHOICES,
   loadVoiceSettings,
@@ -127,10 +127,6 @@ describe('voice settings', () => {
     expect(MODELS.every((m) => isModelId(m.id) && m.label.length > 0)).toBe(true)
     expect(LANGUAGES.every((l) => isLanguage(l.code) && l.label.length > 0)).toBe(true)
     expect(new Set(LANGUAGES.map((l) => l.code)).size).toBe(LANGUAGES.length)
-    expect(
-      isVoiceSettings({ model: MODELS[3]?.id, language: LANGUAGES[2]?.code, limit: 60_000 }),
-    ).toBe(true)
-    expect(isVoiceSettings({ model: MODELS[3]?.id, language: LANGUAGES[2]?.code })).toBe(false)
   })
 })
 
