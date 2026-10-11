@@ -2,7 +2,7 @@ import type { Page } from 'puppeteer'
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest'
 import { FAKE_TEXT, startFakeOpenRouter } from './fake-openrouter'
 import {
-  allowClipboard,
+  grantPermissions,
   clickAction,
   launch,
   serviceWorker,
@@ -29,7 +29,7 @@ describe('Rec in the panel', () => {
   beforeAll(async () => {
     fake = await startFakeOpenRouter()
     s = await launch({ openrouter: fake.origin, microphone: 'granted' })
-    await allowClipboard(s, ['clipboard-read'])
+    await grantPermissions(s, ['clipboard-read'])
     panel = await startOverlay(s, `${server.origin}/plain/`, { clear: false })
   })
 

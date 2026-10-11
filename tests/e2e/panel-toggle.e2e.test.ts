@@ -5,7 +5,7 @@ import {
   launch,
   panelUrl,
   type Session,
-  useAction,
+  triggerAction,
   useFixtureServer,
 } from './harness'
 import { GLASS, markElement, overlayMounted, sleep, waitInOverlay } from './overlay-helpers'
@@ -48,7 +48,7 @@ describe('the toolbar action toggles the side panel', () => {
       g.before = globalThis.__webdevOverlay?.shadow
     })
 
-    await useAction(session, session.page)
+    await triggerAction(session, session.page)
     await panelClosed(session)
     await waitInOverlay(session, GLASS, false)
     await waitInOverlay(session, '[data-testid="overlay-pin"]')
@@ -71,7 +71,7 @@ describe('the toolbar action toggles the side panel', () => {
     await other.goto(`${server.origin}/svg/`)
     await other.bringToFront()
     await panel.waitForSelector('[data-testid="site-pill"][data-state="idle"]')
-    await useAction(session, other)
+    await triggerAction(session, other)
     await overlayMounted({ ...session, page: other })
     await panel.waitForSelector('[data-testid="site-pill"][data-state="active"]')
     expect(panel.isClosed()).toBe(false)

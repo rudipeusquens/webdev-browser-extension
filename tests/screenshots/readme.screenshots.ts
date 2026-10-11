@@ -12,7 +12,7 @@ import { createServer, type Server } from 'node:http'
 import { extname, join, resolve } from 'node:path'
 import type { Page } from 'puppeteer'
 import { afterAll, beforeAll, expect, it } from 'vitest'
-import { allowClipboard, clickAction, contentRealm, launch, type Session } from '../e2e/harness'
+import { grantPermissions, clickAction, contentRealm, launch, type Session } from '../e2e/harness'
 import {
   centerOf,
   clickInOverlay,
@@ -88,7 +88,7 @@ beforeAll(async () => {
   session = await launch({ hostPermissions: ['http://localhost/*'] })
   // Copy as prompt writes to the clipboard, and Settings shows the microphone allowed. Every
   // permission not named here is denied to the extension.
-  await allowClipboard(session, ['clipboard-read', 'clipboard-sanitized-write', 'microphone'])
+  await grantPermissions(session, ['clipboard-read', 'clipboard-sanitized-write', 'microphone'])
   await session.page.setViewport({ ...VIEW, deviceScaleFactor: SCALE })
   await session.page.emulateMediaFeatures([{ name: 'prefers-color-scheme', value: 'light' }])
   await session.page.goto(`http://localhost:${PORT}/settings`)

@@ -1,7 +1,7 @@
 import { beforeAll, describe, expect, it } from 'vitest'
 import { formatCollection } from '../../src/lib/format/markdown'
 import type { Collection } from '../../src/lib/collection/model'
-import { allowClipboard, clickAction, useBrowser, useFixtureServer } from './harness'
+import { grantPermissions, clickAction, useBrowser, useFixtureServer } from './harness'
 import { centerOf, storedCollection, waitInOverlay } from './overlay-helpers'
 
 describe('marking an element end to end', () => {
@@ -9,7 +9,7 @@ describe('marking an element end to end', () => {
   const session = useBrowser()
 
   beforeAll(async () => {
-    await allowClipboard(session)
+    await grantPermissions(session)
   })
 
   it('marks, lists and copies the prompt', async () => {

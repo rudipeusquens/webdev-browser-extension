@@ -1,7 +1,7 @@
 import { beforeAll, describe, expect, it } from 'vitest'
 import type { Collection } from '../../src/lib/collection/model'
 import { formatCollection } from '../../src/lib/format/markdown'
-import { allowClipboard, clickAction, useBrowser, useFixtureServer } from './harness'
+import { grantPermissions, clickAction, useBrowser, useFixtureServer } from './harness'
 import {
   clickInOverlay,
   comment,
@@ -19,7 +19,7 @@ describe('all three marking types', () => {
   const session = useBrowser()
 
   beforeAll(async () => {
-    await allowClipboard(session)
+    await grantPermissions(session)
   })
 
   it('end up in one prompt', async () => {

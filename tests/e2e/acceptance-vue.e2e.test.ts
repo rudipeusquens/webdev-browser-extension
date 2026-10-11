@@ -1,7 +1,7 @@
 import { beforeAll, describe, expect, it } from 'vitest'
 import type { Collection } from '../../src/lib/collection/model'
 import { formatCollection } from '../../src/lib/format/markdown'
-import { allowClipboard, clickAction, contentRealm, useBrowser, useVueDevServer } from './harness'
+import { grantPermissions, clickAction, contentRealm, useBrowser, useVueDevServer } from './harness'
 import {
   centerOf,
   clickInOverlay,
@@ -22,7 +22,7 @@ describe('a three-page session on a Vue app', () => {
   const session = useBrowser()
 
   beforeAll(async () => {
-    await allowClipboard(session)
+    await grantPermissions(session)
   })
 
   const file = (path: string) => `${app.root}/src/${path}`

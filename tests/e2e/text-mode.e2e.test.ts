@@ -2,7 +2,7 @@ import type { Page } from 'puppeteer'
 import { beforeAll, beforeEach, describe, expect, it } from 'vitest'
 import type { Collection, TextTarget } from '../../src/lib/collection/model'
 import { formatCollection } from '../../src/lib/format/markdown'
-import { allowClipboard, contentRealm, useBrowser, useFixtureServer } from './harness'
+import { grantPermissions, contentRealm, useBrowser, useFixtureServer } from './harness'
 import {
   centerOf,
   CHIP,
@@ -27,7 +27,7 @@ describe('marking text', () => {
   let panel: Page
 
   beforeAll(async () => {
-    await allowClipboard(session)
+    await grantPermissions(session)
   })
 
   beforeEach(async () => {

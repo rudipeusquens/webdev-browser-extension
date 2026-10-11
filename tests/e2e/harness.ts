@@ -57,7 +57,7 @@ export async function startFixtureServer() {
  * runs from a copy in a temporary directory, so tests can change its files (HMR) and the
  * paths are known; `vue` resolves to this repository's copy.
  */
-export async function startVueDevServer() {
+async function startVueDevServer() {
   const root = await realpath(await mkdtemp(join(tmpdir(), 'webdev-vue-app-')))
   await cp(resolve('tests/fixtures/sites/vue-app'), root, { recursive: true })
   const server = await createViteServer({
@@ -198,8 +198,8 @@ export async function setMicrophone(s: Session, setting: MicrophoneSetting): Pro
   })
 }
 
-/** Lets the extension use the clipboard in the tests, as a user would grant it. */
-export function allowClipboard(
+/** Grants the extension permissions in the tests, as a user would: the clipboard by default. */
+export function grantPermissions(
   s: Session,
   permissions: Permission[] = ['clipboard-read', 'clipboard-sanitized-write'],
 ): Promise<void> {
@@ -242,7 +242,7 @@ export async function startOverlayAgain(s: Session): Promise<void> {
 export const panelUrl = (s: Session) => `chrome-extension://${s.extensionId}/sidepanel.html`
 
 /** Uses the toolbar action on `page`, without waiting for a panel. */
-export async function useAction(s: Session, page: Page): Promise<void> {
+export async function triggerAction(s: Session, page: Page): Promise<void> {
   const extension = (await s.browser.extensions()).get(s.extensionId)
   if (!extension) throw new Error('extension is not installed')
   await page.triggerExtensionAction(extension)
@@ -250,7 +250,7 @@ export async function useAction(s: Session, page: Page): Promise<void> {
 
 /** Clicks the toolbar action on `s.page` and returns the side panel page. */
 export async function clickAction(s: Session): Promise<Page> {
-  await useAction(s, s.page)
+  await triggerAction(s, s.page)
   const target = await s.browser.waitForTarget((t) => t.url() === panelUrl(s))
   const panel = await target.asPage()
   // A headless side panel reports a 0×0 viewport otherwise.
@@ -271,8 +271,8 @@ export async function contentRealm(s: Session): Promise<Realm> {
 
 /**
  * Registers the lifecycle of a resource for the enclosing `describe`: started in `beforeAll`,
- * closed in `afterAll`. The returned object is filled when the hook has run, so tests can
- * destructure or share it like a value from `beforeAll`. Declare servers before the browser:
+ * closed in `afterAll`. The returned object is filled when the hook has run: read it only in
+ * hooks and tests, it is empty while the describe is being collected. Declare servers before the browser:
  * `afterAll` hooks run in reverse, so the browser closes first.
  */
 function useResource<T extends object>(

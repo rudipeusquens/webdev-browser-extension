@@ -5,7 +5,7 @@ import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest'
 import { FAKE_TEXT, startFakeOpenRouter } from './fake-openrouter'
 import { offscreenDocuments, setKey } from './voice-helpers'
 import {
-  allowClipboard,
+  grantPermissions,
   clickAction,
   EXTENSION_DIR,
   launch,
@@ -58,7 +58,7 @@ describe('dictating a comment', () => {
   beforeAll(async () => {
     fake = await startFakeOpenRouter()
     s = await launch({ openrouter: fake.origin, microphone: 'granted' })
-    await allowClipboard(s)
+    await grantPermissions(s)
     await s.page.goto(`${server.origin}/plain/`)
     // The toolbar click grants activeTab and opens the panel; later tests start overlays
     // without toggling it.

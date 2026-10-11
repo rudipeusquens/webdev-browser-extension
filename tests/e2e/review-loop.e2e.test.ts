@@ -1,6 +1,6 @@
 import type { Page } from 'puppeteer'
 import { beforeAll, describe, expect, it } from 'vitest'
-import { allowClipboard, contentRealm, useBrowser, useFixtureServer } from './harness'
+import { grantPermissions, contentRealm, useBrowser, useFixtureServer } from './harness'
 import {
   markAndSave,
   sleep,
@@ -18,7 +18,7 @@ describe('the review loop', () => {
   let panel: Page
 
   beforeAll(async () => {
-    await allowClipboard(session)
+    await grantPermissions(session)
   })
 
   const clipboard = () => panel.evaluate(() => navigator.clipboard.readText())

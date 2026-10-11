@@ -1,12 +1,12 @@
 import type { Page } from 'puppeteer'
 import { beforeAll, describe, expect, it } from 'vitest'
 import {
-  allowClipboard,
+  grantPermissions,
   clickAction,
   contentRealm,
   panelUrl,
   startOverlayAgain,
-  useAction,
+  triggerAction,
   useBrowser,
   useFixtureServer,
 } from './harness'
@@ -64,7 +64,7 @@ describe('drafts', () => {
     (await items(count)).find((i) => i.number === number)
 
   beforeAll(async () => {
-    await allowClipboard(session)
+    await grantPermissions(session)
     // Pin 1 on another page of the site, pins 2 and 3 on this one.
     panel = await startOverlay(session, `${server.origin}/plain/text.html`)
     await markAndStore(session, panel, 'h1', 'Elsewhere', 1)
@@ -160,7 +160,7 @@ describe('drafts', () => {
   it('keeps the text when the toolbar closes the panel and opens it again', async () => {
     await markElement(session, '.card')
     await session.page.keyboard.type('While closed')
-    await useAction(session, session.page)
+    await triggerAction(session, session.page)
     for (
       let i = 0;
       i < 50 && session.browser.targets().some((t) => t.url() === panelUrl(session));

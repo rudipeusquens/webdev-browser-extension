@@ -1,6 +1,12 @@
 import type { Page } from 'puppeteer'
 import { beforeAll, describe, expect, it } from 'vitest'
-import { allowClipboard, clickAction, serviceWorker, useBrowser, useFixtureServer } from './harness'
+import {
+  grantPermissions,
+  clickAction,
+  serviceWorker,
+  useBrowser,
+  useFixtureServer,
+} from './harness'
 import {
   markAndSave,
   overlayMounted,
@@ -18,7 +24,7 @@ describe('one collection per site', () => {
   let panel: Page
 
   beforeAll(async () => {
-    await allowClipboard(session)
+    await grantPermissions(session)
   })
 
   /** The comments the panel lists, in order. */

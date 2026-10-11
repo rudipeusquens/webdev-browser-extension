@@ -9,7 +9,7 @@ import type {
 } from '../../src/lib/collection/model'
 import { formatCollection } from '../../src/lib/format/markdown'
 import {
-  allowClipboard,
+  grantPermissions,
   clickAction,
   type Session,
   useBrowser,
@@ -47,7 +47,7 @@ describe('code origin on a Vue dev server', () => {
   let panel: Page
 
   beforeAll(async () => {
-    await allowClipboard(session)
+    await grantPermissions(session)
   })
 
   async function open(path: string, ready: string) {

@@ -1,6 +1,6 @@
 import type { Page } from 'puppeteer'
 import { beforeAll, beforeEach, describe, expect, it } from 'vitest'
-import { allowClipboard, contentRealm, useBrowser, useFixtureServer } from './harness'
+import { grantPermissions, contentRealm, useBrowser, useFixtureServer } from './harness'
 import {
   clickInOverlay,
   dragSelect,
@@ -30,7 +30,7 @@ describe('pin outlines', () => {
   let panel: Page
 
   beforeAll(async () => {
-    await allowClipboard(session)
+    await grantPermissions(session)
   })
 
   beforeEach(async () => {
