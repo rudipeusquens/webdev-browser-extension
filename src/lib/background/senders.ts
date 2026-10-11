@@ -2,7 +2,7 @@
 // which counts for the site of its own page only.
 
 import { browser, type Browser } from 'wxt/browser'
-import { siteOf } from '../collection/site'
+import { siteOrNull } from '../collection/site'
 
 /** The side panel of this extension: no tab, our id, the panel's own URL. */
 export function isPanelSender(sender: Browser.runtime.MessageSender): boolean {
@@ -15,10 +15,6 @@ export function isPanelSender(sender: Browser.runtime.MessageSender): boolean {
 
 /** The site of the page whose top frame sent the message; null for anything else. */
 export function pageSite(sender: Browser.runtime.MessageSender): string | null {
-  if (!sender.tab || sender.frameId !== 0 || !sender.url) return null
-  try {
-    return siteOf(sender.url)
-  } catch {
-    return null
-  }
+  if (!sender.tab || sender.frameId !== 0) return null
+  return siteOrNull(sender.url)
 }

@@ -16,6 +16,23 @@ export function siteOf(url: string): string {
   throw new Error('Not a page of a site.')
 }
 
+/** `siteOf(url)`, or null without a URL and for a page of no site. */
+export function siteOrNull(url?: string): string | null {
+  if (!url) return null
+  try {
+    return siteOf(url)
+  } catch {
+    return null
+  }
+}
+
+/** Whether the page `url` belongs to `site`. */
+export const belongsTo = (url: string, site: string) => siteOrNull(url) === site
+
+/** Sorts collections by site. */
+export const bySite = (a: { site: string }, b: { site: string }) =>
+  a.site < b.site ? -1 : a.site > b.site ? 1 : 0
+
 /** A site as `siteOf` writes it. */
 export function isSite(x: unknown): x is string {
   return x === FILES || isSiteOrigin(x)

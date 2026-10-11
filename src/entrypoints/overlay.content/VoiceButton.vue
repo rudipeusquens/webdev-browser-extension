@@ -11,8 +11,9 @@ const props = defineProps<{
 }>()
 
 const waiting = computed(() => props.state === 'starting' || props.state === 'transcribing')
+const dictating = computed(() => props.state === 'recording' || props.state === 'paused')
 const label = computed(() => {
-  if (props.state === 'recording' || props.state === 'paused') return 'Stop dictating (Alt+V)'
+  if (dictating.value) return 'Stop dictating (Alt+V)'
   if (props.state === 'transcribing') return 'Transcribing…'
   if (props.state === 'starting') return 'Starting the microphone…'
   return 'Dictate (Alt+V)'
@@ -25,20 +26,17 @@ const label = computed(() => {
     size="icon-sm"
     :aria-label="label"
     :title="label"
-    :aria-pressed="state === 'recording' || state === 'paused'"
+    :aria-pressed="dictating"
     :aria-disabled="waiting || undefined"
     :class="[
-      state === 'recording' || state === 'paused'
+      dictating
         ? 'bg-red-600 text-white hover:bg-red-600/90 hover:text-white'
         : 'text-muted-foreground',
       waiting && 'cursor-default opacity-50 hover:bg-transparent',
     ]"
   >
     <LoaderCircleIcon v-if="waiting" class="animate-spin" />
-    <SquareIcon
-      v-else-if="state === 'recording' || state === 'paused'"
-      class="size-3 fill-current"
-    />
+    <SquareIcon v-else-if="dictating" class="size-3 fill-current" />
     <MicIcon v-else />
   </Button>
 </template>

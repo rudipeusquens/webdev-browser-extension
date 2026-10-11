@@ -2,7 +2,6 @@
 // stops, fills it when the transcript arrives, and keeps what a pin could not hold; the panel
 // deletes them. Each change reads, changes and writes all of them, one after another.
 
-import { browser } from 'wxt/browser'
 import { newId } from '../ids'
 import {
   type Note,
@@ -12,26 +11,19 @@ import {
   type Notes,
   parseNotes,
 } from '../notes/model'
-import { loadStored } from '../storage'
-
-const bytes = (n: Notes) => new TextEncoder().encode(JSON.stringify(n)).length
+import { jsonBytes, loadStored, setOrRemove } from '../storage'
+import { interrupted } from '../voice/jobs'
+import { serial } from './serial'
 
 export type NotesWriter = ReturnType<typeof createNotes>
 
 export function createNotes(now = () => new Date().toISOString()) {
-  let queue: Promise<unknown> = Promise.resolve()
-
-  function inOrder<T>(task: () => Promise<T>): Promise<T> {
-    const run = queue.then(task)
-    queue = run.catch(() => undefined)
-    return run
-  }
+  const inOrder = serial()
 
   const read = () => loadStored(NOTES_KEY, parseNotes)
 
   async function save(n: Notes): Promise<void> {
-    if (n.items.length === 0) await browser.storage.local.remove(NOTES_KEY)
-    else await browser.storage.local.set({ [NOTES_KEY]: n })
+    await setOrRemove(NOTES_KEY, n, n.items.length === 0)
   }
 
   /** Changes the note `id`; false when it is gone. */
@@ -59,7 +51,7 @@ export function createNotes(now = () => new Date().toISOString()) {
         const evicted: string[] = []
         while (
           items.length > 1 &&
-          (items.length > NOTE_LIMITS.count || bytes({ version: 1, items }) > NOTE_LIMITS.bytes)
+          (items.length > NOTE_LIMITS.count || jsonBytes({ version: 1, items }) > NOTE_LIMITS.bytes)
         ) {
           const gone = items.shift()
           if (gone) evicted.push(gone.id)
@@ -98,11 +90,10 @@ export function createNotes(now = () => new Date().toISOString()) {
         const n = await read()
         let changed = false
         const items = n.items.map((note): Note => {
-          const job = note.job
-          if (!job || (job.state === 'failed' && !job.retry)) return note
+          const job = note.job && interrupted(note.job)
+          if (job === note.job) return note
           changed = true
-          const error = job.state === 'failed' ? job.error : 'lost'
-          return { ...note, job: { ...job, state: 'failed', error, retry: false } as NoteJob }
+          return { ...note, job }
         })
         if (changed) await save({ ...n, items })
       }).catch(() => undefined)

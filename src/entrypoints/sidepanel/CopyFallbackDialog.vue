@@ -25,22 +25,16 @@ const field = useTemplateRef<HTMLTextAreaElement>('field')
 
 const SELECTED = 'The text below is selected: press Ctrl+C (⌘C on a Mac).'
 const words = computed(() => {
-  switch (props.fallback?.kind) {
-    case 'dictation':
-      return {
-        title: 'Copy the dictation manually',
-        why: `The clipboard was not available. ${SELECTED}`,
-      }
-    case 'outdone':
-      return {
-        title: 'Your dictation',
-        why: `Pins copied while it ran keep the clipboard. ${SELECTED}`,
-      }
-    default:
-      return {
-        title: 'Copy the prompt manually',
-        why: `The clipboard was not available. ${SELECTED}`,
-      }
+  const kind = props.fallback?.kind
+  if (kind === 'outdone') {
+    return {
+      title: 'Your dictation',
+      why: `Pins copied while it ran keep the clipboard. ${SELECTED}`,
+    }
+  }
+  return {
+    title: kind === 'dictation' ? 'Copy the dictation manually' : 'Copy the prompt manually',
+    why: `The clipboard was not available. ${SELECTED}`,
   }
 })
 

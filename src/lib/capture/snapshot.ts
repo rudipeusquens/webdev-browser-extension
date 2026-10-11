@@ -1,6 +1,6 @@
 // Snapshots of elements and pages: plain data, capped, without form values (spec section 6).
 
-import type { ElementSnapshot, PageInfo } from '../collection/model'
+import type { ElementSnapshot, PageInfo, Rect } from '../collection/model'
 import { LIMITS } from '../collection/model'
 import { pageKey } from '../collection/page-key'
 import { clean, collapse, truncate } from '../text'
@@ -37,6 +37,16 @@ export function visibleText(el: Element): string {
   return isFormField(el) || !view ? '' : shownText(el, view, LIMITS.text)
 }
 
+/** A rectangle in viewport coordinates, in page coordinates and whole pixels. */
+export function pageRect(rect: Rect, view: Window | null): Rect {
+  return {
+    x: Math.round(rect.x + (view?.scrollX ?? 0)),
+    y: Math.round(rect.y + (view?.scrollY ?? 0)),
+    width: Math.round(rect.width),
+    height: Math.round(rect.height),
+  }
+}
+
 export function snapshotElement(el: Element): ElementSnapshot {
   const view = ownerDocumentOf(el).defaultView
   const rect = rectOf(el)
@@ -44,12 +54,7 @@ export function snapshotElement(el: Element): ElementSnapshot {
     selector: truncate(buildSelector(el), LIMITS.selector),
     openingTag: openingTag(el),
     text: visibleText(el),
-    box: {
-      x: Math.round(rect.x + (view?.scrollX ?? 0)),
-      y: Math.round(rect.y + (view?.scrollY ?? 0)),
-      width: Math.round(rect.width),
-      height: Math.round(rect.height),
-    },
+    box: pageRect(rect, view),
     styles: view ? pickStyles(view.getComputedStyle(el)) : {},
   }
 }

@@ -2,9 +2,8 @@
 // field falls back to its default without touching the others or the remembered sites. Only
 // the background writes them.
 
-import { browser } from 'wxt/browser'
 import { isObject } from '../collection/validate'
-import { isLimit } from './protocol'
+import { loadStored, watchStored } from '../storage'
 
 export interface VoiceSettings {
   /** OpenRouter model id, `vendor/name`. */
@@ -20,6 +19,12 @@ export const DEFAULT_MODEL = 'openai/gpt-4o-mini-transcribe'
 export const DEFAULT_LIMIT = 300_000
 /** The limits Settings offers, in milliseconds: 1, 2, 3, 5, 10 and 15 minutes. */
 export const LIMIT_CHOICES: readonly number[] = [1, 2, 3, 5, 10, 15].map((m) => m * 60_000)
+
+/** The limits a recording may pause at, in milliseconds (Settings offers minutes). */
+const MIN_LIMIT = 10_000
+const MAX_LIMIT = 3_600_000
+export const isLimit = (x: unknown): x is number =>
+  Number.isInteger(x) && (x as number) >= MIN_LIMIT && (x as number) <= MAX_LIMIT
 
 /** The short list of the settings, the default first (spec section 9). */
 export const MODELS: readonly { id: string; label: string }[] = [
@@ -76,17 +81,8 @@ function parse(value: unknown): VoiceSettings {
   }
 }
 
-export async function loadVoiceSettings(): Promise<VoiceSettings> {
-  const stored = await browser.storage.local.get(VOICE_KEY)
-  return parse(stored[VOICE_KEY])
-}
+export const loadVoiceSettings = (): Promise<VoiceSettings> => loadStored(VOICE_KEY, parse)
 
 /** Calls `cb` with the new voice settings whenever they change; returns a function that stops. */
-export function watchVoiceSettings(cb: (settings: VoiceSettings) => void): () => void {
-  const listener = (changes: Record<string, { newValue?: unknown }>, area: string) => {
-    const change = changes[VOICE_KEY]
-    if (area === 'local' && change) cb(parse(change.newValue))
-  }
-  browser.storage.onChanged.addListener(listener)
-  return () => browser.storage.onChanged.removeListener(listener)
-}
+export const watchVoiceSettings = (cb: (settings: VoiceSettings) => void): (() => void) =>
+  watchStored(VOICE_KEY, parse, cb)

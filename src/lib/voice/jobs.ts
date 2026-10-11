@@ -4,13 +4,11 @@
 // show it; only the background writes it. It holds no text and no key, so it lies in
 // `storage.local`, where the overlay can read it, and not in `storage.session`.
 
-import { hasKeys, isAnnotationId, isObject, isText } from '../collection/validate'
-import { VOICE_ERRORS, type VoiceError } from './protocol'
+import type { Annotation } from '../collection/model'
+import { hasKeys, isAnnotationId, isObject } from '../collection/validate'
+import { isFailure, type Failed } from './protocol'
 
-export type JobView =
-  | { state: 'transcribing' }
-  | { state: 'failed'; error: VoiceError; detail?: string; retry: boolean }
-  | { state: 'cut' }
+export type JobView = { state: 'transcribing' } | Failed | { state: 'cut' }
 
 /** The dictations of one site's pins, by pin id. */
 export type SiteJobs = Record<string, JobView>
@@ -27,12 +25,7 @@ export function isJobView(x: unknown): x is JobView {
     case 'cut':
       return hasKeys(x, ['state'])
     case 'failed':
-      return (
-        hasKeys(x, ['state', 'error', 'retry'], ['detail']) &&
-        VOICE_ERRORS.includes(x.error as VoiceError) &&
-        typeof x.retry === 'boolean' &&
-        (x.detail === undefined || isText(x.detail, 200, 1))
-      )
+      return isFailure(x)
     default:
       return false
   }
@@ -47,3 +40,18 @@ export function parseJobs(value: unknown): SiteJobs {
       .slice(0, MAX_JOBS),
   ) as SiteJobs
 }
+
+/**
+ * A pin's or note's job once the background started again: no recorder runs, so nothing is
+ * transcribed and no audio is held any more. A cut, and a failure without Retry, stay as they
+ * are (the same object).
+ */
+export function interrupted<J extends JobView>(job: J): J {
+  if (job.state === 'cut' || (job.state === 'failed' && !job.retry)) return job
+  const error = job.state === 'failed' ? job.error : 'lost'
+  return { ...job, state: 'failed', error, retry: false } as J
+}
+
+/** Copy as prompt takes open pins whose text is complete: no drafts, nothing transcribed. */
+export const copyable = (item: Annotation, jobs: SiteJobs | undefined) =>
+  item.status === 'open' && !item.draft && jobs?.[item.id]?.state !== 'transcribing'

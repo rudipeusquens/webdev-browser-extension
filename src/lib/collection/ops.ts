@@ -4,7 +4,7 @@
 import { appendTranscript } from '../voice/transcript'
 import type { Annotation, Collection, PageInfo, Status, Target } from './model'
 import { pageKey } from './page-key'
-import { siteOf } from './site'
+import { belongsTo } from './site'
 
 export interface NewAnnotation {
   id: string
@@ -32,18 +32,9 @@ export function emptyCollection(site: string): Collection {
   return { version: 2, site, nextNumber: 1, pages: {}, items: [], lastCopy: [] }
 }
 
-/** Whether `url` is a page of the site `site`. */
-function onSite(url: string, site: string): boolean {
-  try {
-    return siteOf(url) === site
-  } catch {
-    return false
-  }
-}
-
 /** A new open item; nothing for an id that exists or a page of another site. */
 export function addAnnotation(c: Collection, input: NewAnnotation, now: string): Collection {
-  if (c.items.some((item) => item.id === input.id) || !onSite(input.page.url, c.site)) return c
+  if (c.items.some((item) => item.id === input.id) || !belongsTo(input.page.url, c.site)) return c
   const key = pageKey(input.page.url)
   const item: Annotation = {
     id: input.id,
@@ -148,13 +139,16 @@ export function markCopied(c: Collection, ids: readonly string[], now: string): 
   }
 }
 
+/** The pages that hold any of `items`, in their order. */
+function pagesOf(pages: Collection['pages'], items: Annotation[]): Collection['pages'] {
+  const keys = new Set(items.map((item) => item.pageKey))
+  return Object.fromEntries(Object.entries(pages).filter(([key]) => keys.has(key)))
+}
+
 /** The items with these ids and their pages, as a collection for the formatter. */
 export function pick(c: Collection, ids: ReadonlySet<string>): Collection {
   const items = c.items.filter((item) => ids.has(item.id))
-  const pages = Object.fromEntries(
-    Object.entries(c.pages).filter(([key]) => items.some((item) => item.pageKey === key)),
-  )
-  return { ...c, pages, items }
+  return { ...c, pages: pagesOf(c.pages, items), items }
 }
 
 /** Clear all: every open and done item of the site is deleted; Restore and Undo undo it. */
@@ -176,12 +170,11 @@ export function emptyBin(c: Collection): Collection {
   const kept = c.items.filter((item) => item.status !== 'deleted')
   if (kept.length === c.items.length) return c
   if (kept.length === 0) return emptyCollection(c.site)
-  const pages = new Set(kept.map((item) => item.pageKey))
   const ids = new Set(kept.map((item) => item.id))
   return {
     ...c,
     items: kept,
-    pages: Object.fromEntries(Object.entries(c.pages).filter(([key]) => pages.has(key))),
+    pages: pagesOf(c.pages, kept),
     lastCopy: c.lastCopy.filter((id) => ids.has(id)),
   }
 }

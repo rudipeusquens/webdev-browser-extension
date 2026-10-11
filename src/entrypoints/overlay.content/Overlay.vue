@@ -11,6 +11,7 @@ import {
 } from 'vue'
 import { browser, type Browser } from 'wxt/browser'
 import { useSiteCollection } from '@/composables/use-site-collection'
+import { keepNewest } from '@/composables/use-stored'
 import { useVoice } from '@/composables/use-voice'
 import { closestOf, deepActiveElement, queryFirst, tagOf } from '@/lib/capture/dom'
 import { findText } from '@/lib/capture/find-text'
@@ -30,7 +31,7 @@ import type { PageInfo, Rect, Status, Target } from '@/lib/collection/model'
 import { siteOf } from '@/lib/collection/site'
 import { STATUS_BADGE, type Tone, toneOf } from '@/lib/status'
 import { type Filter, loadView, shows, watchView } from '@/lib/view'
-import { currentPlatform, isMacPlatform } from '@/lib/shortcuts'
+import { isMacPlatform } from '@/lib/shortcuts'
 import { truncate } from '@/lib/text'
 import {
   type BackgroundMessage,
@@ -42,18 +43,19 @@ import {
   type PinsPointed,
   type Reply,
 } from '@/lib/messages'
+import { request } from '@/lib/request'
 import { loadStored, watchStored } from '@/lib/storage'
 import { jobsKey, parseJobs, type SiteJobs } from '@/lib/voice/jobs'
+import { within } from '@/lib/within'
 import { createAnchorStatus } from './anchor-status'
 import CommentPopover from './CommentPopover.vue'
 import HoverBox from './HoverBox.vue'
 import { newId } from '@/lib/ids'
-import { type Origins, readOrigins, sourcesOf, within, withOrigins } from './origins'
+import { type Origins, readOrigins, selectorsOf, withOrigins } from './origins'
 import { pageShortcut } from './keys'
 import { createLinkSelect, pageSelectSurface } from './link-select'
 import { forwardsWheel, isEditable, pickAt, TargetPath, wheelTarget } from './picker'
 import {
-  areaIn,
   boxOf,
   clippersOf,
   inBounds,
@@ -61,10 +63,14 @@ import {
   type LiveAnchor,
   linesOf,
   notRendered,
+  onArea,
+  onElement,
+  onRange,
   outlineBox,
   pinPositions,
   placeItems,
   pruneLive,
+  toRect,
   visibleBounds,
 } from './pins'
 import type { Layer } from './top-layer'
@@ -153,14 +159,9 @@ const site = siteOf(location.href)
 const { collection } = useSiteCollection(ref(site))
 // The state of the pins' dictations while they are not done (spec section 8).
 const jobs = shallowRef<SiteJobs>({})
-let jobsChanged = false
-const stopJobs = watchStored(jobsKey(site), parseJobs, (now) => {
-  jobsChanged = true
-  jobs.value = now
-})
-void loadStored(jobsKey(site), parseJobs).then((now) => {
-  if (!jobsChanged) jobs.value = now
-})
+const newestJobs = keepNewest((now: SiteJobs) => (jobs.value = now))
+const stopJobs = watchStored(jobsKey(site), parseJobs, newestJobs.changed)
+void loadStored(jobsKey(site), parseJobs).then(newestJobs.loaded)
 // The dictation belongs to the overlay, not to a popover: it outlives the popover's changes.
 const voice = useVoice({
   // Another recording wants to start (another tab, Rec): this one is handed over, if it
@@ -174,14 +175,9 @@ const voice = useVoice({
 })
 // The panel's filter: which items have pins (spec section 8).
 const filter = ref<Filter>('open')
-let filterChanged = false
-const stopView = watchView((view) => {
-  filterChanged = true
-  filter.value = view.filter
-})
-void loadView().then((view) => {
-  if (!filterChanged) filter.value = view.filter
-})
+const newestFilter = keepNewest((now: Filter) => (filter.value = now))
+const stopView = watchView((view) => newestFilter.changed(view.filter))
+void loadView().then((view) => newestFilter.loaded(view.filter))
 // What was marked in this session, by item id: more precise than the stored selector.
 const live = shallowReactive(new Map<string, LiveAnchor>())
 let pointed: Element | null = null
@@ -218,7 +214,7 @@ async function askComponent(el: Element) {
   if (askingComponent || components.has(el)) return
   askingComponent = true
   try {
-    const [origin] = await readOrigins({ elements: [el], selectors: [buildSelector(el)] })
+    const [origin] = await readOrigins([el], [buildSelector(el)])
     components.set(el, origin?.chain.at(-1)?.name ?? null)
     componentsSeen.value++
   } catch {
@@ -266,7 +262,7 @@ const chipLine = computed(() => {
   const anchor = chip.value?.anchor
   if (!anchor || mode.value !== 'browse' || draft.value) return null
   const r = anchor.getBoundingClientRect()
-  const line = { x: r.x, y: r.y, width: r.width, height: r.height }
+  const line = toRect(r)
   // The page hid the selection's end (a menu closed): it would sit in the corner.
   if (notRendered(line)) return null
   // From the first character to the last: a long selection keeps its chip at the edge while
@@ -373,29 +369,29 @@ const outlines = computed(() => {
     return [{ id: item.id, strong, tone, dashed: item.target.kind === 'area', style }]
   })
 })
+/** The pin being edited, as stored now. */
+const editStored = computed(() => {
+  const edit = draft.value?.edit
+  return edit && collection.value?.items.find((item) => item.id === edit.id)
+})
 /** The tone of the pin being edited, now: the panel may change it while its popover is open. */
 const editStatus = computed((): Tone | undefined => {
   const edit = draft.value?.edit
   if (!edit) return undefined
-  return toneOf(collection.value?.items.find((item) => item.id === edit.id) ?? edit)
+  return toneOf(editStored.value ?? edit)
 })
 /** The comment of the pin being edited as stored now: a dictation may fill it meanwhile. */
 const editComment = computed(() => {
   const edit = draft.value?.edit
   if (!edit) return undefined
-  return collection.value?.items.find((item) => item.id === edit.id)?.comment ?? edit.comment
+  return editStored.value?.comment ?? edit.comment
 })
 
 /** Retry or Dismiss on the open pin's dictation. */
 async function jobAction(type: 'dictation:retry' | 'dictation:dismiss') {
   const current = draft.value
   if (!current) return
-  let reply: Reply | undefined
-  try {
-    reply = (await browser.runtime.sendMessage({ type, site, id: current.id })) as Reply | undefined
-  } catch {
-    reply = undefined
-  }
+  const reply = await request({ type, site, id: current.id })
   if (draft.value?.key === current.key && reply && !reply.ok) {
     draft.value = { ...current, error: reply.error }
   }
@@ -550,7 +546,7 @@ function openDraft(next: Omit<Draft, 'key' | 'busy' | 'id'>): number {
  */
 function marking(target: Target, elements: Element[]): Pick<Draft, 'origins' | 'marked' | 'page'> {
   return {
-    origins: readOrigins(sourcesOf(target, elements)),
+    origins: readOrigins(elements, selectorsOf(target)),
     marked: performance.now(),
     page: pageInfo(window),
   }
@@ -567,8 +563,7 @@ function select(el: Element | null) {
   const asked = marking(target, [el])
   const key = openDraft({
     kind: 'element',
-    el,
-    rect: () => boxOf(el),
+    ...onElement(el),
     target,
     live: el,
     label: (r) => describe(el, r, componentOf(el)),
@@ -599,8 +594,7 @@ function selectArea(rect: Rect) {
   const dy = rect.y - at.y
   openDraft({
     kind: 'area',
-    el: container,
-    rect: () => areaIn(boxOf(container), dx, dy, rect.width, rect.height),
+    ...onArea(container, dx, dy, rect.width, rect.height),
     target,
     live: container,
     label: labelOf(target, container),
@@ -732,20 +726,14 @@ function commentOnSelection() {
   if (!captured) return
   // What was read: measuring it on every frame stays cheap however much was selected.
   const { target, range: read } = captured
-  const el = rangeContainer(read)
-  const rect = () => {
-    const r = read.getBoundingClientRect()
-    return { x: r.x, y: r.y, width: r.width, height: r.height }
-  }
+  const placed = onRange(read)
   openDraft({
     kind: 'text',
-    el,
-    rect,
-    range: read,
+    ...placed,
     target,
     live: read,
-    label: labelOf(target, el),
-    ...marking(target, [el]),
+    label: labelOf(target, placed.el),
+    ...marking(target, [placed.el]),
   })
 }
 
@@ -757,12 +745,7 @@ async function changeStatus(type: 'annotation:remove' | 'annotation:restore') {
   voice.cancel()
   draft.value = { ...current, busy: true, error: undefined }
   const message: BackgroundMessage = { type, site, id }
-  let reply: Reply | undefined
-  try {
-    reply = (await browser.runtime.sendMessage(message)) as Reply | undefined
-  } catch {
-    reply = undefined
-  }
+  const reply = await request(message)
   if (draft.value?.key !== current.key) return
   if (reply?.ok) {
     draft.value = null
@@ -786,7 +769,7 @@ function onPinClick(e: MouseEvent, id: string) {
 /** Esc on the page: a drag ends, a dictation ends, then the popover closes and keeps its pin. */
 function cancel() {
   if (drag.value) drag.value = null
-  else if (voice.busy.value || voice.holds.value) voice.cancel()
+  else if (voice.active.value) voice.cancel()
   else void leave()
 }
 
@@ -829,12 +812,7 @@ async function persist(
     }
     if (kept || comment === '') message.draft = true
   }
-  let reply: Reply | undefined
-  try {
-    reply = (await browser.runtime.sendMessage(message)) as Reply | undefined
-  } catch {
-    reply = undefined
-  }
+  const reply = await request(message)
   if (!reply?.ok) return { ok: false, error: reply && !reply.ok ? reply.error : NOT_SAVED }
   if (!edit) {
     current.stored = true
@@ -1102,7 +1080,7 @@ const panels = new Set<Browser.runtime.Port>()
 // open; the page keeps its Ctrl+click otherwise (spec section 8).
 const linkSelect = createLinkSelect(pageSelectSurface(document, props.host), {
   host: props.host,
-  mac: isMacPlatform(currentPlatform()),
+  mac: isMacPlatform(),
   active: () => mode.value === 'browse' && panels.size > 0,
   editable: (target) => isEditable(target instanceof Element ? target : null),
 })

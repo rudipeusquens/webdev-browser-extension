@@ -2,19 +2,14 @@
 // one change at a time, an empty site's key removed.
 
 import { browser } from 'wxt/browser'
-import { loadStored } from '../storage'
-import { type JobView, JOBS_PREFIX, jobsKey, parseJobs } from '../voice/jobs'
+import { loadStored, setOrRemove } from '../storage'
+import { interrupted, type JobView, JOBS_PREFIX, jobsKey, parseJobs } from '../voice/jobs'
+import { serial } from './serial'
 
 export type DictationsWriter = ReturnType<typeof createDictations>
 
 export function createDictations() {
-  let queue: Promise<unknown> = Promise.resolve()
-
-  function inOrder<T>(task: () => Promise<T>): Promise<T> {
-    const run = queue.then(task)
-    queue = run.catch(() => undefined)
-    return run
-  }
+  const inOrder = serial()
 
   return {
     /** The state of the pin `id` of `site`; null when its dictation is over. */
@@ -24,8 +19,7 @@ export function createDictations() {
         const jobs = await loadStored(key, parseJobs)
         if (view) jobs[id] = view
         else delete jobs[id]
-        if (Object.keys(jobs).length === 0) await browser.storage.local.remove(key)
-        else await browser.storage.local.set({ [key]: jobs })
+        await setOrRemove(key, jobs, Object.keys(jobs).length === 0)
       }).catch(() => undefined)
     },
 
@@ -47,10 +41,10 @@ export function createDictations() {
           const jobs = parseJobs(value)
           let changed = false
           for (const [id, view] of Object.entries(jobs)) {
-            if (view.state === 'cut' || (view.state === 'failed' && !view.retry)) continue
+            const after = interrupted(view)
+            if (after === view) continue
             changed = true
-            const error = view.state === 'failed' ? view.error : 'lost'
-            jobs[id] = { ...view, state: 'failed', error, retry: false } as JobView
+            jobs[id] = after
           }
           if (changed) next[key] = jobs
         }

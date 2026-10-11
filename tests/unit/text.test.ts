@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { clean, collapse, truncate } from '@/lib/text'
+import { clean, collapse, plural, truncate } from '@/lib/text'
 
 describe('collapse', () => {
   it('removes control and bidirectional formatting characters', () => {
@@ -64,5 +64,13 @@ describe('truncate', () => {
 
   it('leaves short strings alone', () => {
     expect(truncate('abc', 3)).toBe('abc')
+  })
+})
+
+describe('plural', () => {
+  it('writes the count and the word, plural unless it is one', () => {
+    expect(plural(0, 'pin')).toBe('0 pins')
+    expect(plural(1, 'pin')).toBe('1 pin')
+    expect(plural(2, 'deleted pin')).toBe('2 deleted pins')
   })
 })

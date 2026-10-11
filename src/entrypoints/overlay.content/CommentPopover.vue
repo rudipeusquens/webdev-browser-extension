@@ -5,9 +5,9 @@ import { browser } from 'wxt/browser'
 import { Button } from '@/components/ui/button'
 import type { Rect, Status } from '@/lib/collection/model'
 import type { BackgroundMessage, VoiceReadyReply } from '@/lib/messages'
-import { currentPlatform, isMacPlatform } from '@/lib/shortcuts'
+import { isMacPlatform } from '@/lib/shortcuts'
 import type { JobView } from '@/lib/voice/jobs'
-import { dictationFailure, type RecordingState } from '@/lib/voice/protocol'
+import { dictationFailure, isActive, isBusy, type RecordingState } from '@/lib/voice/protocol'
 import { CommentGuard } from './comment-guard'
 import { popoverKey, spaceKey } from './keys'
 import { placeNear } from './place'
@@ -68,7 +68,7 @@ const emit = defineEmits<{
 }>()
 
 const guard = new CommentGuard(props.initial ?? '')
-const mac = isMacPlatform(currentPlatform())
+const mac = isMacPlatform()
 const selection = useFieldSelection(guard, mac)
 const text = ref(guard.verified)
 const warning = ref('')
@@ -81,12 +81,7 @@ const ready = ref(false)
 const recording = computed(
   () => props.voice.state === 'recording' || props.voice.state === 'paused',
 )
-const voiceBusy = computed(() => recording.value || props.voice.state === 'starting')
-/** A recording that ended by itself, held until Retry sends it or Esc drops it. */
-const holds = computed(() => {
-  const now = props.voice
-  return now.state === 'failed' && now.error === 'mic-lost' && now.retry
-})
+const voiceBusy = computed(() => isBusy(props.voice))
 const transcribing = computed(() => props.job?.state === 'transcribing')
 // A dictation's stop saves too: its text follows.
 const canSave = computed(
@@ -220,7 +215,7 @@ function onKeydown(e: KeyboardEvent) {
     if (!transcribing.value) emit('dictate')
   }
   // Escape ends a running dictation first, then closes and keeps the pin.
-  else if (voiceBusy.value || holds.value) emit('voice-cancel')
+  else if (isActive(props.voice)) emit('voice-cancel')
   else emit('close')
 }
 

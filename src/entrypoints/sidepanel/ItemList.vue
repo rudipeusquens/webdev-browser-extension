@@ -14,11 +14,12 @@ import { nextTick, useTemplateRef, watch } from 'vue'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import type { PageGroup } from '@/lib/collection/ops'
+import { siteOrNull } from '@/lib/collection/site'
 import type { Pointed } from './use-overlay-lines'
 import { targetSummary } from '@/lib/format/summary'
 import { isSiteOrigin } from '@/lib/settings'
 import { STATUS_BADGE, STATUS_NAME, toneOf } from '@/lib/status'
-import type { JobView, SiteJobs } from '@/lib/voice/jobs'
+import { copyable, type JobView, type SiteJobs } from '@/lib/voice/jobs'
 import { dictationFailure } from '@/lib/voice/protocol'
 import type { Annotation } from '@/lib/collection/model'
 
@@ -52,8 +53,6 @@ const emit = defineEmits<{
 
 const jobOf = (item: Annotation): JobView | undefined => props.jobs?.[item.id]
 const transcribing = (item: Annotation) => jobOf(item)?.state === 'transcribing'
-/** Copy as prompt takes open pins whose text is complete: no drafts, nothing transcribed. */
-const copyable = (item: Annotation) => item.status === 'open' && !item.draft && !transcribing(item)
 
 const list = useTemplateRef<HTMLElement>('list')
 
@@ -91,13 +90,9 @@ function pathOf(key: string): string {
   }
 }
 
-/** Go to works for pages on the web only. */
+/** Go to works for pages on the web only: the site of local files is no origin. */
 function openable(url: string): boolean {
-  try {
-    return isSiteOrigin(new URL(url).origin)
-  } catch {
-    return false
-  }
+  return isSiteOrigin(siteOrNull(url))
 }
 
 const ICONS = { element: SquareMousePointerIcon, text: TextSelectIcon, area: SquareDashedIcon }
@@ -226,7 +221,7 @@ const ICONS = { element: SquareMousePointerIcon, text: TextSelectIcon, area: Squ
               </span>
             </button>
             <Button
-              v-if="copyable(item)"
+              v-if="copyable(item, jobs)"
               data-testid="item-copy"
               variant="ghost"
               size="icon-sm"

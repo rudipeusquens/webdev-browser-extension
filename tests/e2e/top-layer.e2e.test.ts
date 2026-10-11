@@ -129,6 +129,18 @@ describe('overlay above modal dialogs', () => {
       await waitInOverlay(session, '[data-testid="overlay-popover"]')
     })
 
+    it('is usable when activated while it is open', async () => {
+      await session.page.click('#open-shadow')
+      await clickAction(session)
+      await overlayMounted(session)
+      const { x, y } = await session.page.$eval(component, (el) => (el as Component).buttonCenter())
+      await session.page.keyboard.press('e')
+      await waitInOverlay(session, '[data-testid="overlay-glass"]')
+      await session.page.mouse.move(x, y)
+      await session.page.mouse.click(x, y)
+      await waitInOverlay(session, '[data-testid="overlay-popover"]')
+    })
+
     it('goes back to the body when it closes', async () => {
       await clickAction(session)
       await overlayMounted(session)

@@ -2,9 +2,11 @@
 // writes them (src/lib/background).
 
 import { browser } from 'wxt/browser'
+import { watchStored } from '../storage'
 import type { Annotation, Collection, PageInfo } from './model'
 import { emptyCollection } from './ops'
-import { belongsTo, isAnnotation, isCollection, isIdList, isObject, isPageInfo } from './validate'
+import { belongsTo, bySite } from './site'
+import { isAnnotation, isCollection, isIdList, isObject, isPageInfo } from './validate'
 
 export const COLLECTION_PREFIX = 'collection:'
 /** The single collection of milestones 2–5, split by site when the background starts. */
@@ -77,15 +79,8 @@ export async function loadSite(site: string): Promise<Collection> {
 }
 
 /** Calls `cb` with the site's new collection whenever it changes; returns a function that stops. */
-export function watchSite(site: string, cb: (c: Collection) => void): () => void {
-  const key = collectionKey(site)
-  const listener = (changes: Record<string, { newValue?: unknown }>, area: string) => {
-    const change = changes[key]
-    if (area === 'local' && change) cb(parse(site, change.newValue))
-  }
-  browser.storage.onChanged.addListener(listener)
-  return () => browser.storage.onChanged.removeListener(listener)
-}
+export const watchSite = (site: string, cb: (c: Collection) => void): (() => void) =>
+  watchStored(collectionKey(site), (value) => parse(site, value), cb)
 
 /** Every stored collection with pins, by site, as far as it can be read (`parse`). */
 export async function loadSites(): Promise<Collection[]> {
@@ -94,7 +89,7 @@ export async function loadSites(): Promise<Collection[]> {
     .filter(([key]) => key.startsWith(COLLECTION_PREFIX))
     .map(([key, value]) => parse(key.slice(COLLECTION_PREFIX.length), value))
     .filter((c) => c.items.length > 0)
-    .sort((a, b) => (a.site < b.site ? -1 : a.site > b.site ? 1 : 0))
+    .sort(bySite)
 }
 
 /** Calls `cb` whenever the collection of any site changes; returns a function that stops. */

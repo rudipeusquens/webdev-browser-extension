@@ -2,7 +2,7 @@ import { flushPromises, mount } from '@vue/test-utils'
 import { describe, expect, it } from 'vitest'
 import { defineComponent, ref } from 'vue'
 import { fakeBrowser } from 'wxt/testing/fake-browser'
-import { useStored } from '@/entrypoints/sidepanel/use-stored'
+import { keepNewest, useStored } from '@/composables/use-stored'
 
 const parse = (value: unknown) => (typeof value === 'string' ? value : '')
 
@@ -19,6 +19,19 @@ function setup(key: string | null) {
   )
   return { stored, current, host }
 }
+
+describe('keepNewest', () => {
+  it('applies what was loaded unless a change, or a value chosen, came first', () => {
+    const applied: string[] = []
+    const plain = keepNewest((value: string) => applied.push(value))
+    plain.loaded('read')
+    const changed = keepNewest((value: string) => applied.push(value))
+    changed.changed('change')
+    changed.loaded('older read')
+    changed.changed('later change')
+    expect(applied).toEqual(['read', 'change', 'later change'])
+  })
+})
 
 describe('useStored', () => {
   it('reads its key, says when it has, and follows changes', async () => {

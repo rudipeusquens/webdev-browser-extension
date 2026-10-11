@@ -17,7 +17,10 @@ import {
 import { collectionKey, LEGACY_KEY, readSite, unreadableKey } from '../collection/store'
 import { isLegacyCollection } from '../collection/validate'
 import type { CollectionMessage, Reply } from '../messages'
+import { jsonBytes, setOrRemove } from '../storage'
+import { plural } from '../text'
 import { applyStep, forgetHistory, loadHistory, saveHistory, stepBetween } from './history'
+import { serial } from './serial'
 
 const GONE = 'This pin no longer exists.'
 
@@ -54,8 +57,6 @@ function apply(c: Collection, msg: CollectionMessage, now: string): Collection |
       return emptyBin(c)
   }
 }
-
-const plural = (n: number, word: string) => `${n} ${word}${n === 1 ? '' : 's'}`
 
 /** What Undo and Redo call the change `msg` made from `before` to `after`. */
 function labelOf(msg: CollectionMessage, before: Collection, after: Collection): string {
@@ -115,8 +116,7 @@ async function current(site: string): Promise<Collection> {
 /** An empty collection is the default: its key goes. */
 async function save(c: Collection): Promise<void> {
   const key = collectionKey(c.site)
-  if (isEmpty(c)) await browser.storage.local.remove(key)
-  else await browser.storage.local.set({ [key]: c })
+  await setOrRemove(key, c, isEmpty(c))
 }
 
 /** What became of a dictation's text (`fill`). */
@@ -125,25 +125,24 @@ export type Filled = { ok: true; rest?: string; part?: true } | { ok: false; err
 /** Most UTF-8 bytes one site's collection may take: each save writes all of it. */
 export const SITE_BUDGET = 4_000_000
 
-const byteSize = (c: Collection) => new TextEncoder().encode(JSON.stringify(c)).length
-
 export function createWriter(
   now = () => new Date().toISOString(),
   { siteBudget = SITE_BUDGET }: { siteBudget?: number } = {},
 ) {
-  let queue: Promise<unknown> = Promise.resolve()
-
-  function inOrder<T>(task: () => Promise<T>): Promise<T> {
-    const run = queue.then(task)
-    queue = run.catch(() => undefined)
-    return run
-  }
+  const inOrder = serial()
 
   /** A new change: one more undo step, and nothing left to redo. */
   async function record(site: string, step: ReturnType<typeof stepBetween>): Promise<void> {
     if (!step) return
     const h = await loadHistory(site)
     await saveHistory(site, { undo: [...h.undo, step], redo: [] })
+  }
+
+  /** Saves the change from `before` to `next`, then records it as one undo step. */
+  async function commit(site: string, before: Collection, next: Collection, label: string) {
+    await save(next)
+    // The change is saved; a history that cannot be kept only loses its undo.
+    await record(site, stepBetween(before, next, label)).catch(() => undefined)
   }
 
   function move(site: string, from: 'undo' | 'redo'): Promise<Reply> {
@@ -174,17 +173,13 @@ export function createWriter(
         if (next === before) return { ok: true }
         // A new pin or a longer comment must fit the site's budget; every other change frees room.
         const grows = msg.type === 'annotation:add' || msg.type === 'annotation:update'
-        if (grows && byteSize(next) > siteBudget) {
+        if (grows && jsonBytes(next) > siteBudget) {
           return {
             ok: false,
             error: 'This site holds too much feedback: empty its bin or delete pins first.',
           }
         }
-        await save(next)
-        // The change is saved; a history that cannot be kept only loses its undo.
-        await record(site, stepBetween(before, next, labelOf(msg, before, next))).catch(
-          () => undefined,
-        )
+        await commit(site, before, next, labelOf(msg, before, next))
         return { ok: true }
       }).catch((): Reply => ({ ok: false, error: 'Could not save.' }))
     },
@@ -201,12 +196,9 @@ export function createWriter(
         const { collection: next, rest } = fillTranscript(before, id, text, now())
         if (next === before) return rest === undefined ? { ok: true } : { ok: true, rest }
         // The pin gets none of it; it says where the text went, as for a cut.
-        if (byteSize(next) > siteBudget) return { ok: true, rest: text, part: true }
-        await save(next)
+        if (jsonBytes(next) > siteBudget) return { ok: true, rest: text, part: true }
         const number = next.items.find((i) => i.id === id)?.number ?? ''
-        await record(site, stepBetween(before, next, `Dictation into pin ${number}`)).catch(
-          () => undefined,
-        )
+        await commit(site, before, next, `Dictation into pin ${number}`)
         return rest === undefined ? { ok: true } : { ok: true, rest, part: true }
       }).catch((): Filled => ({ ok: false, error: 'Could not save.' }))
     },

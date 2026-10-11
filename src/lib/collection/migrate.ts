@@ -4,7 +4,7 @@
 
 import type { Collection, LegacyCollection } from './model'
 import { emptyCollection } from './ops'
-import { siteOf } from './site'
+import { bySite, siteOf } from './site'
 
 export function splitLegacy(legacy: LegacyCollection): Collection[] {
   const sites = new Map<string, Collection>()
@@ -17,5 +17,5 @@ export function splitLegacy(legacy: LegacyCollection): Collection[] {
     c.items.push({ ...item, status: 'open' })
     sites.set(site, c)
   }
-  return [...sites.values()].sort((a, b) => (a.site < b.site ? -1 : a.site > b.site ? 1 : 0))
+  return [...sites.values()].sort(bySite)
 }

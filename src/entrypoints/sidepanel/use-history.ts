@@ -1,4 +1,5 @@
 import { onBeforeUnmount, type Ref, ref, watch } from 'vue'
+import { keepNewest } from '@/composables/use-stored'
 import { type Labels, loadLabels, watchLabels } from '@/lib/background/history'
 
 /** What Undo and Redo of `site` would do, kept current through `storage.onChanged`. */
@@ -13,13 +14,10 @@ export function useHistory(site: Ref<string | null>): { labels: Ref<Labels> } {
       stop = undefined
       labels.value = {}
       if (!current) return
-      let changed = false
-      stop = watchLabels(current, (next) => {
-        changed = true
-        labels.value = next
-      })
+      const newestLabels = keepNewest((next: Labels) => (labels.value = next))
+      stop = watchLabels(current, newestLabels.changed)
       const loaded = await loadLabels(current)
-      if (!changed && site.value === current) labels.value = loaded
+      if (site.value === current) newestLabels.loaded(loaded)
     },
     { immediate: true },
   )

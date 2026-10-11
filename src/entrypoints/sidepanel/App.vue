@@ -27,9 +27,9 @@ import {
   type Mode,
   MODES,
   type OverlayMessage,
-  type Reply,
   PIN_NOT_KEPT,
 } from '@/lib/messages'
+import { NO_ANSWER, request } from '@/lib/request'
 import { isSiteOrigin, originPattern } from '@/lib/settings'
 import EmptyBinDialog from './EmptyBinDialog.vue'
 import CopyFallbackDialog, { type Fallback } from './CopyFallbackDialog.vue'
@@ -44,31 +44,28 @@ import { writeClipboard } from './clipboard'
 import { useDictation } from './use-dictation'
 import { usePanelView } from './use-panel-view'
 import { useMissing } from './use-missing'
+import { openMicPermission } from './open-mic-permission'
 import { useOverlayLines } from './use-overlay-lines'
 import { usePanelToggle } from './use-panel-toggle'
 import { useSettings } from './use-settings'
 import { useShortcut } from './use-shortcut'
-import { useStored } from './use-stored'
 import { NOTES_KEY, parseNotes } from '@/lib/notes/model'
-import { jobsKey, parseJobs } from '@/lib/voice/jobs'
+import { copyable, jobsKey, parseJobs } from '@/lib/voice/jobs'
 import { useSiteCollection } from '@/composables/use-site-collection'
+import { useStored } from '@/composables/use-stored'
 import { emptyCollection, pick } from '@/lib/collection/ops'
-import { type Filter, shows } from '@/lib/view'
+import { plural } from '@/lib/text'
+import { isFilter, shows } from '@/lib/view'
 import { useView } from './use-view'
 import { useHistory } from './use-history'
-import { currentPlatform, isMacPlatform, panelKey, recKey } from '@/lib/shortcuts'
-import { siteLabel, siteOf } from '@/lib/collection/site'
+import { isMacPlatform, panelKey, recKey } from '@/lib/shortcuts'
+import { siteLabel, siteOrNull } from '@/lib/collection/site'
 
 const { tabId, windowId, status, refresh } = useActiveTab()
 /** The site of the active tab's page, known while its overlay answers. */
-const site = computed(() => {
-  if (status.value.kind !== 'active') return null
-  try {
-    return siteOf(status.value.pageKey)
-  } catch {
-    return null
-  }
-})
+const site = computed(() =>
+  status.value.kind === 'active' ? siteOrNull(status.value.pageKey) : null,
+)
 const { collection: stored, loading } = useSiteCollection(site)
 /** Rec's notes, the same on every site (spec section 8). */
 const storedNotes = useStored(ref(NOTES_KEY), parseNotes).value
@@ -90,7 +87,7 @@ usePanelView(windowId, () => (showSettings.value = true))
 
 const { filter, choose } = useView()
 const { labels } = useHistory(site)
-const mac = isMacPlatform(currentPlatform())
+const mac = isMacPlatform()
 const undoKey = mac ? '⌘Z' : 'Ctrl+Z'
 const redoKey = mac ? '⇧⌘Z' : 'Ctrl+Shift+Z'
 const recShortcut = mac ? '⌥V' : 'Alt+V'
@@ -138,10 +135,7 @@ const items = computed(() => collection.value.items)
 /** Open pins whose comment is complete: no drafts, nothing transcribed (spec section 8). */
 const openIds = computed(() =>
   items.value
-    .filter(
-      (item) =>
-        item.status === 'open' && !item.draft && jobs.value[item.id]?.state !== 'transcribing',
-    )
+    .filter((item) => copyable(item, jobs.value))
     .sort((a, b) => a.number - b.number)
     .map((item) => item.id),
 )
@@ -174,7 +168,6 @@ const groups = computed(() => {
 const clearable = computed(() => items.value.filter((item) => item.status !== 'deleted').length)
 const binned = computed(() => items.value.filter((item) => item.status === 'deleted'))
 const binPages = computed(() => new Set(binned.value.map((item) => item.pageKey)).size)
-const plural = (n: number, word: string) => `${n} ${word}${n === 1 ? '' : 's'}`
 const mode = computed(() => (status.value.kind === 'active' ? status.value.mode : undefined))
 const pinsShown = computed(() => status.value.kind !== 'active' || status.value.pins)
 /** The origin of the active page, when it is a site that can be remembered. */
@@ -210,16 +203,9 @@ const startText = computed(() => {
  * A page without the overlay that the panel can start it on: Chrome tells the panel its
  * address only where the extension may run already (spec section 8).
  */
-const startable = computed(() => {
-  const now = status.value
-  if (now.kind !== 'idle' || !now.url) return false
-  try {
-    siteOf(now.url)
-    return true
-  } catch {
-    return false
-  }
-})
+const startable = computed(
+  () => status.value.kind === 'idle' && siteOrNull(status.value.url) !== null,
+)
 
 const copyStatus = ref('')
 /** Texts the clipboard did not take, offered for copying by hand one after the other. */
@@ -243,14 +229,9 @@ async function change(
   message: BackgroundMessage,
   refused = (error: string) => error,
 ): Promise<boolean> {
-  let reply: Reply | undefined
-  try {
-    reply = (await browser.runtime.sendMessage(message)) as Reply | undefined
-  } catch {
-    reply = undefined
-  }
+  const reply = await request(message)
   if (reply?.ok) panelError.value = ''
-  else panelError.value = refused(reply?.error ?? 'The extension did not answer. Try again.')
+  else panelError.value = refused(reply?.error ?? NO_ANSWER)
   return reply?.ok === true
 }
 
@@ -317,10 +298,6 @@ function retryNote(id: string) {
   void change({ type: 'note:retry', id })
 }
 
-function grantMicrophone() {
-  void browser.tabs.create({ url: browser.runtime.getURL('/mic-permission.html') })
-}
-
 /** The open items; then exactly those become done (spec section 7). */
 async function copy() {
   const ids = openIds.value
@@ -364,7 +341,7 @@ function rememberSite() {
     .then(async (granted) => {
       if (!granted) return
       const message: BackgroundMessage = { type: 'site:remember', origin }
-      const reply = (await browser.runtime.sendMessage(message)) as Reply | undefined
+      const reply = await request(message)
       if (reply && !reply.ok) siteError.value = reply.error
     })
     .catch(() => undefined)
@@ -479,7 +456,7 @@ function setPins(visible: boolean) {
 
 function setFilter(next: unknown) {
   // A single toggle group reports '' when the active item is clicked again.
-  if (next === 'open' || next === 'all' || next === 'with-deleted') choose(next as Filter)
+  if (isFilter(next)) choose(next)
 }
 
 function setMode(next: unknown) {
@@ -776,7 +753,7 @@ function setMode(next: unknown) {
             data-testid="rec-grant"
             variant="outline"
             size="xs"
-            @click="grantMicrophone"
+            @click="openMicPermission"
           >
             Grant
           </Button>

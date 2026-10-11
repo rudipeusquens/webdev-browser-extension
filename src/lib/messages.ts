@@ -6,12 +6,12 @@ import { LIMITS } from './collection/model'
 import { isSite } from './collection/site'
 import { isOption, isSiteOrigin, type Option } from './settings'
 import { type Filter, isFilter } from './view'
-import { isLimit } from './voice/protocol'
-import { isApiKey, isLanguage, isModelId } from './voice/settings'
+import { isApiKey, isLanguage, isLimit, isModelId } from './voice/settings'
 import {
   hasKeys,
   isAnnotationId,
   isComment,
+  isCount,
   isDraftComment,
   isIdList as isIdSet,
   isObject,
@@ -272,6 +272,8 @@ export function isBackgroundMessage(x: unknown): x is BackgroundMessage {
     case 'annotation:remove':
     case 'annotation:restore':
     case 'annotation:reopen':
+    case 'dictation:retry':
+    case 'dictation:dismiss':
       return hasKeys(x, ['type', 'site', 'id']) && isSite(x.site) && isAnnotationId(x.id)
     case 'collection:copied':
       return (
@@ -282,6 +284,8 @@ export function isBackgroundMessage(x: unknown): x is BackgroundMessage {
       )
     case 'collection:clear':
     case 'collection:empty-bin':
+    case 'history:undo':
+    case 'history:redo':
       return hasKeys(x, ['type', 'site']) && isSite(x.site)
     case 'overlay:failed':
     case 'voice:key:remove':
@@ -290,9 +294,6 @@ export function isBackgroundMessage(x: unknown): x is BackgroundMessage {
     case 'voice:settings':
     case 'voice:ready':
       return hasKeys(x, ['type'])
-    case 'dictation:retry':
-    case 'dictation:dismiss':
-      return hasKeys(x, ['type', 'site', 'id']) && isSite(x.site) && isAnnotationId(x.id)
     case 'note:retry':
     case 'note:delete':
       return hasKeys(x, ['type', 'id']) && isAnnotationId(x.id)
@@ -305,22 +306,14 @@ export function isBackgroundMessage(x: unknown): x is BackgroundMessage {
       )
     case 'voice:key:save':
       return hasKeys(x, ['type', 'key']) && isApiKey(x.key)
-    case 'history:undo':
-    case 'history:redo':
-      return hasKeys(x, ['type', 'site']) && isSite(x.site)
     case 'view:set':
       return hasKeys(x, ['type', 'filter']) && isFilter(x.filter)
     case 'settings:set':
       return hasKeys(x, ['type', 'key', 'value']) && isOption(x.key) && typeof x.value === 'boolean'
     case 'tab:start':
-      return hasKeys(x, ['type', 'tabId']) && Number.isInteger(x.tabId) && (x.tabId as number) >= 0
+      return hasKeys(x, ['type', 'tabId']) && isCount(x.tabId)
     case 'tab:go':
-      return (
-        hasKeys(x, ['type', 'tabId', 'pageKey']) &&
-        Number.isInteger(x.tabId) &&
-        (x.tabId as number) >= 0 &&
-        isPageUrl(x.pageKey)
-      )
+      return hasKeys(x, ['type', 'tabId', 'pageKey']) && isCount(x.tabId) && isPageUrl(x.pageKey)
     case 'site:remember':
     case 'site:forget':
       return hasKeys(x, ['type', 'origin']) && isSiteOrigin(x.origin)

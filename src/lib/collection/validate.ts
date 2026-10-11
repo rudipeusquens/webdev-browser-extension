@@ -16,7 +16,7 @@ import {
   type Target,
 } from './model'
 import { pageKey } from './page-key'
-import { isSite, siteOf } from './site'
+import { belongsTo, isSite } from './site'
 
 export type Fields = Record<string, unknown>
 
@@ -59,7 +59,8 @@ export function isText(x: unknown, max: number, min = 0): x is string {
 }
 
 const isNumber = (x: unknown): x is number => typeof x === 'number' && Number.isFinite(x)
-const isCount = (x: unknown, min = 0): x is number => Number.isInteger(x) && (x as number) >= min
+export const isCount = (x: unknown, min = 0): x is number =>
+  Number.isInteger(x) && (x as number) >= min
 
 function isRect(x: unknown): x is Rect {
   return (
@@ -219,15 +220,6 @@ function isConsistent(
     new Set(items.map((item) => item.number)).size === items.length &&
     items.every((item) => item.number < nextNumber && Object.hasOwn(pages, item.pageKey))
   )
-}
-
-/** Whether the page `url` belongs to `site`. */
-export const belongsTo = (url: string, site: string) => {
-  try {
-    return siteOf(url) === site
-  } catch {
-    return false
-  }
 }
 
 export function isCollection(x: unknown): x is Collection {

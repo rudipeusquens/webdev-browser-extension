@@ -2,9 +2,9 @@
 // recorder, what can go wrong, and how the popover and the panel say it. Every receiver checks
 // shapes with these guards.
 
-import { hasKeys, isAnnotationId, isObject, isText } from '../collection/validate'
+import { hasKeys, isAnnotationId, isCount, isObject, isText } from '../collection/validate'
 import type { TranscribeRequest } from './openrouter'
-import { isApiKey, isLanguage, isModelId } from './settings'
+import { isApiKey, isLanguage, isLimit, isModelId } from './settings'
 
 export type VoiceError =
   | 'no-key'
@@ -82,17 +82,14 @@ export const RECORDER_PORT = 'recorder'
 /** Longest transcript a job carries: the recorder cuts what goes beyond it. */
 export const MAX_TEXT = 20_000
 /** Longest reason from OpenRouter (see openrouter.ts). */
-const MAX_DETAIL = 200
-/** The limits a recording may pause at, in milliseconds (Settings offers minutes). */
-export const MIN_LIMIT = 10_000
-export const MAX_LIMIT = 3_600_000
+export const MAX_DETAIL = 200
 
 /** Where a stopped recording's text goes: after a pin's comment, or into a new Rec note. */
 export type Keep = { pin: string } | { note: true }
 /** Where it went: the pin, or the note the background made for it. */
 export type HandedTo = { pin: string } | { note: string }
 
-type Failed = { state: 'failed'; error: VoiceError; detail?: string; retry: boolean }
+export type Failed = { state: 'failed'; error: VoiceError; detail?: string; retry: boolean }
 
 /** The recording, as the recorder reports it: what runs now, never a transcription. */
 export type RecordingState =
@@ -103,6 +100,17 @@ export type RecordingState =
   | { state: 'paused'; elapsed: number }
   /** Before the developer's stop: the microphone, or a recording that ended by itself. */
   | Failed
+
+/** Starting, recording or paused at the limit: a dictation runs. */
+export const isBusy = (now: RecordingState) =>
+  now.state === 'starting' || now.state === 'recording' || now.state === 'paused'
+
+/** A recording that ended by itself, held until a stop (Retry) sends it or a cancel drops it. */
+export const isHeld = (now: RecordingState) =>
+  now.state === 'failed' && now.error === 'mic-lost' && now.retry
+
+/** Something runs or is held: a cancel (Esc) has work to do. */
+export const isActive = (now: RecordingState) => isBusy(now) || isHeld(now)
 
 /**
  * Background → popover or panel. A recording ends in exactly one of `handed` (its audio is a
@@ -141,11 +149,8 @@ const isRequest = (x: unknown): x is TranscribeRequest =>
   isModelId(x.model) &&
   isLanguage(x.language)
 
-const isMs = (x: unknown): x is number => Number.isInteger(x) && (x as number) >= 0
-export const isLimit = (x: unknown): x is number =>
-  Number.isInteger(x) && (x as number) >= MIN_LIMIT && (x as number) <= MAX_LIMIT
-
-function isFailure(x: Record<string, unknown>, extra: string[] = []): boolean {
+/** A failed state's fields; `extra` names the keys of a message that carries more. */
+export function isFailure(x: Record<string, unknown>, extra: string[] = []): boolean {
   return (
     hasKeys(x, ['state', 'error', 'retry', ...extra], ['detail']) &&
     VOICE_ERRORS.includes(x.error as VoiceError) &&
@@ -165,10 +170,10 @@ function isRecordingState(x: unknown): x is RecordingState {
         hasKeys(x, ['state', 'limit', 'elapsed']) &&
         Number.isInteger(x.limit) &&
         (x.limit as number) > 0 &&
-        isMs(x.elapsed)
+        isCount(x.elapsed)
       )
     case 'paused':
-      return hasKeys(x, ['state', 'elapsed']) && isMs(x.elapsed)
+      return hasKeys(x, ['state', 'elapsed']) && isCount(x.elapsed)
     case 'failed':
       return isFailure(x)
     default:

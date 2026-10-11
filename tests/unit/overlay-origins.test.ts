@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { fakeBrowser } from 'wxt/testing/fake-browser'
-import { readOrigins, sourcesOf, within, withOrigins } from '@/entrypoints/overlay.content/origins'
+import { readOrigins, selectorsOf, withOrigins } from '@/entrypoints/overlay.content/origins'
 import type { AreaTarget, CodeOrigin, Target } from '@/lib/collection/model'
 import { snapshot } from './helpers/collection'
 
@@ -26,10 +26,9 @@ afterEach(() => {
   vi.restoreAllMocks()
 })
 
-describe('sourcesOf and withOrigins', () => {
+describe('selectorsOf and withOrigins', () => {
   it("pair an area's container and elements with their origins in order", () => {
-    const els = [document.createElement('section'), document.createElement('div')]
-    expect(sourcesOf(area, els)).toEqual({ elements: els, selectors: ['section', '#a', '#b'] })
+    expect(selectorsOf(area)).toEqual(['section', '#a', '#b'])
     const next = withOrigins(area, [undefined, card, undefined]) as AreaTarget
     expect(next.container.origin).toBeUndefined()
     expect(next.elements.map((el) => el.origin)).toEqual([card, undefined])
@@ -49,7 +48,7 @@ describe('sourcesOf and withOrigins', () => {
       after: '',
       container: snapshot({ selector: 'h3' }),
     }
-    expect(sourcesOf(text, []).selectors).toEqual(['h3'])
+    expect(selectorsOf(text)).toEqual(['h3'])
     expect(withOrigins(text, [card])).toMatchObject({ container: { origin: card } })
   })
 })
@@ -63,7 +62,7 @@ describe('readOrigins', () => {
       .spyOn(fakeBrowser.runtime, 'sendMessage')
       .mockResolvedValue({ ok: true, origins: [card, null] } as never)
     const elements = [document.querySelector('button'), document.querySelector('p')] as Element[]
-    expect(await readOrigins({ elements, selectors: ['button', 'p'] })).toEqual([
+    expect(await readOrigins(elements, ['button', 'p'])).toEqual([
       { framework: 'vue', chain: [{ ...card.chain[0], line: 9 }] },
       { framework: 'astro', chain: [{ file: '/srv/site/src/Hero.astro', line: 2 }] },
     ])
@@ -80,22 +79,9 @@ describe('readOrigins', () => {
       Promise.resolve({ ok: true, origins: [card, card] }),
     ]) {
       send.mockReturnValueOnce(reply as never)
-      expect(await readOrigins({ elements, selectors: ['p'] })).toEqual([
+      expect(await readOrigins(elements, ['p'])).toEqual([
         { framework: 'astro', chain: [{ file: '/srv/site/src/Hero.astro' }] },
       ])
     }
-  })
-})
-
-describe('within', () => {
-  it('gives the value in time and undefined when it is late', async () => {
-    vi.useFakeTimers()
-    expect(await within(Promise.resolve(1), 100)).toBe(1)
-    const late = within(new Promise(() => undefined), 100)
-    await vi.advanceTimersByTimeAsync(100)
-    expect(await late).toBeUndefined()
-    const past = within(new Promise(() => undefined), -50)
-    await vi.advanceTimersByTimeAsync(0)
-    expect(await past).toBeUndefined()
   })
 })

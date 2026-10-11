@@ -7,6 +7,9 @@ import { computed, onScopeDispose, ref, shallowRef } from 'vue'
 import { browser, type Browser } from 'wxt/browser'
 import {
   type HandedTo,
+  isActive,
+  isBusy,
+  isHeld,
   isVoiceState,
   type Keep,
   type RecordingState,
@@ -41,13 +44,16 @@ export function useVoice(
     const seconds = Math.floor(recorded.value / 1000)
     return `${Math.floor(seconds / 60)}:${String(seconds % 60).padStart(2, '0')}`
   })
-  const busy = computed(() => ['starting', 'recording', 'paused'].includes(state.value.state))
+  const busy = computed(() => isBusy(state.value))
   const paused = computed(() => state.value.state === 'paused')
   /** A recording that ended by itself, kept for a stop (Retry) or a cancel. */
-  const holds = computed(() => {
-    const now = state.value
-    return now.state === 'failed' && now.error === 'mic-lost' && now.retry
-  })
+  const holds = computed(() => isHeld(state.value))
+  /** Something runs or is held: a cancel has work to do. */
+  const active = computed(() => isActive(state.value))
+  /** Whether something was recorded that a stop hands over. */
+  const recording = computed(
+    () => ['recording', 'paused'].includes(state.value.state) || holds.value,
+  )
   let port: Port | undefined
   let ticker: ReturnType<typeof setInterval> | undefined
   let asking: ReturnType<typeof setTimeout> | undefined
@@ -91,7 +97,7 @@ export function useVoice(
       port = undefined
       stopClock()
       clearTimeout(asking)
-      if (busy.value || holds.value) state.value = INTERRUPTED
+      if (active.value) state.value = INTERRUPTED
     })
     port = opened
     return opened
@@ -126,8 +132,8 @@ export function useVoice(
     busy,
     paused,
     holds,
-    /** Whether something was recorded that a stop hands over. */
-    recording: computed(() => ['recording', 'paused'].includes(state.value.state) || holds.value),
+    active,
+    recording,
     start() {
       if (busy.value) return
       recorded.value = 0
@@ -143,7 +149,7 @@ export function useVoice(
         send({ type: 'cancel' })
         return false
       }
-      if (!['recording', 'paused'].includes(state.value.state) && !holds.value) return false
+      if (!recording.value) return false
       clearTimeout(asking)
       send({ type: 'stop', keep })
       return true
@@ -152,11 +158,11 @@ export function useVoice(
       if (paused.value) send({ type: 'resume' })
     },
     cancel() {
-      if (busy.value || holds.value) send({ type: 'cancel' })
+      if (active.value) send({ type: 'cancel' })
     },
     /** Forgets a failure that is over: nothing runs or is held. */
     clear() {
-      if (!busy.value && !holds.value) state.value = { state: 'idle' }
+      if (!active.value) state.value = { state: 'idle' }
     },
   }
 }

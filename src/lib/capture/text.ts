@@ -60,6 +60,17 @@ const untilEndOf =
       ? { stop: false, endOffset: range.endOffset }
       : { stop: range.comparePoint(node, 0) > 0 }
 
+/** The text of `range` from its start, until its end or more than `limit` characters were read. */
+const readSelection = (reader: TextReader, range: Range, limit: number) =>
+  readForward(
+    reader,
+    range.commonAncestorContainer,
+    range.startContainer,
+    range.startOffset,
+    untilEndOf(range),
+    limit,
+  )
+
 const differ = (a: Piece | undefined, b: Piece | undefined) =>
   a !== undefined && b !== undefined && a.block !== b.block
 
@@ -71,14 +82,6 @@ const hasText = (p: Piece): p is TextPiece => p.node !== undefined && VISIBLE.te
 /** Where in its node the piece's first and last visible characters are. */
 const firstAt = (p: TextPiece) => p.start + p.text.search(VISIBLE)
 const endAt = (p: TextPiece) => p.start + p.text.trimEnd().length
-
-function lastWithText(pieces: Piece[]): TextPiece | undefined {
-  for (let i = pieces.length - 1; i >= 0; i--) {
-    const piece = pieces[i] as Piece
-    if (hasText(piece)) return piece
-  }
-  return undefined
-}
 
 /** A range over the last visible character of `piece`. */
 function lastCharacter(doc: Document, piece: TextPiece): Range {
@@ -113,7 +116,7 @@ export function chipAnchor(range: Range): Range | null {
   const reader = new TextReader(view, true)
   const root = range.commonAncestorContainer
   const back = readBackward(reader, root, range.endContainer, range.endOffset, LIMITS.context)
-  const last = lastWithText(back.pieces)
+  const last = back.pieces.findLast(hasText)
   if (last) {
     const char = lastCharacter(doc, last)
     // Text before the start of the range is not part of the selection.
@@ -131,14 +134,7 @@ export function firstShownCharacter(range: Range): Range | null {
   const doc = documentOf(range.startContainer)
   const view = doc.defaultView
   if (range.collapsed || !view) return null
-  const ahead = readForward(
-    new TextReader(view, true),
-    range.commonAncestorContainer,
-    range.startContainer,
-    range.startOffset,
-    untilEndOf(range),
-    LIMITS.context,
-  )
+  const ahead = readSelection(new TextReader(view, true), range, LIMITS.context)
   const first = ahead.pieces.find(hasText)
   return first ? firstCharacter(doc, first) : null
 }
@@ -184,16 +180,9 @@ export function snapshotRange(range: Range): CapturedText | null {
   if (range.collapsed || !view) return null
   const reader = new TextReader(view, true)
 
-  const selected = readForward(
-    reader,
-    range.commonAncestorContainer,
-    range.startContainer,
-    range.startOffset,
-    untilEndOf(range),
-    SELECTED_BUDGET,
-  )
+  const selected = readSelection(reader, range, SELECTED_BUDGET)
   const first = selected.pieces.find(hasText)
-  const last = lastWithText(selected.pieces)
+  const last = selected.pieces.findLast(hasText)
   if (!first || !last) return null
   const read = doc.createRange()
   read.setStart(first.node, firstAt(first))

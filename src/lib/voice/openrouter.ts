@@ -3,7 +3,7 @@
 // carry a code and OpenRouter's reason, never the key.
 
 import { clean } from '../text'
-import type { VoiceError } from './protocol'
+import { MAX_DETAIL, type VoiceError } from './protocol'
 
 /** The one place the origin is written: test builds rewrite it in a copy of the build. */
 export const OPENROUTER = 'https://openrouter.ai'
@@ -12,8 +12,6 @@ export const TIMEOUT = 65_000
 
 /** The timeout for a recording of `ms`: 10 s more for each minute after the first. */
 export const timeoutFor = (ms: number) => TIMEOUT + 10_000 * Math.max(0, Math.ceil(ms / 60_000) - 1)
-/** Longest reason from OpenRouter the popover shows. */
-const DETAIL = 200
 
 export interface TranscribeRequest {
   key: string
@@ -54,7 +52,7 @@ async function base64(blob: Blob): Promise<string> {
 function reasonOf(body: unknown, key: string): string | undefined {
   const message = (body as { error?: { message?: unknown } } | null)?.error?.message
   if (typeof message !== 'string') return undefined
-  return clean(message.split(key).join('…'), DETAIL) || undefined
+  return clean(message.split(key).join('…'), MAX_DETAIL) || undefined
 }
 
 function codeOf(status: number): VoiceError {

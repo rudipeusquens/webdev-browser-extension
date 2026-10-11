@@ -7,6 +7,7 @@
 import { browser } from 'wxt/browser'
 import { isObject } from '../collection/validate'
 import { isOverlayStatus, type OverlayMessage } from '../messages'
+import { within } from '../within'
 
 /** How long an overlay may take to answer: it answers at once, unless its page is busy. */
 export const ASK_WAIT = 10_000
@@ -15,16 +16,10 @@ const NONE = Symbol('no overlay')
 const LATE = Symbol('no answer in time')
 
 async function ask(tabId: number, message: OverlayMessage): Promise<unknown> {
-  let timer: ReturnType<typeof setTimeout> | undefined
-  const late = new Promise<typeof LATE>((done) => {
-    timer = setTimeout(() => done(LATE), ASK_WAIT)
-  })
   try {
-    return await Promise.race([browser.tabs.sendMessage(tabId, message, { frameId: 0 }), late])
+    return await within(browser.tabs.sendMessage(tabId, message, { frameId: 0 }), ASK_WAIT, LATE)
   } catch {
     return NONE
-  } finally {
-    clearTimeout(timer)
   }
 }
 

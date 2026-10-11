@@ -13,9 +13,14 @@ import {
   type Settings,
   SETTINGS_KEY,
 } from '../settings'
+import { serial } from './serial'
 
 const SCRIPT_ID = 'overlay'
-export const OVERLAY_SCRIPT = 'content-scripts/overlay.js'
+const OVERLAY_SCRIPT = 'content-scripts/overlay.js'
+
+/** Starts the overlay on the tab now, in its top frame. */
+export const injectOverlay = (tabId: number) =>
+  browser.scripting.executeScript({ target: { tabId }, files: [`/${OVERLAY_SCRIPT}`] })
 
 async function register(origins: string[]) {
   const registered = await browser.scripting.getRegisteredContentScripts({ ids: [SCRIPT_ID] })
@@ -39,12 +44,7 @@ const granted = (origin: string) =>
   browser.permissions.contains({ origins: [originPattern(origin)] }).catch(() => false)
 
 export function createSites() {
-  let queue: Promise<unknown> = Promise.resolve()
-  const inOrder = <T>(task: () => Promise<T>): Promise<T> => {
-    const run = queue.then(task)
-    queue = run.catch(() => undefined)
-    return run
-  }
+  const inOrder = serial()
 
   async function save(settings: Settings, origins: string[]) {
     const next = { ...settings, rememberedOrigins: [...new Set(origins)].sort() }

@@ -8,6 +8,7 @@ import { Label } from '@/components/ui/label'
 import { NativeSelect, NativeSelectOption } from '@/components/ui/native-select'
 import type { KeyTestReply, Reply, VoiceSettingsMessage } from '@/lib/messages'
 import { isApiKey, isModelId, LANGUAGES, LIMIT_CHOICES, MODELS } from '@/lib/voice/settings'
+import { openMicPermission } from './open-mic-permission'
 import { useVoiceSettings } from './use-voice-settings'
 
 // Settings → Voice (spec section 8). The panel reads the key only to show it masked; every
@@ -112,10 +113,6 @@ const limit = computed({
   set: (value: unknown) =>
     setVoice(voice.value.model, voice.value.language, Number.parseInt(String(value), 10)),
 })
-
-function grant() {
-  void browser.tabs.create({ url: browser.runtime.getURL('/mic-permission.html') })
-}
 </script>
 
 <template>
@@ -275,7 +272,12 @@ function grant() {
                 : 'Not allowed yet. Chrome asks once, in a tab.'
             }}
           </span>
-          <Button data-testid="voice-mic-grant" variant="outline" size="sm" @click="grant">
+          <Button
+            data-testid="voice-mic-grant"
+            variant="outline"
+            size="sm"
+            @click="openMicPermission"
+          >
             Grant
           </Button>
         </template>

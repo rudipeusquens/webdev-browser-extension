@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { isSite, siteLabel, siteOf } from '@/lib/collection/site'
+import { belongsTo, bySite, isSite, siteLabel, siteOf, siteOrNull } from '@/lib/collection/site'
 
 /** `url` with a user name and password, set at runtime so this file holds no credential. */
 function withLogin(url: string): string {
@@ -28,6 +28,45 @@ describe('siteOf', () => {
       expect(() => siteOf(url)).toThrow()
     },
   )
+})
+
+describe('siteOrNull', () => {
+  it('is the site of a page', () => {
+    expect(siteOrNull('https://example.com/a')).toBe('https://example.com')
+    expect(siteOrNull('file:///srv/app/index.html')).toBe('file://')
+  })
+
+  it.each(['chrome://extensions/', 'blob:https://example.com/x', 'about:blank', 'not a url', ''])(
+    'is null for %j',
+    (url) => {
+      expect(siteOrNull(url)).toBeNull()
+    },
+  )
+
+  it('is null without a URL', () => {
+    expect(siteOrNull(undefined)).toBeNull()
+  })
+})
+
+describe('belongsTo', () => {
+  it('tells whether a page is of the site', () => {
+    expect(belongsTo('https://example.com/a', 'https://example.com')).toBe(true)
+    expect(belongsTo('file:///srv/a.html', 'file://')).toBe(true)
+    expect(belongsTo('https://example.com:8443/a', 'https://example.com')).toBe(false)
+    expect(belongsTo('chrome://extensions/', 'https://example.com')).toBe(false)
+    expect(belongsTo('', 'file://')).toBe(false)
+  })
+})
+
+describe('bySite', () => {
+  it('sorts by site', () => {
+    const sites = [{ site: 'https://example.com' }, { site: 'file://' }, { site: 'http://b.test' }]
+    expect(sites.sort(bySite).map((c) => c.site)).toEqual([
+      'file://',
+      'http://b.test',
+      'https://example.com',
+    ])
+  })
 })
 
 describe('isSite', () => {

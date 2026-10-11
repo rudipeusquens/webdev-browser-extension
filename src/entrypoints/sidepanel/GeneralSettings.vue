@@ -1,8 +1,8 @@
 <script setup lang="ts">
 import { ref } from 'vue'
-import { browser } from 'wxt/browser'
 import { Switch } from '@/components/ui/switch'
-import type { BackgroundMessage, Reply } from '@/lib/messages'
+import type { BackgroundMessage } from '@/lib/messages'
+import { NO_ANSWER, request } from '@/lib/request'
 import type { Option, Settings } from '@/lib/settings'
 
 /** The stored settings; the background writes them, the switches only ask. */
@@ -27,13 +27,8 @@ const error = ref('')
 
 async function set(key: Option, value: boolean) {
   const message: BackgroundMessage = { type: 'settings:set', key, value }
-  let reply: Reply | undefined
-  try {
-    reply = (await browser.runtime.sendMessage(message)) as Reply | undefined
-  } catch {
-    reply = undefined
-  }
-  error.value = reply?.ok ? '' : (reply?.error ?? 'The extension did not answer. Try again.')
+  const reply = await request(message)
+  error.value = reply?.ok ? '' : (reply?.error ?? NO_ANSWER)
 }
 </script>
 
