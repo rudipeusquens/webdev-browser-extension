@@ -4,7 +4,7 @@ import { fakeBrowser } from 'wxt/testing/fake-browser'
 import { PANEL_VIEW_KEY } from '@/lib/messages'
 import { deleteKey, storeKey } from '@/lib/voice/key'
 import { VOICE_KEY } from '@/lib/voice/settings'
-import { body, byTestId, closePanel, mountPanel, teardownPanel } from './helpers/panel'
+import { body, byTestId, click, closePanel, mountPanel, teardownPanel } from './helpers/panel'
 
 // A well-formed but fake key, assembled at runtime so this file never contains one.
 const KEY = 'sk-or-v1-' + '77ab'.repeat(16)
@@ -81,8 +81,7 @@ describe('side panel: voice settings', () => {
     it('is saved through the background and the field is emptied', async () => {
       await openSettings()
       await type('voice-key-input', KEY)
-      byTestId('voice-key-save').click()
-      await flushPromises()
+      await click('voice-key-save')
       expect(sendMessage).toHaveBeenCalledWith({ type: 'voice:key:save', key: KEY })
       expect((byTestId('voice-key-input') as HTMLInputElement).value).toBe('')
     })
@@ -90,8 +89,7 @@ describe('side panel: voice settings', () => {
     it('is checked for its shape before it is sent', async () => {
       await openSettings()
       await type('voice-key-input', 'not a key')
-      byTestId('voice-key-save').click()
-      await flushPromises()
+      await click('voice-key-save')
       expect(sendMessage).not.toHaveBeenCalledWith(
         expect.objectContaining({ type: 'voice:key:save' }),
       )
@@ -126,8 +124,7 @@ describe('side panel: voice settings', () => {
       await storeKey(KEY)
       await openSettings()
       sendMessage.mockResolvedValueOnce(reply as never)
-      byTestId('voice-key-test').click()
-      await flushPromises()
+      await click('voice-key-test')
       expect(sendMessage).toHaveBeenCalledWith({ type: 'voice:key:test' })
       expect(byTestId('voice-key-result').textContent).toContain(text)
     })
@@ -135,8 +132,7 @@ describe('side panel: voice settings', () => {
     it('is removed through the background', async () => {
       await storeKey(KEY)
       await openSettings()
-      byTestId('voice-key-remove').click()
-      await flushPromises()
+      await click('voice-key-remove')
       expect(sendMessage).toHaveBeenCalledWith({ type: 'voice:key:remove' })
     })
   })
@@ -160,13 +156,11 @@ describe('side panel: voice settings', () => {
       await openSettings()
       await choose('voice-model', 'custom')
       await type('voice-custom-model', 'whisper')
-      byTestId('voice-custom-save').click()
-      await flushPromises()
+      await click('voice-custom-save')
       expect(sendMessage).not.toHaveBeenCalledWith(expect.objectContaining({ type: 'voice:set' }))
       expect(body()).toContain('Use an OpenRouter model id such as vendor/model.')
       await type('voice-custom-model', 'qwen/qwen3-asr-flash-2026-02-10')
-      byTestId('voice-custom-save').click()
-      await flushPromises()
+      await click('voice-custom-save')
       expect(sendMessage).toHaveBeenCalledWith({
         type: 'voice:set',
         model: 'qwen/qwen3-asr-flash-2026-02-10',

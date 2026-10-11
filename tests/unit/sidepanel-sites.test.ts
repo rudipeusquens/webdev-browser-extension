@@ -7,7 +7,7 @@ import { collectionKey } from '@/lib/collection/store'
 import { SETTINGS_KEY } from '@/lib/settings'
 import { elementInput } from './helpers/collection'
 import { fakeSites } from './helpers/fake-sites'
-import { byTestId, mountPanel, teardownPanel } from './helpers/panel'
+import { byTestId, click, mountPanel, teardownPanel } from './helpers/panel'
 
 const LOCAL = 'http://localhost:3000'
 const STAGING = 'https://staging.example.com'
@@ -24,8 +24,7 @@ function withItems(site: string, page: string, n: number): Collection {
 async function openSettings(stored: Record<string, unknown>) {
   await fakeBrowser.storage.local.set(stored)
   await mountPanel()
-  byTestId('open-settings').click()
-  await flushPromises()
+  await click('open-settings')
 }
 
 describe('Settings: sites', () => {
