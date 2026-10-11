@@ -402,11 +402,16 @@ export function createRecorder(deps: RecorderDeps) {
       const code = error instanceof VoiceFailure ? error.code : 'failed'
       const detail = error instanceof VoiceFailure ? error.detail : undefined
       const retry = code !== 'no-speech'
-      if (retry) job.held = { at: Date.now(), error: code, ...(detail ? { detail } : {}) }
+      if (retry) job.held = { at: Date.now(), error: code, detail }
       else jobs.delete(id)
-      deps.emit({ job: id, state: 'failed', error: code, ...(detail ? { detail } : {}), retry })
+      failed(id, code, detail, retry)
       if (retry) keepHeld()
     }
+  }
+
+  /** A job's failure; `detail` goes along only when OpenRouter gave a reason. */
+  function failed(job: string, error: VoiceError, detail: string | undefined, retry: boolean) {
+    deps.emit({ job, state: 'failed', error, ...(detail ? { detail } : {}), retry })
   }
 
   /** Held audio within its time and size: the rest gives up its Retry, oldest first. */
@@ -414,21 +419,21 @@ export function createRecorder(deps: RecorderDeps) {
     clearTimeout(expiry)
     const now = Date.now()
     const holding = [...jobs]
-      .filter(([, job]) => job.held)
-      .sort(([, a], [, b]) => (a.held?.at ?? 0) - (b.held?.at ?? 0))
-    let bytes = holding.reduce((sum, [, job]) => sum + sizeOf(job.segments), 0)
-    for (const [id, job] of holding) {
-      const { at = 0, error = 'failed', detail } = job.held ?? {}
-      if (now - at < HOLD_TIME && bytes <= HOLD_BYTES) continue
+      .flatMap(([id, job]) => (job.held ? [{ id, job, held: job.held }] : []))
+      .sort((a, b) => a.held.at - b.held.at)
+    let bytes = holding.reduce((sum, { job }) => sum + sizeOf(job.segments), 0)
+    // Since when the first job that keeps its audio holds it: the oldest runs out first.
+    let oldest: number | undefined
+    for (const { id, job, held } of holding) {
+      if (now - held.at < HOLD_TIME && bytes <= HOLD_BYTES) {
+        oldest ??= held.at
+        continue
+      }
       bytes -= sizeOf(job.segments)
       jobs.delete(id)
-      deps.emit({ job: id, state: 'failed', error, ...(detail ? { detail } : {}), retry: false })
+      failed(id, held.error, held.detail, false)
     }
-    const next = [...jobs.values()].reduce(
-      (soonest, job) => (job.held ? Math.min(soonest, job.held.at + HOLD_TIME) : soonest),
-      Infinity,
-    )
-    if (next !== Infinity) expiry = setTimeout(keepHeld, Math.max(0, next - now))
+    if (oldest !== undefined) expiry = setTimeout(keepHeld, Math.max(0, oldest + HOLD_TIME - now))
   }
 
   function drop(id: string) {
