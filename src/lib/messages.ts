@@ -150,8 +150,6 @@ const MAX_REPORTED = 1000
 const isIdList = (x: unknown): x is string[] =>
   Array.isArray(x) && x.length <= MAX_REPORTED && x.every(isAnnotationId)
 
-/** A tab of the browser: Chrome numbers them from 0 on. */
-
 /** Most selectors one `origin:read` asks for: an area's container and its elements. */
 export const MAX_ORIGIN_SELECTORS = LIMITS.areaElements + 1
 
