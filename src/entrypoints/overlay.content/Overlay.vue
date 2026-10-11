@@ -13,8 +13,7 @@ import { browser, type Browser } from 'wxt/browser'
 import { useSiteCollection } from '@/composables/use-site-collection'
 import { keepNewest } from '@/composables/use-stored'
 import { useVoice } from '@/composables/use-voice'
-import { closestOf, deepActiveElement, queryFirst, tagOf } from '@/lib/capture/dom'
-import { findText } from '@/lib/capture/find-text'
+import { closestOf, deepActiveElement, tagOf } from '@/lib/capture/dom'
 import { snapshotArea } from '@/lib/capture/area'
 import { buildSelector } from '@/lib/capture/selector'
 import { pageInfo, snapshotElement } from '@/lib/capture/snapshot'
@@ -29,8 +28,8 @@ import {
 } from '@/lib/capture/text'
 import type { PageInfo, Rect, Status, Target } from '@/lib/collection/model'
 import { siteOf } from '@/lib/collection/site'
-import { STATUS_BADGE, type Tone, toneOf } from '@/lib/status'
-import { type Filter, loadView, shows, watchView } from '@/lib/view'
+import { type Tone, toneOf } from '@/lib/status'
+import { type Filter, loadView, watchView } from '@/lib/view'
 import { isMacPlatform } from '@/lib/shortcuts'
 import { truncate } from '@/lib/text'
 import {
@@ -47,7 +46,6 @@ import { request } from '@/lib/request'
 import { loadStored, watchStored } from '@/lib/storage'
 import { jobsKey, parseJobs, type SiteJobs } from '@/lib/voice/jobs'
 import { within } from '@/lib/within'
-import { createAnchorStatus } from './anchor-status'
 import CommentPopover from './CommentPopover.vue'
 import HoverBox from './HoverBox.vue'
 import { newId } from '@/lib/ids'
@@ -59,17 +57,12 @@ import {
   boxOf,
   clippersOf,
   inBounds,
-  isLiveRange,
   type LiveAnchor,
   linesOf,
   notRendered,
   onArea,
   onElement,
   onRange,
-  outlineBox,
-  pinPositions,
-  placeItems,
-  pruneLive,
   toRect,
   visibleBounds,
 } from './pins'
@@ -78,7 +71,7 @@ import { rectBetween } from './place'
 import SelectionChip from './SelectionChip.vue'
 import TextHighlight from './TextHighlight.vue'
 import { usePage } from './use-page'
-import { createTextMarks, type Marks, pageSurface } from './text-marks'
+import { usePins } from './use-pins'
 import { useTracking } from './use-tracking'
 
 const props = defineProps<{ host: HTMLElement; layer: Layer }>()
@@ -96,8 +89,6 @@ const MIN_AREA = 4
 const ORIGIN_WAIT = 2000
 /** How long the pointer rests on an element before its component is looked up. */
 const HOVER_DWELL = 150
-/** Text items are searched again at most this often while the page changes. */
-const REANCHOR_EVERY = 300
 /** How long a reveal waits for its item to be placed: the page may still be loading. */
 const REVEAL_WAIT = 3000
 
@@ -145,6 +136,8 @@ const highlighted = ref<string | null>(null)
 // The panel or the P key can hide the pins, until they show them again or the overlay
 // restarts.
 const pinsShown = ref(true)
+// The pin whose outline is drawn stronger: the pointer rests on it.
+const hoveredPin = ref<string | null>(null)
 // The page's selection the Pin chip offers to pin (browse mode), the character the chip sits
 // under, and the first one the selection shows.
 const chip = shallowRef<{ range: Range; anchor: Range; start: Range | null } | null>(null)
@@ -282,93 +275,20 @@ const chipLine = computed(() => {
   return bounds && inBounds(span, bounds) ? line : null
 })
 
-/** The items of this page that the filter shows: only they are placed and pinned. */
-const pageItems = computed(() =>
-  (collection.value?.items ?? []).filter(
-    (item) => item.pageKey === page.value && shows(item, filter.value),
-  ),
-)
-const placements = computed(() => {
-  // Again after DOM changes, not on every scroll: an element may have been replaced.
-  void layout.value
-  return placeItems(pageItems.value, live, document)
-})
-// The scroll containers and clipping boxes around each target: looked up with the
-// placements, measured on every frame.
-const clippers = computed(() => {
-  const found = new Map<string, Element[]>()
-  for (const [id, placement] of placements.value) {
-    // A selection lies in its element's content: that element's own scrolling clips it.
-    found.set(id, clippersOf(placement.el, !!placement.range))
-  }
-  return found
-})
-// The pin whose outline is drawn stronger: the pointer rests on it.
-const hoveredPin = ref<string | null>(null)
-/** The page's placed items while pins are shown, with where each can be seen, now. */
-const shown = computed(() => {
-  void frame.value
-  if (!pinsShown.value) return []
-  const viewport = { x: 0, y: 0, width: window.innerWidth, height: window.innerHeight }
-  return pageItems.value.flatMap((item) => {
-    const placement = placements.value.get(item.id)
-    if (!placement) return []
-    const bounds = visibleBounds(clippers.value.get(item.id) ?? [], viewport)
-    return [{ item, rect: placement.rect(), bounds }]
-  })
-})
-const pins = computed(() => {
-  const items = new Map(pageItems.value.map((item) => [item.id, item]))
-  const onPage = shown.value.map(({ item, rect, bounds }) => ({ id: item.id, rect, bounds }))
-  return pinPositions(onPage).map(({ id, x, y }) => ({
-    id,
-    number: items.get(id)?.number,
-    tone: STATUS_BADGE[toneOf(items.get(id) ?? { status: 'open' })],
-    transcribing: jobs.value[id]?.state === 'transcribing',
-    left: `${x}px`,
-    top: `${y}px`,
-  }))
-})
-/** Outline colors by tone: drawn fully while its pin is hovered. */
-const OUTLINE: Record<Tone, { normal: string; strong: string }> = {
-  open: { normal: 'border-blue-600/70', strong: 'border-blue-600' },
-  done: { normal: 'border-green-700/70', strong: 'border-green-700' },
-  deleted: { normal: 'border-red-600/70', strong: 'border-red-600' },
-  draft: { normal: 'border-zinc-500/70', strong: 'border-zinc-500' },
-}
-// A pin that goes away under the pointer (hidden, scrolled out of its box) gets no mouseleave.
-watch(pins, (current) => {
-  if (hoveredPin.value && !current.some((pin) => pin.id === hoveredPin.value)) {
-    hoveredPin.value = null
-  }
+const { pageItems, placements, pins, outlines, highlight } = usePins({
+  collection,
+  page,
+  filter,
+  live,
+  frame,
+  layout,
+  pinsShown,
+  hoveredPin,
+  highlighted,
+  jobs,
+  draft,
 })
 
-/**
- * The line around each pinned element or area. Texts are shaded by the browser instead
- * (text-marks.ts). The item being edited has the popover's own marking.
- */
-const outlines = computed(() => {
-  const editing = draft.value?.edit?.id
-  return shown.value.flatMap(({ item, rect, bounds }) => {
-    if (item.id === editing || !bounds || item.target.kind === 'text') return []
-    const strong = item.id === hoveredPin.value
-    const box = outlineBox(rect, bounds)
-    if (!box) return []
-    const side = (on: boolean) => (on ? '2px' : '0')
-    // Moved by its transform: scrolling does not make the browser draw the line again.
-    const style = {
-      transform: `translate(${box.x}px, ${box.y}px)`,
-      width: `${box.width}px`,
-      height: `${box.height}px`,
-      borderTopWidth: side(box.sides.top),
-      borderRightWidth: side(box.sides.right),
-      borderBottomWidth: side(box.sides.bottom),
-      borderLeftWidth: side(box.sides.left),
-    }
-    const tone = OUTLINE[toneOf(item)][strong ? 'strong' : 'normal']
-    return [{ id: item.id, strong, tone, dashed: item.target.kind === 'area', style }]
-  })
-})
 /** The pin being edited, as stored now. */
 const editStored = computed(() => {
   const edit = draft.value?.edit
@@ -396,80 +316,6 @@ async function jobAction(type: 'dictation:retry' | 'dictation:dismiss') {
     draft.value = { ...current, error: reply.error }
   }
 }
-
-const highlight = computed(() => {
-  void frame.value
-  const item = pageItems.value.find((i) => i.id === highlighted.value)
-  const placement = item && placements.value.get(item.id)
-  const rect = placement?.rect()
-  // A target without a box (not rendered) has nothing to outline.
-  if (!item || !rect || rect.width === 0 || rect.height === 0) return null
-  return { rect, label: `Pin ${item.number}`, status: toneOf(item) }
-})
-
-// Pinned texts are shaded by the browser: set again when what is pinned, hovered or edited
-// changes (a text found again changes the placements), never while the page scrolls.
-const textMarks = createTextMarks(pageSurface(document))
-watch(
-  [placements, pinsShown, hoveredPin, () => draft.value?.edit?.id],
-  () => {
-    const marks: Marks = {}
-    const editing = draft.value?.edit?.id
-    if (pinsShown.value) {
-      for (const item of pageItems.value) {
-        const range = placements.value.get(item.id)?.range
-        // A text not found again has its pin at its container, and no shading.
-        if (!range || item.id === editing) continue
-        const tone = (marks[toneOf(item)] ??= { normal: [], strong: [] })
-        ;(item.id === hoveredPin.value ? tone.strong : tone.normal).push(range)
-      }
-    }
-    textMarks.set(marks)
-  },
-  { immediate: true },
-)
-
-watch(collection, (current) => pruneLive(live, current?.items ?? []))
-
-// Text items without a selection from this session are found again by their text: at once
-// when the page's items change (mount, another page), so the pin does not jump from the
-// container to the text; while the page changes, at most every REANCHOR_EVERY ms, so a page
-// that changes all the time does not keep the overlay searching.
-let reanchorTimer: ReturnType<typeof setTimeout> | undefined
-function reanchorTexts() {
-  for (const item of pageItems.value) {
-    const { target } = item
-    if (target.kind !== 'text' || isLiveRange(live.get(item.id))) continue
-    const container = queryFirst(document, target.container.selector)
-    if (!container) continue
-    try {
-      const range = findText(container, target)
-      if (range) live.set(item.id, range)
-    } catch {
-      // A page in the middle of re-rendering: the next layout change tries again.
-    }
-  }
-}
-watch(pageItems, reanchorTexts, { immediate: true })
-watch(layout, () => {
-  reanchorTimer ??= setTimeout(() => {
-    reanchorTimer = undefined
-    reanchorTexts()
-  }, REANCHOR_EVERY)
-})
-
-// Found and missing items of this page, for the panel's mark and the prompt.
-const anchors = createAnchorStatus((report) => {
-  browser.runtime.sendMessage({ type: 'anchors:report', ...report }).catch(() => undefined)
-})
-watch(placements, (placed) => {
-  const ids = pageItems.value.map((item) => item.id)
-  anchors.update(
-    page.value,
-    ids.filter((id) => placed.has(id)),
-    ids.filter((id) => !placed.has(id)),
-  )
-})
 
 // Another page of a single-page app: its own pins; the chip and highlight belonged to the last.
 watch(page, () => {
@@ -1153,10 +999,7 @@ onMounted(() => {
 onBeforeUnmount(() => {
   stopView()
   clearTimeout(wantedTimer)
-  textMarks.stop()
   clearTimeout(hoverTimer)
-  clearTimeout(reanchorTimer)
-  anchors.stop()
   listeners.abort()
   stopJobs()
   cancelAnimationFrame(chipCheck)
