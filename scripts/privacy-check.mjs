@@ -101,9 +101,14 @@ function denylistHits(line, denylist) {
     }))
 }
 
-/** Findings of `scanText` as report entries, each placed by `where(finding)`. */
-function located(findings, where) {
-  return findings.map((f) => ({ location: where(f), rule: f.rule, detail: f.detail }))
+/**
+ * Appends the findings of `scanText` to `into` as report entries, each placed by `where(finding)`.
+ * One push per entry: no spread (a huge file can have more findings than a call takes
+ * arguments) and no concat (it would copy `into` again for every added line).
+ */
+function addLocated(into, findings, where) {
+  for (const f of findings) into.push({ location: where(f), rule: f.rule, detail: f.detail })
+  return into
 }
 
 export function scanText(text, { denylist = [], patterns = true } = {}) {
@@ -133,7 +138,7 @@ export function scanText(text, { denylist = [], patterns = true } = {}) {
 // Every rule over the added lines and the paths of `git log -p` output, so what was committed
 // and later deleted is still found — the history is public too.
 export function scanDiff(diff, denylist) {
-  let findings = []
+  const findings = []
   let commit = ''
   let file = ''
   let lineNo = 0
@@ -154,8 +159,10 @@ export function scanDiff(diff, denylist) {
     } else if (line.startsWith('@@')) {
       lineNo = Number(/\+(\d+)/.exec(line)?.[1] ?? 0)
     } else if (line.startsWith('+')) {
-      findings = findings.concat(
-        located(scanText(line.slice(1), { denylist }), () => `commit ${commit} ${file}:${lineNo}`),
+      addLocated(
+        findings,
+        scanText(line.slice(1), { denylist }),
+        () => `commit ${commit} ${file}:${lineNo}`,
       )
       lineNo++
     } else if (!line.startsWith('-')) {
@@ -227,7 +234,7 @@ function loadDenylist(root) {
 
 function scanFile(root, file, denylist) {
   const path = isAbsolute(file) ? relative(root, file) : file
-  let findings = []
+  const findings = []
   const forbidden = checkPath(path)
   if (forbidden) findings.push({ location: path, ...forbidden })
   let buffer
@@ -240,9 +247,10 @@ function scanFile(root, file, denylist) {
   // Binary files (images may carry EXIF names) get the denylist only.
   const binary = buffer.subarray(0, 8000).includes(0)
   const text = buffer.toString(binary ? 'latin1' : 'utf8')
-  // concat, not push(...): a huge file can have more findings than a call takes arguments.
-  return findings.concat(
-    located(scanText(text, { denylist, patterns: !binary }), (f) => `${path}:${f.line}`),
+  return addLocated(
+    findings,
+    scanText(text, { denylist, patterns: !binary }),
+    (f) => `${path}:${f.line}`,
   )
 }
 
@@ -252,7 +260,7 @@ function scanFile(root, file, denylist) {
  */
 function scanCommits(revs, denylist) {
   if (revs.length === 0) return []
-  let findings = []
+  const findings = []
   const log = git('log', '--format=%x00%H%x1f%ae%x1f%ce%x1f%an%x1f%cn%x1f%B', ...revs)
   for (const entry of log.split('\0').slice(1)) {
     const [sha, authorEmail, committerEmail, authorName, committerName, body] = entry.split('\x1f')
@@ -268,9 +276,7 @@ function scanCommits(revs, denylist) {
       for (const hit of denylistHits(name, denylist))
         findings.push({ location: `${at} (name)`, ...hit })
     }
-    findings = findings.concat(
-      located(scanText(body, { denylist }), (f) => `${at} (message):${f.line}`),
-    )
+    addLocated(findings, scanText(body, { denylist }), (f) => `${at} (message):${f.line}`)
   }
   const diff = git(
     'log',
@@ -282,7 +288,7 @@ function scanCommits(revs, denylist) {
     '--format=%x00commit %H',
     ...revs,
   )
-  findings.push(...scanDiff(diff, denylist))
+  for (const f of scanDiff(diff, denylist)) findings.push(f)
   return findings
 }
 
@@ -335,14 +341,14 @@ function main(argv) {
       .split('\n')
       .filter((line) => !line.startsWith('#'))
       .join('\n')
-    findings = located(scanText(message, { denylist }), (f) => `commit message:${f.line}`)
+    addLocated(findings, scanText(message, { denylist }), (f) => `commit message:${f.line}`)
   } else if (argv[0] === '--push') {
     help = `${FINDINGS_HELP}\n${IDENTITY_HELP}`
     for (const { refs, revs } of pushedRanges(readFileSync(0, 'utf8'))) {
       for (const ref of refs) {
-        findings = findings.concat(located(scanText(ref, { denylist }), () => `ref ${ref}`))
+        addLocated(findings, scanText(ref, { denylist }), () => `ref ${ref}`)
       }
-      findings.push(...scanCommits(revs, denylist))
+      for (const f of scanCommits(revs, denylist)) findings.push(f)
     }
   } else if (argv[0] === '--all') {
     const files = git('ls-files', '-z').split('\0').filter(Boolean)
@@ -351,7 +357,7 @@ function main(argv) {
       for (const hit of denylistHits(file, denylist))
         findings.push({ location: '(a path)', ...hit })
     }
-    findings.push(...scanHistory(denylist))
+    for (const f of scanHistory(denylist)) findings.push(f)
     if (!denylist.length) {
       console.log('privacy-check: no denylist configured — pattern rules only')
     }
