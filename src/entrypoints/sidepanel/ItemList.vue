@@ -19,7 +19,7 @@ import type { Pointed } from './use-overlay-lines'
 import { targetSummary } from '@/lib/format/summary'
 import { isSiteOrigin } from '@/lib/settings'
 import { STATUS_BADGE, STATUS_NAME, toneOf } from '@/lib/status'
-import type { JobView, SiteJobs } from '@/lib/voice/jobs'
+import { copyable, type JobView, type SiteJobs } from '@/lib/voice/jobs'
 import { dictationFailure } from '@/lib/voice/protocol'
 import type { Annotation } from '@/lib/collection/model'
 
@@ -53,8 +53,6 @@ const emit = defineEmits<{
 
 const jobOf = (item: Annotation): JobView | undefined => props.jobs?.[item.id]
 const transcribing = (item: Annotation) => jobOf(item)?.state === 'transcribing'
-/** Copy as prompt takes open pins whose text is complete: no drafts, nothing transcribed. */
-const copyable = (item: Annotation) => item.status === 'open' && !item.draft && !transcribing(item)
 
 const list = useTemplateRef<HTMLElement>('list')
 
@@ -223,7 +221,7 @@ const ICONS = { element: SquareMousePointerIcon, text: TextSelectIcon, area: Squ
               </span>
             </button>
             <Button
-              v-if="copyable(item)"
+              v-if="copyable(item, jobs)"
               data-testid="item-copy"
               variant="ghost"
               size="icon-sm"

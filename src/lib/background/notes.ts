@@ -12,6 +12,7 @@ import {
   parseNotes,
 } from '../notes/model'
 import { jsonBytes, loadStored, setOrRemove } from '../storage'
+import { interrupted } from '../voice/jobs'
 import { serial } from './serial'
 
 export type NotesWriter = ReturnType<typeof createNotes>
@@ -89,11 +90,10 @@ export function createNotes(now = () => new Date().toISOString()) {
         const n = await read()
         let changed = false
         const items = n.items.map((note): Note => {
-          const job = note.job
-          if (!job || (job.state === 'failed' && !job.retry)) return note
+          const job = note.job && interrupted(note.job)
+          if (job === note.job) return note
           changed = true
-          const error = job.state === 'failed' ? job.error : 'lost'
-          return { ...note, job: { ...job, state: 'failed', error, retry: false } as NoteJob }
+          return { ...note, job }
         })
         if (changed) await save({ ...n, items })
       }).catch(() => undefined)

@@ -3,7 +3,7 @@
 
 import { browser } from 'wxt/browser'
 import { loadStored, setOrRemove } from '../storage'
-import { type JobView, JOBS_PREFIX, jobsKey, parseJobs } from '../voice/jobs'
+import { interrupted, type JobView, JOBS_PREFIX, jobsKey, parseJobs } from '../voice/jobs'
 import { serial } from './serial'
 
 export type DictationsWriter = ReturnType<typeof createDictations>
@@ -41,10 +41,10 @@ export function createDictations() {
           const jobs = parseJobs(value)
           let changed = false
           for (const [id, view] of Object.entries(jobs)) {
-            if (view.state === 'cut' || (view.state === 'failed' && !view.retry)) continue
+            const after = interrupted(view)
+            if (after === view) continue
             changed = true
-            const error = view.state === 'failed' ? view.error : 'lost'
-            jobs[id] = { ...view, state: 'failed', error, retry: false } as JobView
+            jobs[id] = after
           }
           if (changed) next[key] = jobs
         }

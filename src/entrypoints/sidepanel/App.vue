@@ -49,7 +49,7 @@ import { usePanelToggle } from './use-panel-toggle'
 import { useSettings } from './use-settings'
 import { useShortcut } from './use-shortcut'
 import { NOTES_KEY, parseNotes } from '@/lib/notes/model'
-import { jobsKey, parseJobs } from '@/lib/voice/jobs'
+import { copyable, jobsKey, parseJobs } from '@/lib/voice/jobs'
 import { useSiteCollection } from '@/composables/use-site-collection'
 import { useStored } from '@/composables/use-stored'
 import { emptyCollection, pick } from '@/lib/collection/ops'
@@ -134,10 +134,7 @@ const items = computed(() => collection.value.items)
 /** Open pins whose comment is complete: no drafts, nothing transcribed (spec section 8). */
 const openIds = computed(() =>
   items.value
-    .filter(
-      (item) =>
-        item.status === 'open' && !item.draft && jobs.value[item.id]?.state !== 'transcribing',
-    )
+    .filter((item) => copyable(item, jobs.value))
     .sort((a, b) => a.number - b.number)
     .map((item) => item.id),
 )

@@ -2,8 +2,10 @@ import { beforeEach, describe, expect, it } from 'vitest'
 import { fakeBrowser } from 'wxt/testing/fake-browser'
 import { createDictations } from '@/lib/background/dictations'
 import { createNotes } from '@/lib/background/notes'
+import { addAnnotation, emptyCollection } from '@/lib/collection/ops'
 import { NOTE_LIMITS, NOTES_KEY, parseNotes } from '@/lib/notes/model'
-import { jobsKey, parseJobs } from '@/lib/voice/jobs'
+import { copyable, interrupted, type JobView, jobsKey, parseJobs } from '@/lib/voice/jobs'
+import { elementInput } from './helpers/collection'
 
 const stored = async (key: string) => (await fakeBrowser.storage.local.get(key))[key]
 const items = async () => parseNotes(await stored(NOTES_KEY)).items
@@ -112,5 +114,30 @@ describe("the pins' dictation states", () => {
       a3: { state: 'failed', error: 'offline', retry: false, detail: 'x' },
     })
     expect(parseJobs('x')).toEqual({})
+  })
+
+  it('fail after a restart, keeping their error or lost, without Retry; a cut or final one stays', () => {
+    const cut: JobView = { state: 'cut' }
+    const final: JobView = { state: 'failed', error: 'offline', retry: false }
+    expect(interrupted(cut)).toBe(cut)
+    expect(interrupted(final)).toBe(final)
+    // The job's keys keep their order, the changed ones in place.
+    expect(JSON.stringify(interrupted({ state: 'transcribing' }))).toBe(
+      '{"state":"failed","error":"lost","retry":false}',
+    )
+    expect(
+      JSON.stringify(interrupted({ state: 'failed', error: 'rejected', detail: 'x', retry: true })),
+    ).toBe('{"state":"failed","error":"rejected","detail":"x","retry":false}')
+  })
+
+  it('keep a transcribed pin, like a draft, out of Copy as prompt', () => {
+    const [pin] = addAnnotation(emptyCollection(SITE), elementInput('a1', `${SITE}/`), 'T').items
+    if (!pin) throw new Error('no pin')
+    const failed: JobView = { state: 'failed', error: 'offline', retry: true }
+    expect(copyable(pin, undefined)).toBe(true)
+    expect(copyable(pin, { a1: failed, a2: { state: 'transcribing' } })).toBe(true)
+    expect(copyable(pin, { a1: { state: 'transcribing' } })).toBe(false)
+    expect(copyable({ ...pin, draft: true }, {})).toBe(false)
+    expect(copyable({ ...pin, status: 'done' }, {})).toBe(false)
   })
 })
