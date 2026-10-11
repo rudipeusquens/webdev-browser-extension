@@ -24,7 +24,7 @@ export function useVoiceSettings(): {
   const voice = shallowRef<VoiceSettings>(defaultVoiceSettings())
   const maskedKey = ref<string | null>(null)
   const microphone = ref<Microphone>('unknown')
-  const setVoice = keepNewest((next: VoiceSettings) => (voice.value = next))
+  const newestVoice = keepNewest((next: VoiceSettings) => (voice.value = next))
   let stop: (() => void) | undefined
   let permission: PermissionStatus | undefined
 
@@ -39,10 +39,10 @@ export function useVoiceSettings(): {
   }
 
   onMounted(async () => {
-    stop = watchVoiceSettings(setVoice.changed)
+    stop = watchVoiceSettings(newestVoice.changed)
     browser.runtime.onMessage.addListener(onKey)
     void readKey()
-    setVoice.loaded(await loadVoiceSettings())
+    newestVoice.loaded(await loadVoiceSettings())
     try {
       permission = await navigator.permissions.query({ name: 'microphone' as PermissionName })
       microphone.value = permission.state

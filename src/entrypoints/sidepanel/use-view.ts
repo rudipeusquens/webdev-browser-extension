@@ -10,17 +10,17 @@ import { type Filter, loadView, watchView } from '@/lib/view'
  */
 export function useView(): { filter: Ref<Filter>; choose: (next: Filter) => void } {
   const filter = ref<Filter>('open')
-  const setFilter = keepNewest((next: Filter) => (filter.value = next))
+  const newestFilter = keepNewest((next: Filter) => (filter.value = next))
   let stop: (() => void) | undefined
 
   onMounted(async () => {
-    stop = watchView((view) => setFilter.changed(view.filter))
-    setFilter.loaded((await loadView()).filter)
+    stop = watchView((view) => newestFilter.changed(view.filter))
+    newestFilter.loaded((await loadView()).filter)
   })
   onBeforeUnmount(() => stop?.())
 
   function choose(next: Filter) {
-    setFilter.changed(next)
+    newestFilter.changed(next)
     const message: BackgroundMessage = { type: 'view:set', filter: next }
     browser.runtime.sendMessage(message).catch(() => undefined)
   }

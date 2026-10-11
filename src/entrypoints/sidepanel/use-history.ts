@@ -14,10 +14,10 @@ export function useHistory(site: Ref<string | null>): { labels: Ref<Labels> } {
       stop = undefined
       labels.value = {}
       if (!current) return
-      const setLabels = keepNewest((next: Labels) => (labels.value = next))
-      stop = watchLabels(current, setLabels.changed)
+      const newestLabels = keepNewest((next: Labels) => (labels.value = next))
+      stop = watchLabels(current, newestLabels.changed)
       const loaded = await loadLabels(current)
-      if (site.value === current) setLabels.loaded(loaded)
+      if (site.value === current) newestLabels.loaded(loaded)
     },
     { immediate: true },
   )

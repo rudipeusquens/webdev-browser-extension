@@ -24,16 +24,16 @@ export function useSiteCollection(site: Ref<string | null>): {
       collection.value = null
       loading.value = !!current
       if (!current) return
-      const setCollection = keepNewest((c: Collection | null) => (collection.value = c))
+      const newestCollection = keepNewest((c: Collection | null) => (collection.value = c))
       stop = watchSite(current, (c) => {
         loading.value = false
-        setCollection.changed(c)
+        newestCollection.changed(c)
       })
       // Unreadable: the panel shows the site as empty rather than nothing at all.
       const loaded = await loadSite(current).catch(() => null)
       // A change that arrived while loading is newer; a new site may have come meanwhile.
       if (site.value !== current) return
-      setCollection.loaded(loaded)
+      newestCollection.loaded(loaded)
       loading.value = false
     },
     { immediate: true },

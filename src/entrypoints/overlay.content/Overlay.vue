@@ -159,9 +159,9 @@ const site = siteOf(location.href)
 const { collection } = useSiteCollection(ref(site))
 // The state of the pins' dictations while they are not done (spec section 8).
 const jobs = shallowRef<SiteJobs>({})
-const setJobs = keepNewest((now: SiteJobs) => (jobs.value = now))
-const stopJobs = watchStored(jobsKey(site), parseJobs, setJobs.changed)
-void loadStored(jobsKey(site), parseJobs).then(setJobs.loaded)
+const newestJobs = keepNewest((now: SiteJobs) => (jobs.value = now))
+const stopJobs = watchStored(jobsKey(site), parseJobs, newestJobs.changed)
+void loadStored(jobsKey(site), parseJobs).then(newestJobs.loaded)
 // The dictation belongs to the overlay, not to a popover: it outlives the popover's changes.
 const voice = useVoice({
   // Another recording wants to start (another tab, Rec): this one is handed over, if it
@@ -175,9 +175,9 @@ const voice = useVoice({
 })
 // The panel's filter: which items have pins (spec section 8).
 const filter = ref<Filter>('open')
-const setFilter = keepNewest((now: Filter) => (filter.value = now))
-const stopView = watchView((view) => setFilter.changed(view.filter))
-void loadView().then((view) => setFilter.loaded(view.filter))
+const newestFilter = keepNewest((now: Filter) => (filter.value = now))
+const stopView = watchView((view) => newestFilter.changed(view.filter))
+void loadView().then((view) => newestFilter.loaded(view.filter))
 // What was marked in this session, by item id: more precise than the stored selector.
 const live = shallowReactive(new Map<string, LiveAnchor>())
 let pointed: Element | null = null

@@ -45,14 +45,14 @@ export function useStored<T>(
       value.value = parse(undefined)
       loaded.value = !now
       if (!now) return
-      const setValue = keepNewest((next: T) => (value.value = next))
+      const newestValue = keepNewest((next: T) => (value.value = next))
       stop = watchStored(now, parse, (next) => {
-        setValue.changed(next)
+        newestValue.changed(next)
         loaded.value = true
       })
       void loadStored(now, parse).then((read) => {
         if (key.value !== now) return
-        setValue.loaded(read)
+        newestValue.loaded(read)
         loaded.value = true
       })
     },
