@@ -1,3 +1,6 @@
+import { mkdtemp, readdir, readFile, rm } from 'node:fs/promises'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
 import type { Page } from 'puppeteer'
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest'
 import { FAKE_TEXT, startFakeOpenRouter } from './fake-openrouter'
@@ -158,6 +161,56 @@ describe('Rec in the panel', () => {
       await panel.click('[data-testid="voice-correct-on"]')
       await panel.waitForSelector('[data-testid="voice-correct-prompt"]')
       await panel.click('[data-testid="close-settings"]')
+    }
+  })
+
+  it('keeps every text in the archive, also of a deleted note, and exports it as a file', async () => {
+    const dir = await mkdtemp(join(tmpdir(), 'webdev-archive-'))
+    try {
+      fake.correct('Make the Button wider.')
+      await record(600)
+      await panel.click('[data-testid="rec"]')
+      await panel.waitForSelector('[data-testid="note-text"]')
+      await panel.click('[data-testid="note-delete"]')
+      await panel.waitForSelector('[data-testid="notes"]', { hidden: true })
+      const cdp = await panel.createCDPSession()
+      await cdp.send('Browser.setDownloadBehavior', { behavior: 'allow', downloadPath: dir })
+      await panel.click('[data-testid="open-settings"]')
+      const count = await panel.waitForSelector('[data-testid="archive-count"]')
+      const before = Number.parseInt((await count?.evaluate((el) => el.textContent)) ?? '', 10)
+      expect(before).toBeGreaterThanOrEqual(1)
+      await panel.click('[data-testid="archive-export"]')
+      let files: string[] = []
+      for (let i = 0; i < 50 && !files.some((f) => f.endsWith('.json')); i++) {
+        await sleep(100)
+        files = await readdir(dir)
+      }
+      const file = files.find((f) => /^dictations-\d{4}-\d{2}-\d{2}\.json$/.test(f))
+      expect(file).toBeDefined()
+      const exported = JSON.parse(await readFile(join(dir, file ?? ''), 'utf8')) as {
+        version: number
+        dictations: Record<string, unknown>[]
+      }
+      expect(exported.version).toBe(1)
+      expect(exported.dictations).toHaveLength(before)
+      expect(exported.dictations.at(-1)).toMatchObject({
+        kind: 'note',
+        text: 'Make the Button wider.',
+        raw: FAKE_TEXT,
+        model: 'openai/gpt-4o-mini-transcribe',
+        correctModel: 'anthropic/claude-haiku-5.5',
+      })
+      // Deleted only after a confirmation.
+      await panel.click('[data-testid="archive-clear"]')
+      await (await panel.waitForSelector('[data-testid="archive-clear-confirm"]'))?.click()
+      await panel.waitForSelector('[data-testid="archive-export"][disabled]')
+    } finally {
+      // The next test starts in Edit: the dialog is gone before Settings closes.
+      await panel.waitForSelector('[data-testid="archive-clear-confirm"]', { hidden: true })
+      if (await panel.$('[data-testid="close-settings"]')) {
+        await panel.click('[data-testid="close-settings"]')
+      }
+      await rm(dir, { recursive: true, force: true })
     }
   })
 

@@ -56,7 +56,8 @@ selector and text) and understands what should change.
 ## 4. Principles
 
 1. **Page data stays local.** Everything captured from a page leaves the browser only through
-   the clipboard, on an explicit click. No analytics, no telemetry, no remote logging.
+   the clipboard, on an explicit click. No analytics, no telemetry, no remote logging. The
+   archive of the dictations leaves it only as the file the developer exports.
 2. **Voice is the one exception, and only on demand.** A recording is sent to OpenRouter only
    when the developer ends it without cancelling it: with a stop, or by moving on from it
    (another pin, the page left, another dictation started, the limit's question left
@@ -755,6 +756,7 @@ open, its entry stays marked.
   pins, **Auto** for remembered sites with **Forget** (after the same confirmation), and
   **Always enable** on the other web sites (the same as **Always enable here**: a site listed
   for its feedback alone starts only with the toolbar icon);
+  **Archive**: how many dictations are kept, **Export** and **Delete** (section 9);
   **Keyboard shortcuts**: the toolbar shortcut as Chrome assigned it (**Change** opens
   `chrome://extensions/shortcuts`), and the keys on the page, in Browse, element and area mode,
   in the comment popover and in the panel. **Open settings** in the popover opens the panel
@@ -784,6 +786,19 @@ select-parent), ClickUp and Air comment pins with a side list.
   `openai/whisper-large-v3-turbo`, `mistralai/voxtral-mini-transcribe`) plus a custom model id.
   The voice spike (section 13) compared them on German and English test audio: all four
   transcribe it almost word for word, so the default stays.
+- **Archive:** the panel's list fills up and notes are deleted, but the developer may want
+  everything they ever dictated, to look through it a year later. The background keeps the
+  text of every dictation that was transcribed, whatever becomes of its note or pin, in the
+  extension origin's IndexedDB, database `webdev-browser-extension-archive`, store
+  `dictations` (apart from the key's database; no limit of `chrome.storage` applies, and
+  content scripts cannot open it; the overlay never imports the module, an ESLint rule guards
+  that). An entry: `{ at, kind: 'note' | 'pin', site? (the pin's), text, raw? (the transcript
+as it came, when the correction changed it), uncorrected?, ms? (the recording's length),
+model, language, correctModel? }`. No audio is kept (32 kbit/s is 14 MB an hour), no page
+  data, no key. Settings › **Archive** shows how many there are, **Export** saves all of them
+  as `dictations-<date>.json` (`{ version: 1, exportedAt, dictations }`, through a download
+  link of the panel: no permission, no upload), and **Delete** removes them after a
+  confirmation. An entry that cannot be written is lost; the dictation is not.
 - **Language:** `auto` (omit the field) by default, or an ISO-639-1 code.
 - **Correction:** a transcription mishears names and technical words. While **Correct
   transcripts** is on (the default), the recorder sends each job's whole transcript, once every

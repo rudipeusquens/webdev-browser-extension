@@ -110,7 +110,14 @@ export function createJobs(deps: JobDeps) {
         if (!current()) return
       }
       jobs.delete(id)
-      deps.emit({ job: id, state: 'done', ...answer, ...(uncorrected && { uncorrected }) })
+      deps.emit({
+        job: id,
+        state: 'done',
+        ...answer,
+        ...(uncorrected && { uncorrected }),
+        ...(answer.text !== transcript.text && { raw: transcript.text }),
+        ms: Math.round(job.segments.reduce((sum, segment) => sum + segment.ms, 0)),
+      })
     } catch (error) {
       if (!current()) return
       job.controller = undefined

@@ -4807,3 +4807,26 @@ shadcn-vue CLI could not be installed (pnpm's trust check refused one of its dep
       correction with each job while it is on; the panel's switch, model and instructions with
       Save and Reset; a note whose correction failed says "not corrected"; end to end with a
       fake that answers `chat/completions`. Then the settings and the mark.
+
+## Milestone 9e: The archive of the dictations
+
+The owner dictates a lot and deletes notes to keep the list short, but wants to keep
+everything they ever dictated and export it, to look through it a year later.
+
+Decisions made while building, the owner's to change: only text is kept, no audio (14 MB an
+hour, in a browser profile); the archive has no switch and no limit; the export is JSON.
+
+### Task 96: The archive
+
+- Files: `src/lib/voice/{archive,protocol,recorder-jobs}.ts`, `src/lib/background/voice.ts`,
+  `src/entrypoints/{background.ts,sidepanel/ArchiveSettings.vue,sidepanel/SettingsView.vue}`,
+  `eslint.config.mjs`,
+  `tests/unit/{voice-archive,sidepanel-archive,background-voice,voice-recorder,voice-protocol,eslint-overlay-key}.test.ts`,
+  `tests/e2e/rec.e2e.test.ts`, the spec (sections 4, 8, 9), `README.md`,
+  `docs/smoke-test.md`, `AGENTS.md`, `docs/images`
+- [x] Failing tests: entries are added, read in order, counted and cleared in a database of
+      their own, and validated on reading; a job's `done` names the transcript before its
+      correction and the recording's length; the background archives every text with where
+      it went and the models, and nothing of a failure; Settings counts, exports a JSON file
+      and deletes after a confirmation; the overlay may not import the module; end to end, a
+      deleted note's text is in the downloaded file. Then the archive.

@@ -5,6 +5,7 @@ import { YIELD_WAIT } from '@/lib/background/voice'
 import { addAnnotation, emptyCollection } from '@/lib/collection/ops'
 import { collectionKey, loadSite } from '@/lib/collection/store'
 import { NOTES_KEY } from '@/lib/notes/model'
+import { loadArchive } from '@/lib/voice/archive'
 import { jobsKey } from '@/lib/voice/jobs'
 import { deleteKey, storeKey } from '@/lib/voice/key'
 import {
@@ -417,6 +418,71 @@ describe('background: dictation', () => {
       expect(((await stored(NOTES_KEY)) as { items: unknown[] }).items).toEqual([
         { id, text: 'Hello there.', createdAt: expect.any(String) },
       ])
+    })
+
+    it('keeps every text in the archive, whatever becomes of its note or pin', async () => {
+      const { client, recorder } = await started(panel())
+      client.receive({ type: 'stop', keep: { note: true } })
+      await flush()
+      recorder.receive({
+        job: lastJob(recorder),
+        state: 'done',
+        text: 'Use Tailwind.',
+        cut: false,
+        raw: 'Use tail wind.',
+        ms: 2400,
+      })
+      await flush()
+      const id = ((await stored(NOTES_KEY)) as { items: { id: string }[] }).items[0]?.id
+      await send({ type: 'note:delete', id }, panelSender())
+      // A pin's dictation too, with its site; this pin is gone, so the text became a note.
+      const page = await started()
+      page.client.receive({ type: 'stop', keep: { pin: 'gone' } })
+      await flush()
+      page.recorder.receive({
+        job: lastJob(page.recorder),
+        state: 'done',
+        text: 'As it came.',
+        cut: false,
+        uncorrected: true,
+      })
+      await flush()
+      expect(await loadArchive()).toEqual([
+        {
+          at: expect.any(String),
+          kind: 'note',
+          text: 'Use Tailwind.',
+          raw: 'Use tail wind.',
+          ms: 2400,
+          model: DEFAULT_MODEL,
+          language: 'auto',
+          correctModel: DEFAULT_CORRECT_MODEL,
+        },
+        {
+          at: expect.any(String),
+          kind: 'pin',
+          site: SITE,
+          text: 'As it came.',
+          uncorrected: true,
+          model: DEFAULT_MODEL,
+          language: 'auto',
+          correctModel: DEFAULT_CORRECT_MODEL,
+        },
+      ])
+    })
+
+    it('keeps nothing of a dictation that failed', async () => {
+      const { client, recorder } = await started(panel())
+      client.receive({ type: 'stop', keep: { note: true } })
+      await flush()
+      recorder.receive({
+        job: lastJob(recorder),
+        state: 'failed',
+        error: 'no-speech',
+        retry: false,
+      })
+      await flush()
+      expect(await loadArchive()).toEqual([])
     })
 
     it('marks a note whose correction failed', async () => {

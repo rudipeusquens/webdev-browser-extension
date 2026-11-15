@@ -23,7 +23,10 @@ check, the MCP server through pnpm; release readiness: the package from `pnpm zi
 against the build, the README, the manual smoke test), milestone 8a: **Rec**, dictation in the
 panel without a pin, its text copied as it is, milestone 8c: `Ctrl` + drag selects text in a
 link, and milestone 8b: dictation transcribed in the background, `Space` to dictate, every
-pin kept (grey drafts), Rec notes in the panel, a recording limit that asks. Next: the owner's
+pin kept (grey drafts), Rec notes in the panel, a recording limit that asks, and milestone 9:
+"Not active" says how to start, undo of a deleted Rec note, no request for a recording without
+sound, transcripts corrected by a language model on instructions from Settings, the archive
+of the dictations with its export. Next: the owner's
 smoke test before the first release; later candidates are in the plan's known limits and
 deferred items. The spec is `docs/specs/2026-10-05-annotation-extension.md` — read both before
 working on a feature.

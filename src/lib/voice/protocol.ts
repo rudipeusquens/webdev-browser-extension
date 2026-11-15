@@ -140,8 +140,20 @@ export type RecorderCommand =
 /** Recorder → background: what became of a stopped recording. */
 export type JobEvent =
   | { job: string; state: 'transcribing' }
-  /** `uncorrected`: the correction was asked for and failed; the text is the transcript as it came. */
-  | { job: string; state: 'done'; text: string; cut: boolean; uncorrected?: true }
+  /**
+   * `uncorrected`: the correction was asked for and failed; the text is the transcript as it
+   * came. `raw`: the transcript as it came, when the correction changed it. `ms`: how long the
+   * recording was. The last two are for the archive.
+   */
+  | {
+      job: string
+      state: 'done'
+      text: string
+      cut: boolean
+      uncorrected?: true
+      raw?: string
+      ms?: number
+    }
   | ({ job: string } & Failed)
 
 /** Recorder → background: the recording, its jobs, and a heartbeat that keeps it alive. */
@@ -206,10 +218,12 @@ export function isJobEvent(x: unknown): x is JobEvent {
       return hasKeys(x, ['job', 'state'])
     case 'done':
       return (
-        hasKeys(x, ['job', 'state', 'text', 'cut'], ['uncorrected']) &&
+        hasKeys(x, ['job', 'state', 'text', 'cut'], ['uncorrected', 'raw', 'ms']) &&
         isText(x.text, MAX_TEXT) &&
         typeof x.cut === 'boolean' &&
-        (x.uncorrected === undefined || x.uncorrected === true)
+        (x.uncorrected === undefined || x.uncorrected === true) &&
+        (x.raw === undefined || isText(x.raw, MAX_TEXT)) &&
+        (x.ms === undefined || isCount(x.ms))
       )
     case 'failed':
       return isFailure(x, ['job'])

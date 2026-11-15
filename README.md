@@ -232,6 +232,9 @@ The gear in the panel:
   (off by default).
 - **Voice:** the key, the model, the language, the recording limit, the correction with its
   instructions, and the microphone (see Dictation).
+- **Archive:** the text of every dictation is kept in this browser, also after its note or
+  pin is deleted. **Export** saves all of it as a JSON file (when, where it went, the text and
+  the transcript before its correction); the bin deletes it. The recordings are not kept.
 - **Sites:** every site with pins or access, with its number of open pins; **Auto** marks
   the sites where the overlay loads by itself, with **Forget**; **Always enable** makes one
   of the others load by itself.
@@ -241,7 +244,8 @@ The gear in the panel:
 
 - **Page data stays in your browser.** Pins, comments, Rec notes and what was captured from
   the pages are stored in the extension's local storage. They leave only through the clipboard, when
-  you copy. No analytics, no telemetry, no remote logging.
+  you copy, and the archive of your dictations as the file you export. No analytics, no
+  telemetry, no remote logging.
 - **Dictation is the one exception, and only when you use it.** When a recording ends, by
   your stop or because you moved on (another pin, another page), the audio goes to
   `openrouter.ai` with your key and with data collection turned off; nothing from the page
