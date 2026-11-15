@@ -71,6 +71,7 @@ function setup(overrides: Partial<RecorderDeps> = {}) {
       return m
     },
     transcribe,
+    correct: vi.fn<RecorderDeps['correct']>(async (transcript) => `${transcript} (corrected)`),
     emit: (m) => emitted.push(m),
     ...overrides,
   }
@@ -177,6 +178,97 @@ describe('the recording', () => {
     await r.stop('j1')
     await flush()
     expect(r.last()).toEqual({ job: 'j1', state: 'done', text: 'Spoken.', cut: false })
+  })
+
+  describe('with a correction', () => {
+    const CORRECTED: TranscribeRequest = {
+      ...REQUEST,
+      correct: { model: 'c/d', prompt: 'Fix.' },
+    }
+
+    it('corrects the whole transcript once, after every part is transcribed', async () => {
+      const transcribe = vi
+        .fn<RecorderDeps['transcribe']>()
+        .mockResolvedValueOnce('First part.')
+        .mockResolvedValueOnce('Second part.')
+      const r = setup({ transcribe })
+      await r.start(10_000)
+      await vi.advanceTimersByTimeAsync(10_000)
+      r.recorder.command({ type: 'resume' })
+      // The stretch the limit ended hands over its last chunk first.
+      await vi.advanceTimersByTimeAsync(1)
+      await r.stop('j1', CORRECTED)
+      await flush()
+      expect(r.deps.correct).toHaveBeenCalledTimes(1)
+      const [transcript, request, signal] = vi.mocked(r.deps.correct).mock.calls[0] ?? []
+      expect(transcript).toBe('First part. Second part.')
+      expect(request).toEqual(CORRECTED)
+      expect(signal).toBeInstanceOf(AbortSignal)
+      expect(r.last()).toEqual({
+        job: 'j1',
+        state: 'done',
+        text: 'First part. Second part. (corrected)',
+        cut: false,
+      })
+    })
+
+    it('asks for none when the request names none', async () => {
+      const r = setup()
+      await r.start()
+      await r.stop('j1')
+      expect(r.deps.correct).not.toHaveBeenCalled()
+      expect(r.last()).toEqual({ job: 'j1', state: 'done', text: 'Make it wider.', cut: false })
+    })
+
+    it('keeps the transcript as it came when the correction fails, and says so', async () => {
+      const r = setup({
+        correct: vi.fn(async () => {
+          throw new VoiceFailure('timeout')
+        }),
+      })
+      await r.start()
+      await r.stop('j1', CORRECTED)
+      expect(r.last()).toEqual({
+        job: 'j1',
+        state: 'done',
+        text: 'Make it wider.',
+        cut: false,
+        uncorrected: true,
+      })
+    })
+
+    it('corrects what fits a pin of a transcript that is too long, and cuts the answer too', async () => {
+      const long = 'x'.repeat(20_500)
+      const r = setup({
+        transcribe: vi.fn(async () => long),
+        correct: vi.fn(async (transcript: string) => `${transcript}yy`),
+      })
+      await r.start()
+      await r.stop('j1', CORRECTED)
+      expect(vi.mocked(r.deps.correct).mock.calls[0]?.[0]).toHaveLength(20_000)
+      const done = r.last() as { text: string; cut: boolean }
+      expect(done.text).toHaveLength(20_000)
+      expect(done.cut).toBe(true)
+    })
+
+    it('says nothing of a job dropped while it is corrected', async () => {
+      let abort: AbortSignal | undefined
+      const r = setup({
+        correct: vi.fn(
+          (_: string, __: TranscribeRequest, signal: AbortSignal) =>
+            new Promise<string>((_resolve, reject) => {
+              abort = signal
+              signal.addEventListener('abort', () => reject(signal.reason))
+            }),
+        ),
+      })
+      await r.start()
+      await r.stop('j1', CORRECTED)
+      r.recorder.command({ type: 'drop', job: 'j1' })
+      await flush()
+      expect(abort?.aborted).toBe(true)
+      expect(r.states()).toEqual(['starting', 'recording', 'j1:transcribing'])
+    })
   })
 
   describe('without any sound', () => {

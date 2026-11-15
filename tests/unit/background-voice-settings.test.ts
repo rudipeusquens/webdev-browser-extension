@@ -2,7 +2,13 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { fakeBrowser } from 'wxt/testing/fake-browser'
 import background from '@/entrypoints/background'
 import { loadKey, storeKey } from '@/lib/voice/key'
-import { DEFAULT_MODEL, loadVoiceSettings, VOICE_KEY } from '@/lib/voice/settings'
+import {
+  DEFAULT_CORRECT_MODEL,
+  DEFAULT_MODEL,
+  DEFAULT_PROMPT,
+  loadVoiceSettings,
+  VOICE_KEY,
+} from '@/lib/voice/settings'
 import { fakeChrome, send, stored } from './helpers/background'
 import { panelSender } from './helpers/fake-ports'
 
@@ -10,6 +16,12 @@ import { panelSender } from './helpers/fake-ports'
 const KEY = 'sk-or-v1-' + 'cd34'.repeat(16)
 
 const tab = { id: 5, windowId: 1 }
+/** The correction as it is until Settings changes it. */
+const CORRECTION = {
+  correct: true,
+  correctModel: DEFAULT_CORRECT_MODEL,
+  correctPrompt: DEFAULT_PROMPT,
+}
 
 describe('background: voice settings from the panel', () => {
   beforeEach(() => {
@@ -29,7 +41,33 @@ describe('background: voice settings from the panel', () => {
       model: 'openai/whisper-large-v3-turbo',
       language: 'de',
       limit: 600_000,
+      ...CORRECTION,
     })
+  })
+
+  it('saves the correction: whether, its model and its instructions', async () => {
+    const prompt = 'Fix it.\n- Vue\n- Tailwind'
+    expect(
+      await send(
+        { type: 'voice:set', correct: false, correctModel: 'a/b', correctPrompt: prompt },
+        panelSender(),
+      ),
+    ).toEqual({ ok: true })
+    expect(await loadVoiceSettings()).toMatchObject({
+      model: DEFAULT_MODEL,
+      correct: false,
+      correctModel: 'a/b',
+      correctPrompt: prompt,
+    })
+    expect(await send({ type: 'voice:set', correct: true }, panelSender())).toEqual({ ok: true })
+    expect(await loadVoiceSettings()).toMatchObject({ correct: true, correctPrompt: prompt })
+    // Empty instructions, or too long ones, are no change.
+    for (const correctPrompt of ['', '  \n ', 'x'.repeat(4001)]) {
+      expect(await send({ type: 'voice:set', correctPrompt }, panelSender())).toBeUndefined()
+    }
+    expect(await send({ type: 'voice:set', correct: 'yes' }, panelSender())).toBeUndefined()
+    expect(await send({ type: 'voice:set', correctModel: 'nope' }, panelSender())).toBeUndefined()
+    expect((await loadVoiceSettings()).correctPrompt).toBe(prompt)
   })
 
   it('changes only the fields it is sent, the others as stored', async () => {
@@ -38,7 +76,12 @@ describe('background: voice settings from the panel', () => {
     })
     expect(await send({ type: 'voice:set', limit: 120_000 }, panelSender())).toEqual({ ok: true })
     expect(await send({ type: 'voice:set', language: 'fr' }, panelSender())).toEqual({ ok: true })
-    expect(await stored(VOICE_KEY)).toEqual({ model: 'a/b', language: 'fr', limit: 120_000 })
+    expect(await stored(VOICE_KEY)).toEqual({
+      model: 'a/b',
+      language: 'fr',
+      limit: 120_000,
+      ...CORRECTION,
+    })
   })
 
   it('keeps both of two changes sent at once', async () => {
@@ -48,7 +91,12 @@ describe('background: voice settings from the panel', () => {
       send({ type: 'voice:set', model: 'a/b' }, panelSender()),
     ])
     expect(replies).toEqual([{ ok: true }, { ok: true }, { ok: true }])
-    expect(await loadVoiceSettings()).toEqual({ model: 'a/b', language: 'de', limit: 600_000 })
+    expect(await loadVoiceSettings()).toEqual({
+      model: 'a/b',
+      language: 'de',
+      limit: 600_000,
+      ...CORRECTION,
+    })
   })
 
   it('saves and removes the key without ever answering with it', async () => {
@@ -94,6 +142,7 @@ describe('background: voice settings from the panel', () => {
       model: DEFAULT_MODEL,
       language: 'auto',
       limit: 300_000,
+      ...CORRECTION,
     })
   })
 
@@ -125,6 +174,7 @@ describe('background: voice settings from the panel', () => {
       model: DEFAULT_MODEL,
       language: 'auto',
       limit: 300_000,
+      ...CORRECTION,
     })
   })
 

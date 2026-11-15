@@ -1,6 +1,8 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import {
   checkKey,
+  correctTimeoutFor,
+  correctTranscript,
   OPENROUTER,
   TIMEOUT,
   timeoutFor,
@@ -47,6 +49,97 @@ async function failure(promise: Promise<unknown>): Promise<VoiceFailure> {
 afterEach(() => {
   vi.useRealTimers()
   vi.restoreAllMocks()
+})
+
+describe('correctTranscript', () => {
+  const CORRECT = { model: 'anthropic/claude-haiku-5.5', prompt: 'Fix it.\n- Tailwind' }
+  const chat = (content: unknown, finish_reason = 'stop') =>
+    json({ choices: [{ finish_reason, message: { role: 'assistant', content } }] })
+  const TEXT = 'Use tail wind for the button.'
+
+  it('posts the transcript as data between tags, under the instructions', async () => {
+    const fetch = fakeFetch(chat('Use Tailwind for the button.'))
+    expect(await correctTranscript(TEXT, KEY, CORRECT, { fetch })).toBe(
+      'Use Tailwind for the button.',
+    )
+    const [url, init] = fetch.mock.calls[0] ?? []
+    expect(String(url)).toBe('https://openrouter.ai/api/v1/chat/completions')
+    expect(init?.method).toBe('POST')
+    expect(new Headers(init?.headers).get('Authorization')).toBe(`Bearer ${KEY}`)
+    expect(init).toMatchObject({ redirect: 'error', credentials: 'omit', cache: 'no-store' })
+    expect(JSON.parse(String(init?.body))).toEqual({
+      model: 'anthropic/claude-haiku-5.5',
+      messages: [
+        { role: 'system', content: CORRECT.prompt },
+        { role: 'user', content: `<transcript>\n${TEXT}\n</transcript>` },
+      ],
+      max_tokens: 515,
+      provider: { data_collection: 'deny' },
+    })
+  })
+
+  it('takes the tags off an answer that repeats them, and trims it', async () => {
+    const fetch = fakeFetch(chat(`<transcript>\n Use Tailwind for the button. \n</transcript>\n`))
+    expect(await correctTranscript(TEXT, KEY, CORRECT, { fetch })).toBe(
+      'Use Tailwind for the button.',
+    )
+  })
+
+  it.each([
+    ['an empty answer', ''],
+    ['only tags', '<transcript></transcript>'],
+    ['no text', 42],
+    ['an answer far longer than the transcript', 'word '.repeat(60)],
+    ['an answer far shorter', 'Use.'],
+  ])('fails for %s: the transcript is kept as it came', async (_, content) => {
+    const fetch = fakeFetch(chat(content))
+    expect((await failure(correctTranscript(TEXT, KEY, CORRECT, { fetch }))).code).toBe('failed')
+  })
+
+  it('fails for an answer that was cut off, and for one without a choice', async () => {
+    const cutOff = fakeFetch(chat('Use Tailwind for the', 'length'))
+    expect((await failure(correctTranscript(TEXT, KEY, CORRECT, { fetch: cutOff }))).code).toBe(
+      'failed',
+    )
+    const none = fakeFetch(json({ choices: [] }))
+    expect((await failure(correctTranscript(TEXT, KEY, CORRECT, { fetch: none }))).code).toBe(
+      'failed',
+    )
+  })
+
+  it.each([
+    [401, 'invalid-key'],
+    [402, 'no-credits'],
+    [404, 'rejected'],
+    [429, 'rate-limited'],
+    [500, 'failed'],
+  ])('maps HTTP %i to %s', async (status, code) => {
+    const fetch = fakeFetch(json({ error: { message: 'No such model' } }, status))
+    expect((await failure(correctTranscript(TEXT, KEY, CORRECT, { fetch }))).code).toBe(code)
+  })
+
+  it('gives a long transcript more time and more room for its answer', async () => {
+    expect(correctTimeoutFor(0)).toBe(20_000)
+    expect(correctTimeoutFor(20_000)).toBe(120_000)
+    const long = 'word '.repeat(4000)
+    const fetch = fakeFetch(chat(long))
+    await correctTranscript(long, KEY, CORRECT, { fetch })
+    expect(JSON.parse(String(fetch.mock.calls[0]?.[1]?.body)).max_tokens).toBe(10_500)
+  })
+
+  it("times out, and passes the caller's abort through", async () => {
+    vi.useFakeTimers()
+    const slow = failure(correctTranscript(TEXT, KEY, CORRECT, { fetch: hangingFetch() }))
+    await vi.advanceTimersByTimeAsync(correctTimeoutFor(TEXT.length))
+    expect((await slow).code).toBe('timeout')
+    const controller = new AbortController()
+    const dropped = correctTranscript(TEXT, KEY, CORRECT, {
+      fetch: hangingFetch(),
+      signal: controller.signal,
+    })
+    controller.abort(new DOMException('Dropped', 'AbortError'))
+    await expect(dropped).rejects.toMatchObject({ name: 'AbortError' })
+  })
 })
 
 describe('transcribe', () => {

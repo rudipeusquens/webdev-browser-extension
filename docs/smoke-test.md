@@ -123,6 +123,11 @@ Settings → **Voice**:
       entry says "No comment yet". Click **Copy as prompt**. → "Copied … left out: drafts and
       pins still transcribed"; the grey pin stays. Click it, type a comment, `Enter`. → It
       turns blue.
+- [ ] Settings → **Voice** → **Correct transcripts** is on. In **Instructions**, add a made-up
+      name at the end ("- Zorblax"), **Save**. **Rec**, say a sentence with that name, stop.
+      → The note spells it as written. Switch **Correct transcripts** off, dictate again. →
+      The text comes a moment sooner, as the transcription heard it. Switch it on again;
+      **Reset** puts the instructions back.
 - [ ] Settings → **Voice** → **Recording limit**: "1 minute". Dictate in a pin for a minute.
       → At 1:00 the popover asks "Paused at 1:00. Keep recording?". **Keep**. → The clock
       goes on, and at 2:00 it asks again. **Stop**. → The popover closes and the text

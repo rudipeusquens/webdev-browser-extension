@@ -15,6 +15,8 @@ export interface Note {
   text: string
   createdAt: string
   job?: NoteJob
+  /** The correction of its transcript failed: the text is as the transcription gave it. */
+  uncorrected?: true
 }
 
 /** Oldest first. */
@@ -30,14 +32,15 @@ export const NOTE_LIMITS = { count: 50, bytes: 1_000_000 } as const
 export const emptyNotes = (): Notes => ({ version: 1, items: [] })
 
 export function isNote(x: unknown): x is Note {
-  if (!hasKeys(x, ['id', 'text', 'createdAt'], ['job'])) return false
+  if (!hasKeys(x, ['id', 'text', 'createdAt'], ['job', 'uncorrected'])) return false
   const job = x.job
   return (
     isAnnotationId(x.id) &&
     isText(x.text, MAX_TEXT) &&
     isText(x.createdAt, 40, 1) &&
     (job === undefined ? (x.text as string).trim() !== '' : isJobView(job)) &&
-    (job === undefined || (job as JobView).state !== 'cut')
+    (job === undefined || (job as JobView).state !== 'cut') &&
+    (x.uncorrected === undefined || x.uncorrected === true)
   )
 }
 

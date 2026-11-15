@@ -411,6 +411,16 @@ describe('Rec notes in the panel', () => {
     expect(sent()).toContainEqual({ type: 'note:delete', id: 'n2' })
   })
 
+  it('marks a note whose correction failed', async () => {
+    await storeNotes([{ ...note('n1', 'As it came.'), uncorrected: true }, note('n2', 'Fine.')])
+    await render(true)
+    const [fine, plain] = all('note')
+    expect(fine?.querySelector('[data-testid="note-uncorrected"]')).toBeNull()
+    expect(plain?.querySelector('[data-testid="note-uncorrected"]')?.textContent).toContain(
+      'not corrected',
+    )
+  })
+
   describe('undo of a delete', () => {
     const steps = (value: object) =>
       fakeBrowser.storage.session.set({ notesHistory: { undo: [], redo: [], ...value } })

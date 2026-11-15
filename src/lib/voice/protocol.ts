@@ -4,7 +4,7 @@
 
 import { hasKeys, isAnnotationId, isCount, isObject, isText } from '../collection/validate'
 import type { TranscribeRequest } from './openrouter'
-import { isApiKey, isLanguage, isLimit, isModelId } from './settings'
+import { isApiKey, isLanguage, isLimit, isModelId, isPrompt } from './settings'
 
 export type VoiceError =
   | 'no-key'
@@ -140,17 +140,22 @@ export type RecorderCommand =
 /** Recorder → background: what became of a stopped recording. */
 export type JobEvent =
   | { job: string; state: 'transcribing' }
-  | { job: string; state: 'done'; text: string; cut: boolean }
+  /** `uncorrected`: the correction was asked for and failed; the text is the transcript as it came. */
+  | { job: string; state: 'done'; text: string; cut: boolean; uncorrected?: true }
   | ({ job: string } & Failed)
 
 /** Recorder → background: the recording, its jobs, and a heartbeat that keeps it alive. */
 export type RecorderMessage = RecordingState | JobEvent | { state: 'alive' }
 
 const isRequest = (x: unknown): x is TranscribeRequest =>
-  hasKeys(x, ['key', 'model', 'language']) &&
+  hasKeys(x, ['key', 'model', 'language'], ['correct']) &&
   isApiKey(x.key) &&
   isModelId(x.model) &&
-  isLanguage(x.language)
+  isLanguage(x.language) &&
+  (x.correct === undefined ||
+    (hasKeys(x.correct, ['model', 'prompt']) &&
+      isModelId(x.correct.model) &&
+      isPrompt(x.correct.prompt)))
 
 /** A failed state's fields; `extra` names the keys of a message that carries more. */
 export function isFailure(x: Record<string, unknown>, extra: string[] = []): boolean {
@@ -201,9 +206,10 @@ export function isJobEvent(x: unknown): x is JobEvent {
       return hasKeys(x, ['job', 'state'])
     case 'done':
       return (
-        hasKeys(x, ['job', 'state', 'text', 'cut']) &&
+        hasKeys(x, ['job', 'state', 'text', 'cut'], ['uncorrected']) &&
         isText(x.text, MAX_TEXT) &&
-        typeof x.cut === 'boolean'
+        typeof x.cut === 'boolean' &&
+        (x.uncorrected === undefined || x.uncorrected === true)
       )
     case 'failed':
       return isFailure(x, ['job'])

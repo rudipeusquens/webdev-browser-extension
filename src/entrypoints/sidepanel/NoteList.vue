@@ -81,9 +81,15 @@ function when(iso: string): string {
                 <LoaderCircleIcon class="size-3 shrink-0 animate-spin" aria-hidden="true" />
                 Transcribing…
               </span>
-              <span class="mt-0.5 block text-xs text-muted-foreground tabular-nums">{{
-                when(note.createdAt)
-              }}</span>
+              <span class="mt-0.5 block text-xs text-muted-foreground tabular-nums">
+                {{ when(note.createdAt) }}
+                <span
+                  v-if="note.uncorrected"
+                  data-testid="note-uncorrected"
+                  title="The correction failed: this is the transcript as it came"
+                  >· not corrected</span
+                >
+              </span>
             </span>
           </button>
           <Button

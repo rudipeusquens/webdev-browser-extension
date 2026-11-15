@@ -1,5 +1,6 @@
 // The jobs of the offscreen recorder (recorder.ts, spec section 5): each stopped recording is
-// transcribed here, its parts one after another, while the next recording may already run. A
+// transcribed here, its parts one after another, and its transcript corrected by a language
+// model where Settings asks for it, while the next recording may already run. A
 // recording without any sound is not sent (a muted microphone costs no request). A failed job
 // keeps its audio for Retry, for a while.
 
@@ -13,6 +14,8 @@ export interface JobDeps {
     signal: AbortSignal,
     timeout: number,
   ): Promise<string>
+  /** The transcript corrected, as the request's `correct` asks; it throws when it cannot. */
+  correct(text: string, request: TranscribeRequest, signal: AbortSignal): Promise<string>
   emit(message: JobEvent): void
 }
 
@@ -89,10 +92,25 @@ export function createJobs(deps: JobDeps) {
     deps.emit({ job: id, state: 'transcribing' })
     const current = () => jobs.get(id) === job && job.controller === controller
     try {
-      const answer = await transcribeAll(job, request, controller.signal)
+      const transcript = cut(await transcribeAll(job, request, controller.signal), MAX_TEXT)
       if (!current()) return
+      let answer = transcript
+      let uncorrected = false
+      if (request.correct) {
+        // A correction that fails loses nothing: the transcript is kept as it came.
+        try {
+          const corrected = cut(
+            await deps.correct(transcript.text, request, controller.signal),
+            MAX_TEXT,
+          )
+          answer = { text: corrected.text, cut: transcript.cut || corrected.cut }
+        } catch {
+          uncorrected = true
+        }
+        if (!current()) return
+      }
       jobs.delete(id)
-      deps.emit({ job: id, state: 'done', ...cut(answer, MAX_TEXT) })
+      deps.emit({ job: id, state: 'done', ...answer, ...(uncorrected && { uncorrected }) })
     } catch (error) {
       if (!current()) return
       job.controller = undefined

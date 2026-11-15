@@ -6,12 +6,17 @@ import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { NativeSelect, NativeSelectOption } from '@/components/ui/native-select'
+import { Switch } from '@/components/ui/switch'
+import { Textarea } from '@/components/ui/textarea'
 import type { KeyTestReply, Reply, VoiceSettingsMessage } from '@/lib/messages'
 import {
+  DEFAULT_PROMPT,
   isApiKey,
   isModelId,
+  isPrompt,
   LANGUAGES,
   LIMIT_CHOICES,
+  MAX_PROMPT,
   MODELS,
   type VoiceSettings,
 } from '@/lib/voice/settings'
@@ -123,6 +128,53 @@ const limit = computed({
   get: () => String(voice.value.limit),
   set: (value: unknown) => setVoice({ limit: Number.parseInt(String(value), 10) }),
 })
+
+/** The correction's model and instructions as typed; stored on Save. */
+const correctModel = ref('')
+const correctModelError = ref('')
+const prompt = ref('')
+const promptError = ref('')
+watch(
+  () => voice.value.correctModel,
+  (model) => {
+    correctModel.value = model
+    correctModelError.value = ''
+  },
+  { immediate: true },
+)
+watch(
+  () => voice.value.correctPrompt,
+  (stored) => {
+    prompt.value = stored
+    promptError.value = ''
+  },
+  { immediate: true },
+)
+
+function saveCorrectModel() {
+  const model = correctModel.value.trim()
+  if (!isModelId(model)) {
+    correctModelError.value = 'Use an OpenRouter model id such as vendor/model.'
+    return
+  }
+  correctModelError.value = ''
+  setVoice({ correctModel: model })
+}
+
+function savePrompt() {
+  if (!isPrompt(prompt.value)) {
+    promptError.value = `Write some instructions, at most ${MAX_PROMPT} characters.`
+    return
+  }
+  promptError.value = ''
+  setVoice({ correctPrompt: prompt.value })
+}
+
+function resetPrompt() {
+  prompt.value = DEFAULT_PROMPT
+  promptError.value = ''
+  setVoice({ correctPrompt: DEFAULT_PROMPT })
+}
 </script>
 
 <template>
@@ -131,8 +183,9 @@ const limit = computed({
       <h3 class="text-xs font-medium text-muted-foreground">Voice</h3>
       <p class="text-xs text-muted-foreground">
         Dictate a comment with Space in an empty comment, Alt+V or the mic button; anything else
-        with Rec, which keeps the text as a note and copies it. Only the recording leaves the
-        browser: it goes to OpenRouter with your own key, with data collection turned off.
+        with Rec, which keeps the text as a note and copies it. Only the recording and its
+        transcript leave the browser: they go to OpenRouter with your own key, with data collection
+        turned off.
       </p>
     </div>
 
@@ -259,6 +312,99 @@ const limit = computed({
         A recording pauses there and asks whether to go on; without an answer it stops after a
         minute.
       </p>
+    </div>
+
+    <div data-testid="voice-correct" class="space-y-3">
+      <div class="flex items-start gap-3">
+        <div class="min-w-0 flex-1 space-y-1">
+          <label for="voice-correct-on" class="text-xs font-medium">Correct transcripts</label>
+          <p class="text-xs text-muted-foreground">
+            A language model reads each transcript and fixes what the transcription misheard, such
+            as names. The transcript goes to OpenRouter for it, with the same key and data
+            collection turned off. If it fails, the transcript is kept as it came.
+          </p>
+        </div>
+        <Switch
+          id="voice-correct-on"
+          data-testid="voice-correct-on"
+          class="mt-0.5"
+          :model-value="voice.correct"
+          @update:model-value="(value: boolean) => setVoice({ correct: value })"
+        />
+      </div>
+      <template v-if="voice.correct">
+        <div class="space-y-1.5">
+          <Label for="voice-correct-model" class="text-xs">Correction model</Label>
+          <div class="flex items-center gap-2">
+            <Input
+              id="voice-correct-model"
+              v-model="correctModel"
+              data-testid="voice-correct-model"
+              placeholder="vendor/model"
+              spellcheck="false"
+              class="h-8 font-mono text-xs"
+              :aria-invalid="correctModelError ? true : undefined"
+              @keydown.enter.prevent="saveCorrectModel"
+            />
+            <Button
+              data-testid="voice-correct-model-save"
+              variant="outline"
+              size="sm"
+              :disabled="correctModel.trim() === voice.correctModel"
+              @click="saveCorrectModel"
+            >
+              Save
+            </Button>
+          </div>
+          <p v-if="correctModelError" class="text-xs text-destructive" role="alert">
+            {{ correctModelError }}
+          </p>
+        </div>
+        <div class="space-y-1.5">
+          <Label for="voice-correct-prompt" class="text-xs">Instructions</Label>
+          <Textarea
+            id="voice-correct-prompt"
+            v-model="prompt"
+            data-testid="voice-correct-prompt"
+            spellcheck="false"
+            class="max-h-80 min-h-40 text-xs md:text-xs"
+            :aria-invalid="promptError ? true : undefined"
+          />
+          <p class="text-xs text-muted-foreground">
+            Add the words and names the transcription gets wrong at the end, spelled correctly.
+          </p>
+          <div class="flex items-center gap-2">
+            <Button
+              data-testid="voice-correct-prompt-save"
+              size="sm"
+              :disabled="prompt === voice.correctPrompt"
+              @click="savePrompt"
+            >
+              Save
+            </Button>
+            <Button
+              data-testid="voice-correct-prompt-reset"
+              variant="ghost"
+              size="sm"
+              class="text-muted-foreground"
+              :disabled="voice.correctPrompt === DEFAULT_PROMPT && prompt === DEFAULT_PROMPT"
+              title="Put the instructions back as they came"
+              @click="resetPrompt"
+            >
+              Reset
+            </Button>
+            <span
+              data-testid="voice-correct-prompt-length"
+              class="ml-auto text-xs text-muted-foreground tabular-nums"
+              :class="prompt.length > MAX_PROMPT && 'text-destructive'"
+              >{{ prompt.length }} / {{ MAX_PROMPT }}</span
+            >
+          </div>
+          <p v-if="promptError" class="text-xs text-destructive" role="alert">
+            {{ promptError }}
+          </p>
+        </div>
+      </template>
     </div>
 
     <div data-testid="voice-mic" class="space-y-1.5">
