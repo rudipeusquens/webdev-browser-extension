@@ -4,7 +4,7 @@
 // everything in it.
 
 import { browser } from 'wxt/browser'
-import { transcribe } from '@/lib/voice/openrouter'
+import { correctTranscript, transcribe, VoiceFailure } from '@/lib/voice/openrouter'
 import { isRecorderCommand, RECORDER_PORT, type RecorderMessage } from '@/lib/voice/protocol'
 import { createMediaRecorder, createRecorder, type LevelMonitor } from '@/lib/voice/recorder'
 
@@ -78,6 +78,10 @@ const recorder = createRecorder({
   getUserMedia: () => navigator.mediaDevices.getUserMedia({ audio: true }),
   record: createMediaRecorder,
   transcribe: (audio, request, signal, timeout) => transcribe(audio, request, { signal, timeout }),
+  correct: (text, request, signal) => {
+    if (!request.correct) throw new VoiceFailure('failed')
+    return correctTranscript(text, request.key, request.correct, { signal })
+  },
   emit: post,
 })
 

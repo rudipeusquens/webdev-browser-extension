@@ -39,8 +39,13 @@ export async function setVoice(message: VoiceSettingsMessage): Promise<Reply | K
       // Only the fields that changed; the others stay as stored.
       return inOrder(async () => {
         const stored = await loadVoiceSettings()
-        const { model = stored.model, language = stored.language, limit = stored.limit } = message
-        await browser.storage.local.set({ [VOICE_KEY]: { model, language, limit } })
+        const { model, language, limit, correct, correctModel, correctPrompt } = {
+          ...stored,
+          ...message,
+        }
+        await browser.storage.local.set({
+          [VOICE_KEY]: { model, language, limit, correct, correctModel, correctPrompt },
+        })
         return { ok: true }
       })
     case 'voice:key:save':

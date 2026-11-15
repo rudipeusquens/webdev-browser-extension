@@ -61,6 +61,7 @@ describe('the dictation protocol', () => {
     { job: JOB, state: 'transcribing' },
     { job: JOB, state: 'done', text: 'Make it wider.', cut: false },
     { job: JOB, state: 'done', text: 'x'.repeat(20_000), cut: true },
+    { job: JOB, state: 'done', text: 'As it came.', cut: false, uncorrected: true },
     { job: JOB, state: 'failed', error: 'rate-limited', retry: true },
     { job: JOB, state: 'failed', error: 'rejected', detail: 'Unknown model', retry: true },
   ])("accepts a job's $state", (event) => {
@@ -73,6 +74,7 @@ describe('the dictation protocol', () => {
     ['a bad job id', { job: 'a b', state: 'transcribing' }],
     ['an endless text', { job: JOB, state: 'done', text: 'x'.repeat(20_001), cut: true }],
     ['a text that is no string', { job: JOB, state: 'done', text: 42, cut: false }],
+    ['a corrected flag', { job: JOB, state: 'done', text: 'a', cut: false, uncorrected: false }],
     ['a recording state with a job', { job: JOB, state: 'recording', limit: 1, elapsed: 0 }],
   ])("refuses %s as a job's event", (_, event) => {
     expect(isJobEvent(event)).toBe(false)
@@ -121,6 +123,23 @@ describe('the dictation protocol', () => {
     expect(
       isRecorderCommand({ type: 'retry', job: JOB, request: { ...request, model: 'x' } }),
     ).toBe(false)
+    // With the correction: its model and its instructions, both well-formed.
+    const correct = { model: 'anthropic/claude-haiku-5.5', prompt: 'Fix.\n- Vue' }
+    expect(isRecorderCommand({ type: 'stop', job: JOB, request: { ...request, correct } })).toBe(
+      true,
+    )
+    for (const bad of [
+      { ...correct, model: 'x' },
+      { ...correct, prompt: '' },
+      { ...correct, prompt: 'x'.repeat(4001) },
+      { model: correct.model },
+      { ...correct, key: 'k' },
+      true,
+    ]) {
+      expect(
+        isRecorderCommand({ type: 'stop', job: JOB, request: { ...request, correct: bad } }),
+      ).toBe(false)
+    }
     expect(isRecorderCommand({ type: 'drop' })).toBe(false)
     expect(isRecorderCommand({ type: 'resume', job: JOB })).toBe(false)
   })

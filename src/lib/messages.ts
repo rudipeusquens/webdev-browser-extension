@@ -6,7 +6,14 @@ import { LIMITS } from './collection/model'
 import { isSite } from './collection/site'
 import { isOption, isSiteOrigin, type Option } from './settings'
 import { type Filter, isFilter } from './view'
-import { isApiKey, isLanguage, isLimit, isModelId, type VoiceSettings } from './voice/settings'
+import {
+  isApiKey,
+  isLanguage,
+  isLimit,
+  isModelId,
+  isPrompt,
+  type VoiceSettings,
+} from './voice/settings'
 import {
   hasKeys,
   isAnnotationId,
@@ -309,11 +316,18 @@ export function isBackgroundMessage(x: unknown): x is BackgroundMessage {
       return hasKeys(x, ['type', 'id']) && isAnnotationId(x.id)
     case 'voice:set':
       return (
-        hasKeys(x, ['type'], ['model', 'language', 'limit']) &&
-        (x.model !== undefined || x.language !== undefined || x.limit !== undefined) &&
+        hasKeys(
+          x,
+          ['type'],
+          ['model', 'language', 'limit', 'correct', 'correctModel', 'correctPrompt'],
+        ) &&
+        Object.values(x).filter((value) => value !== undefined).length > 1 &&
         (x.model === undefined || isModelId(x.model)) &&
         (x.language === undefined || isLanguage(x.language)) &&
-        (x.limit === undefined || isLimit(x.limit))
+        (x.limit === undefined || isLimit(x.limit)) &&
+        (x.correct === undefined || typeof x.correct === 'boolean') &&
+        (x.correctModel === undefined || isModelId(x.correctModel)) &&
+        (x.correctPrompt === undefined || isPrompt(x.correctPrompt))
       )
     case 'voice:key:save':
       return hasKeys(x, ['type', 'key']) && isApiKey(x.key)

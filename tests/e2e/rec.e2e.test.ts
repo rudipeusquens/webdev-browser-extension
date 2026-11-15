@@ -116,6 +116,51 @@ describe('Rec in the panel', () => {
     expect(await offscreenDocuments(s)).toBe(0)
   })
 
+  it('corrects the transcript before it is kept and copied, on the instructions of Settings', async () => {
+    fake.correct('Make the Button wider.')
+    await record(600)
+    await panel.click('[data-testid="rec"]')
+    await panel.waitForSelector('[data-testid="note-text"]')
+    expect(await noteTexts()).toEqual(['Make the Button wider.'])
+    expect(await clipboard()).toBe('Make the Button wider.')
+    const [request] = fake.corrections()
+    expect(fake.corrections()).toHaveLength(1)
+    expect(request?.authorization).toBe(`Bearer ${KEY}`)
+    const body = request?.body as { model: string; messages: { role: string; content: string }[] }
+    expect(body.model).toBe('anthropic/claude-haiku-5.5')
+    expect(body.messages.map((m) => m.role)).toEqual(['system', 'user'])
+    expect(body.messages[0]?.content).toContain('You correct transcripts')
+    expect(body.messages[1]?.content).toBe(`<transcript>\n${FAKE_TEXT}\n</transcript>`)
+    expect(await panel.$('[data-testid="note-uncorrected"]')).toBeNull()
+  })
+
+  it('keeps the transcript as it came when the correction fails, and marks the note', async () => {
+    fake.failCorrection(500)
+    await record(600)
+    await panel.click('[data-testid="rec"]')
+    await panel.waitForSelector('[data-testid="note-uncorrected"]')
+    expect(await noteTexts()).toEqual([FAKE_TEXT])
+  })
+
+  it('sends no transcript anywhere while the correction is off', async () => {
+    await panel.click('[data-testid="open-settings"]')
+    await panel.click('[data-testid="voice-correct-on"]')
+    await panel.waitForSelector('[data-testid="voice-correct-prompt"]', { hidden: true })
+    await panel.click('[data-testid="close-settings"]')
+    try {
+      await record(600)
+      await panel.click('[data-testid="rec"]')
+      await panel.waitForSelector('[data-testid="note-text"]')
+      expect(await noteTexts()).toEqual([FAKE_TEXT])
+      expect(fake.corrections()).toHaveLength(0)
+    } finally {
+      await panel.click('[data-testid="open-settings"]')
+      await panel.click('[data-testid="voice-correct-on"]')
+      await panel.waitForSelector('[data-testid="voice-correct-prompt"]')
+      await panel.click('[data-testid="close-settings"]')
+    }
+  })
+
   it('leaves the clipboard to Copy as prompt clicked while it was transcribed', async () => {
     await markElement(s, 'button[type="submit"]')
     await s.page.keyboard.type('Pin text')

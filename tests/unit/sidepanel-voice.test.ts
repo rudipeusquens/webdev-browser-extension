@@ -3,7 +3,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { fakeBrowser } from 'wxt/testing/fake-browser'
 import { PANEL_VIEW_KEY } from '@/lib/messages'
 import { deleteKey, storeKey } from '@/lib/voice/key'
-import { VOICE_KEY } from '@/lib/voice/settings'
+import { DEFAULT_PROMPT, VOICE_KEY } from '@/lib/voice/settings'
 import { body, byTestId, click, closePanel, mountPanel, teardownPanel } from './helpers/panel'
 
 // A well-formed but fake key, assembled at runtime so this file never contains one.
@@ -225,6 +225,79 @@ describe('side panel: voice settings', () => {
       const select = byTestId('voice-limit') as HTMLSelectElement
       expect(select.value).toBe('10000')
       expect(select.selectedOptions[0]?.text.trim()).toBe('10 seconds')
+    })
+  })
+
+  describe('the correction', () => {
+    const field = (id: string) => byTestId(id) as HTMLInputElement | HTMLTextAreaElement
+
+    it('is on, with a small model and instructions that are written already', async () => {
+      await openSettings()
+      expect(byTestId('voice-correct-on').getAttribute('aria-checked')).toBe('true')
+      expect(field('voice-correct-model').value).toBe('anthropic/claude-haiku-5.5')
+      expect(field('voice-correct-prompt').value).toBe(DEFAULT_PROMPT)
+      expect(byTestId('voice-correct').textContent).toContain('The transcript goes to OpenRouter')
+      // Nothing to save or to reset yet.
+      expect(byTestId('voice-correct-prompt-save').hasAttribute('disabled')).toBe(true)
+      expect(byTestId('voice-correct-prompt-reset').hasAttribute('disabled')).toBe(true)
+    })
+
+    it('switches off alone, and hides its fields then', async () => {
+      await openSettings()
+      await click('voice-correct-on')
+      expect(sendMessage).toHaveBeenCalledWith({ type: 'voice:set', correct: false })
+      await fakeBrowser.storage.local.set({ [VOICE_KEY]: { correct: false } })
+      await settle()
+      expect(find('voice-correct-prompt')).toBeNull()
+      expect(find('voice-correct-model')).toBeNull()
+    })
+
+    it('saves the instructions with the words added to them, on Save only', async () => {
+      await openSettings()
+      const prompt = `${DEFAULT_PROMPT}- Tailwind\n- Vue`
+      await type('voice-correct-prompt', prompt)
+      expect(sendMessage).not.toHaveBeenCalled()
+      expect(byTestId('voice-correct-prompt-length').textContent).toContain(
+        `${prompt.length} / 4000`,
+      )
+      await click('voice-correct-prompt-save')
+      expect(sendMessage).toHaveBeenCalledWith({ type: 'voice:set', correctPrompt: prompt })
+    })
+
+    it('saves no empty and no endless instructions, and says why', async () => {
+      await openSettings()
+      await type('voice-correct-prompt', '   ')
+      await click('voice-correct-prompt-save')
+      expect(byTestId('voice-correct').textContent).toContain('Write some instructions')
+      await type('voice-correct-prompt', 'x'.repeat(4001))
+      await click('voice-correct-prompt-save')
+      expect(sendMessage).not.toHaveBeenCalled()
+    })
+
+    it('puts the instructions back as they came on Reset', async () => {
+      await fakeBrowser.storage.local.set({ [VOICE_KEY]: { correctPrompt: 'Mine.' } })
+      await openSettings()
+      expect(field('voice-correct-prompt').value).toBe('Mine.')
+      await click('voice-correct-prompt-reset')
+      expect(sendMessage).toHaveBeenCalledWith({
+        type: 'voice:set',
+        correctPrompt: DEFAULT_PROMPT,
+      })
+      expect(field('voice-correct-prompt').value).toBe(DEFAULT_PROMPT)
+    })
+
+    it('saves another model, and refuses what is no model id', async () => {
+      await openSettings()
+      await type('voice-correct-model', 'nope')
+      await click('voice-correct-model-save')
+      expect(byTestId('voice-correct').textContent).toContain('Use an OpenRouter model id')
+      expect(sendMessage).not.toHaveBeenCalled()
+      await type('voice-correct-model', ' anthropic/claude-haiku-4.5 ')
+      await click('voice-correct-model-save')
+      expect(sendMessage).toHaveBeenCalledWith({
+        type: 'voice:set',
+        correctModel: 'anthropic/claude-haiku-4.5',
+      })
     })
   })
 

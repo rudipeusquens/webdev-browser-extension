@@ -4770,3 +4770,40 @@ detected".
       unknown level, are sent; a part without sound is left out next to one with some; end to
       end with a silent file as Chrome's fake microphone. Then the monitor's `peak()` (a second
       analyser over 0.68 s) and the check where a stopped recording becomes a job.
+
+## Milestone 9d: Transcripts corrected by a language model
+
+The transcription mishears names and technical words. The owner asked for a second step: the
+transcript goes to a small language model through OpenRouter, with instructions from a text
+field in Settings that are written already and take the words the transcription gets wrong.
+
+Decisions made while building, the owner's to change: the correction is **on** by default; a
+failed correction keeps the transcript as it came (a Rec note says so, a pin does not); the
+shadcn-vue CLI could not be installed (pnpm's trust check refused one of its dependencies), so
+`Textarea` is written by hand after the component it would have copied.
+
+### Task 94: The request and its guard
+
+- Files: `src/lib/voice/{openrouter,settings,protocol,recorder-jobs}.ts`,
+  `src/entrypoints/offscreen/main.ts`,
+  `tests/unit/{voice-openrouter,voice-settings,voice-protocol,voice-recorder}.test.ts`,
+  `tests/live/correct.live.test.ts`
+- [x] Failing tests: `correctTranscript` posts the transcript between tags under the
+      instructions, with `data_collection: "deny"`, a timeout and a token limit by its length;
+      it fails for an empty, cut-off, far longer or far shorter answer and for HTTP errors; a
+      job corrects its whole transcript once and keeps it as it came (`uncorrected`) when that
+      fails; the settings default, validate and fall back field by field. Then the request.
+      Live: the default model fixes the listed words and follows no instruction in a
+      transcript.
+
+### Task 95: Settings, the note's mark, end to end
+
+- Files: `src/lib/{messages.ts,notes/model.ts}`, `src/lib/background/{voice,voice-settings,notes}.ts`,
+  `src/components/ui/textarea/`, `src/entrypoints/sidepanel/{VoiceSettings,NoteList}.vue`,
+  `tests/unit/{messages,background-voice,background-voice-settings,sidepanel-voice,sidepanel-rec}.test.ts`,
+  `tests/e2e/{fake-openrouter.ts,rec.e2e.test.ts,voice.e2e.test.ts}`, the spec (sections 4, 8,
+  9, 10), `README.md`, `docs/smoke-test.md`
+- [x] Failing tests: `voice:set` takes the three fields, each alone; the background sends the
+      correction with each job while it is on; the panel's switch, model and instructions with
+      Save and Reset; a note whose correction failed says "not corrected"; end to end with a
+      fake that answers `chat/completions`. Then the settings and the mark.

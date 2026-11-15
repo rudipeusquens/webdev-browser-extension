@@ -2,7 +2,8 @@
 // named `voice`. The background opens one offscreen document for the recorder, starts it with
 // the limit and passes the recording's states back. One recording at a time: a start elsewhere
 // first asks the running one to hand itself over. A stopped recording becomes a job, sent with
-// the key, model and language: transcribed in the background, its text goes into its pin
+// the key, model and language, and the correction Settings asks for: transcribed (and
+// corrected) in the background, its text goes into its pin
 // (`fill`) or its Rec note, whatever becomes of the port that started it, and what a pin
 // cannot hold goes into a note. A port that closes while it records ends that recording. The
 // document closes once no recording runs and no job is left.
@@ -90,8 +91,13 @@ const post = (port: Port | undefined, message: VoiceState | RecorderCommand): bo
 async function readRequest(): Promise<TranscribeRequest | undefined> {
   const key = await loadKey()
   if (!key) return undefined
-  const { model, language } = await loadVoiceSettings()
-  return { key, model, language }
+  const { model, language, correct, correctModel, correctPrompt } = await loadVoiceSettings()
+  return {
+    key,
+    model,
+    language,
+    ...(correct && { correct: { model: correctModel, prompt: correctPrompt } }),
+  }
 }
 
 export function createVoice(deps: VoiceDeps) {
@@ -277,7 +283,7 @@ export function createVoice(deps: VoiceDeps) {
       jobs.delete(e.job)
       const { target } = job
       if (target.kind === 'note') {
-        await deps.notes.fill(target.id, e.text)
+        await deps.notes.fill(target.id, e.text, e.uncorrected)
       } else {
         const reply = await deps
           .fill(target.site, target.id, e.text)

@@ -169,6 +169,12 @@ says "Nothing was heard", and **Retry** sends it anyway. Text too long for a pin
 **Model** (default `openai/gpt-4o-mini-transcribe`), **Language** (default: detect
 automatically) and **Recording limit** are in the same section.
 
+A transcription mishears names and technical words. With **Correct transcripts** on (the
+default), a small language model (`anthropic/claude-haiku-5.5`, or the **Correction model**
+you name) reads each transcript afterwards and fixes them. Its **Instructions** are yours to
+edit: add the words it should know at the end, one per line, and **Save**. If the correction
+fails, the transcript is kept as it came, and a Rec note says "not corrected".
+
 **Rec** is dictation without a pin, for anything you want to tell the agent in your own
 words. Click **Rec** at the top of the panel (or press `Alt+V` there), speak, and click it
 again: the text is kept as a note at the top of the panel's list and goes to the clipboard as
@@ -224,8 +230,8 @@ The gear in the panel:
 - **General:** **Show page titles** shows each page's title next to its path in the list.
   **Annotate this page in the context menu** adds the entry to the page's right-click menu
   (off by default).
-- **Voice:** the key, the model, the language, the recording limit and the microphone (see
-  Dictation).
+- **Voice:** the key, the model, the language, the recording limit, the correction with its
+  instructions, and the microphone (see Dictation).
 - **Sites:** every site with pins or access, with its number of open pins; **Auto** marks
   the sites where the overlay loads by itself, with **Forget**; **Always enable** makes one
   of the others load by itself.
@@ -239,7 +245,8 @@ The gear in the panel:
 - **Dictation is the one exception, and only when you use it.** When a recording ends, by
   your stop or because you moved on (another pin, another page), the audio goes to
   `openrouter.ai` with your key and with data collection turned off; nothing from the page
-  goes with it. `Esc` cancels a recording, and nothing is sent. The key stays in this
+  goes with it. With **Correct transcripts** on, its transcript goes there once more, to the
+  model that corrects it. `Esc` cancels a recording, and nothing is sent. The key stays in this
   browser, is never synced, and is shown masked once saved.
 - **No access until you ask.** The extension runs on a tab only after you start it there, and
   on the sites you chose with **Always enable here**.
