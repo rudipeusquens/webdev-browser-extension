@@ -134,7 +134,8 @@ Settings → **Voice**:
 - [ ] **Rec**, say a sentence, click it again, and close the panel at once with the toolbar
       icon. Open it again after a few seconds. → The newest note holds the sentence.
 - [ ] On the note, **Copy**. → "Copied note"; pasting gives its text. **Delete**. → The note
-      is gone.
+      is gone. **Undo** (also on `chrome://extensions`, where the pill says Not active). → It
+      is back; **Redo** deletes it again.
 - [ ] **Rec** on a tab where the overlay does not run (`chrome://extensions`). → It works the
       same, and the notes are listed there too.
 - [ ] With an open pin: **Rec**, speak, stop, and click **Copy as prompt** while its note says

@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 import { fakeBrowser } from 'wxt/testing/fake-browser'
 import {
   applyStep,
@@ -126,21 +126,40 @@ describe('undo and redo', () => {
     const { write, undo } = createWriter(() => 'T')
     expect(await loadLabels(SITE)).toEqual({})
     await write(SITE, add('a1'))
-    expect(await loadLabels(SITE)).toEqual({ undo: 'Add pin 1' })
+    // With when the step was done: the panel's Undo takes the newest of its histories.
+    const at = expect.any(Number) as number
+    expect(await loadLabels(SITE)).toEqual({ undo: 'Add pin 1', undoAt: at })
     // Stored apart from the steps, so the panel never reads them.
     const stored = await fakeBrowser.storage.session.get(`${LABELS_PREFIX}${SITE}`)
-    expect(stored[`${LABELS_PREFIX}${SITE}`]).toEqual({ undo: 'Add pin 1' })
+    expect(stored[`${LABELS_PREFIX}${SITE}`]).toEqual({ undo: 'Add pin 1', undoAt: at })
     await write(SITE, add('a2'))
     await write(SITE, { type: 'collection:copied', site: SITE, ids: ['a1', 'a2'] })
-    expect(await loadLabels(SITE)).toEqual({ undo: 'Mark 2 pins done' })
+    expect(await loadLabels(SITE)).toEqual({ undo: 'Mark 2 pins done', undoAt: at })
     await write(SITE, { type: 'annotation:remove', site: SITE, id: 'a1' })
     await undo(SITE)
     expect(await loadLabels(SITE)).toEqual({
       undo: 'Mark 2 pins done',
       redo: 'Delete pin 1',
+      undoAt: at,
+      redoAt: at,
     })
     await write(SITE, { type: 'collection:clear', site: SITE })
-    expect(await loadLabels(SITE)).toEqual({ undo: 'Clear all' })
+    expect(await loadLabels(SITE)).toEqual({ undo: 'Clear all', undoAt: at })
+  })
+
+  it('dates a step when it is done and again when it is undone', async () => {
+    vi.useFakeTimers()
+    try {
+      const { write, undo } = createWriter(() => 'T')
+      vi.setSystemTime(1000)
+      await write(SITE, add('a1'))
+      expect((await loadLabels(SITE)).undoAt).toBe(1000)
+      vi.setSystemTime(5000)
+      await undo(SITE)
+      expect(await loadLabels(SITE)).toEqual({ redo: 'Add pin 1', redoAt: 5000 })
+    } finally {
+      vi.useRealTimers()
+    }
   })
 
   it('forgets what could be redone once something new happens', async () => {

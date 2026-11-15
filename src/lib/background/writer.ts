@@ -135,7 +135,7 @@ export function createWriter(
   async function record(site: string, step: ReturnType<typeof stepBetween>): Promise<void> {
     if (!step) return
     const h = await loadHistory(site)
-    await saveHistory(site, { undo: [...h.undo, step], redo: [] })
+    await saveHistory(site, { undo: [...h.undo, { ...step, at: Date.now() }], redo: [] })
   }
 
   /** Saves the change from `before` to `next`, then records it as one undo step. */
@@ -158,7 +158,8 @@ export function createWriter(
         return { ok: false, error: `This changed in the meantime; it can no longer be ${done}.` }
       }
       await save(next)
-      await saveHistory(site, { ...h, [from]: h[from].slice(0, -1), [to]: [...h[to], step] })
+      const moved = { ...step, at: Date.now() }
+      await saveHistory(site, { ...h, [from]: h[from].slice(0, -1), [to]: [...h[to], moved] })
       return { ok: true }
     }).catch((): Reply => ({ ok: false, error: 'Could not save.' }))
   }

@@ -411,6 +411,59 @@ describe('Rec notes in the panel', () => {
     expect(sent()).toContainEqual({ type: 'note:delete', id: 'n2' })
   })
 
+  describe('undo of a delete', () => {
+    const steps = (value: object) =>
+      fakeBrowser.storage.session.set({ notesHistory: { undo: [], redo: [], ...value } })
+    const step = (id: string, at: number) => ({ note: note(id, 'Deleted.'), at })
+    const siteLabels = (value: object) =>
+      fakeBrowser.storage.session.set({ [`historyLabels:${SITE}`]: value })
+
+    it('is offered without a site too: the notes are the same everywhere', async () => {
+      vi.mocked(fakeBrowser.tabs.sendMessage).mockRejectedValue(new Error('No overlay.'))
+      await render()
+      expect(byTestId('undo').hasAttribute('disabled')).toBe(true)
+      await steps({ undo: [step('n1', 10)] })
+      await flushPromises()
+      expect(byTestId('undo').hasAttribute('disabled')).toBe(false)
+      expect(byTestId('undo').title).toContain('Undo: Delete note')
+      await click('undo')
+      expect(sent()).toContainEqual({ type: 'note:undo' })
+    })
+
+    it('redoes it, and undoes with the key', async () => {
+      await steps({ undo: [step('n1', 10)], redo: [step('n2', 20)] })
+      await render(true)
+      expect(byTestId('redo').title).toContain('Redo: Delete note')
+      await click('redo')
+      expect(sent()).toContainEqual({ type: 'note:redo' })
+      document.body.dispatchEvent(
+        new KeyboardEvent('keydown', { key: 'z', ctrlKey: true, bubbles: true, cancelable: true }),
+      )
+      await flushPromises()
+      expect(sent()).toContainEqual({ type: 'note:undo' })
+    })
+
+    it("takes the newer of the site's step and the notes' step", async () => {
+      await steps({ undo: [step('n1', 50)], redo: [step('n2', 50)] })
+      await siteLabels({ undo: 'Add pin 1', undoAt: 90, redo: 'Add pin 2', redoAt: 20 })
+      await render(true)
+      expect(byTestId('undo').title).toContain('Undo: Add pin 1')
+      expect(byTestId('redo').title).toContain('Redo: Delete note')
+      await click('undo')
+      expect(sent()).toContainEqual({ type: 'history:undo', site: SITE })
+      await siteLabels({ undo: 'Add pin 1', undoAt: 40 })
+      await flushPromises()
+      expect(byTestId('undo').title).toContain('Undo: Delete note')
+    })
+
+    it('says which Delete can be undone', async () => {
+      await storeNotes([waitingNote('n1'), note('n2', 'Has its text.')])
+      await render(true)
+      const titles = all('note-delete').map((b) => (b as HTMLElement).title)
+      expect(titles).toEqual(['Delete (Undo brings it back)', 'Delete for good'])
+    })
+  })
+
   it('is left alone by Copy as prompt, Copy again and Clear all', async () => {
     await storeNotes([note('n1', 'Not a pin.')])
     await render(true)

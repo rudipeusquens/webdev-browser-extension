@@ -49,6 +49,7 @@ import { usePinJump } from './use-pin-jump'
 import { usePanelToggle } from './use-panel-toggle'
 import { useSettings } from './use-settings'
 import { useShortcut } from './use-shortcut'
+import { NOTE_STEP_LABEL, NOTES_HISTORY_KEY, parseNotesHistory } from '@/lib/notes/history'
 import { NOTES_KEY, parseNotes } from '@/lib/notes/model'
 import { copyable, jobsKey, parseJobs } from '@/lib/voice/jobs'
 import { useSiteCollection } from '@/composables/use-site-collection'
@@ -92,8 +93,29 @@ const undoKey = mac ? '⌘Z' : 'Ctrl+Z'
 const redoKey = mac ? '⇧⌘Z' : 'Ctrl+Shift+Z'
 const recShortcut = mac ? '⌥V' : 'Alt+V'
 
-function history(type: 'history:undo' | 'history:redo') {
-  if (site.value) void change({ type, site: site.value })
+/** Deleted Rec notes that Undo brings back: the same on every site, and without one. */
+const noteSteps = useStored(ref(NOTES_HISTORY_KEY), parseNotesHistory, 'session').value
+
+/**
+ * What Undo and Redo do next: the newer of the site's step and the notes' step, so they go
+ * back through what the developer did in order.
+ */
+function nextStep(way: 'undo' | 'redo') {
+  const label = labels.value[way]
+  const at = (way === 'undo' ? labels.value.undoAt : labels.value.redoAt) ?? 0
+  const note = noteSteps.value[way].at(-1)
+  if (note && (!label || !site.value || note.at >= at)) {
+    return { label: NOTE_STEP_LABEL, message: { type: `note:${way}` } as const }
+  }
+  if (!label || !site.value) return null
+  return { label, message: { type: `history:${way}`, site: site.value } as const }
+}
+const undoStep = computed(() => nextStep('undo'))
+const redoStep = computed(() => nextStep('redo'))
+
+function history(way: 'undo' | 'redo') {
+  const step = way === 'undo' ? undoStep.value : redoStep.value
+  if (step) void change(step.message)
 }
 
 /**
@@ -122,9 +144,7 @@ function onKeydown(e: KeyboardEvent) {
   const action = panelKey(e, mac)
   if (!action) return
   e.preventDefault()
-  if (action === 'undo' ? labels.value.undo : labels.value.redo) {
-    history(action === 'undo' ? 'history:undo' : 'history:redo')
-  }
+  history(action)
 }
 onMounted(() => window.addEventListener('keydown', onKeydown))
 onBeforeUnmount(() => window.removeEventListener('keydown', onKeydown))
@@ -435,12 +455,12 @@ function setMode(next: unknown) {
             variant="ghost"
             size="icon-sm"
             class="ml-auto text-muted-foreground"
-            :disabled="!labels.undo"
+            :disabled="!undoStep"
             aria-label="Undo"
             :title="
-              labels.undo ? `Undo: ${labels.undo} (${undoKey})` : `Nothing to undo (${undoKey})`
+              undoStep ? `Undo: ${undoStep.label} (${undoKey})` : `Nothing to undo (${undoKey})`
             "
-            @click="history('history:undo')"
+            @click="history('undo')"
           >
             <Undo2Icon />
           </Button>
@@ -449,12 +469,12 @@ function setMode(next: unknown) {
             variant="ghost"
             size="icon-sm"
             class="text-muted-foreground"
-            :disabled="!labels.redo"
+            :disabled="!redoStep"
             aria-label="Redo"
             :title="
-              labels.redo ? `Redo: ${labels.redo} (${redoKey})` : `Nothing to redo (${redoKey})`
+              redoStep ? `Redo: ${redoStep.label} (${redoKey})` : `Nothing to redo (${redoKey})`
             "
-            @click="history('history:redo')"
+            @click="history('redo')"
           >
             <Redo2Icon />
           </Button>

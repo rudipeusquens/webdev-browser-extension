@@ -176,8 +176,8 @@ Paste it wherever you like. It works on any tab, also where the overlay is not r
 it changes no pin. If you close the panel before the text is there, the note still gets it.
 
 The notes are the same on every site, the newest first, the last 50 of them. Each has its own
-**Copy** and **Delete**; **Copy as prompt**, **Copy again** and **Clear all** leave them
-alone.
+**Copy** and **Delete** (**Undo** brings a deleted note back, on any tab); **Copy as
+prompt**, **Copy again** and **Clear all** leave them alone.
 
 Rec and **Copy as prompt** each copy their own text; the clipboard holds whichever you did
 last. If you copy pins or a note while Rec is still running or its text is on the way, and
