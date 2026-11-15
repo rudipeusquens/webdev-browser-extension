@@ -75,6 +75,10 @@ On `https://example.com` with the panel open:
       itself.
 - [ ] Reload the page. → The overlay starts without a click: the pins appear.
 - [ ] Settings → **Sites**. → `example.com` with its number of open pins and **Auto**.
+- [ ] Open a web site without access in a new tab while the panel is open. → The pill says
+      **Not active**; pointing at it says to click the toolbar icon. Add a pin there, then
+      Settings → **Sites** → **Always enable** on that site, allow. → **Auto**; a reload
+      starts the overlay by itself.
 - [ ] On another web site, start the overlay with the toolbar icon, then **Always enable
       here**, and deny Chrome's prompt. → Nothing changes; the site is not remembered.
 - [ ] Back on `example.com`, point at the pill, **Forget this site**, confirm. Reload. → No

@@ -647,8 +647,11 @@ open, its entry stays marked.
     opens Settings. Hovering or focusing the pill shows its one action: **Forget this site** on
     a remembered site (after a confirmation; the overlay no longer loads there by itself and
     Chrome takes the access back; the feedback stays), **Always enable here** on another active
-    web site (asks Chrome for access to the origin, then the overlay loads there by itself),
-    **Annotate this page** on a page the panel can start the overlay on.
+    web site (asks Chrome for access to the origin, then the overlay loads there by itself;
+    the site's other open tabs get the overlay at once), **Annotate this page** on a page the
+    panel can start the overlay on. On a page Chrome tells the panel nothing about ("Not
+    active": no access to its site yet) it shows how to start there instead, the toolbar icon
+    and its shortcut: the panel cannot start the overlay on such a page.
   - Buttons, two rows on one grid: the mode switch (Browse, Element, Area) and **Rec**; the
     filter **Open · All · + Deleted** with counts and the **Pins** toggle that hides all pins
     (`P` on the page). Rec and Pins share a column that grows with the panel (22 % of the row,
@@ -728,7 +731,9 @@ open, its entry stays marked.
   default; microphone access: Allowed / Not allowed yet with **Grant** / Blocked, with how to
   allow it); **Sites**: every remembered site and every site with
   feedback, the address opening the site in a new tab (web sites only), its number of open
-  pins, **Auto** for remembered sites with **Forget** (after the same confirmation);
+  pins, **Auto** for remembered sites with **Forget** (after the same confirmation), and
+  **Always enable** on the other web sites (the same as **Always enable here**: a site listed
+  for its feedback alone starts only with the toolbar icon);
   **Keyboard shortcuts**: the toolbar shortcut as Chrome assigned it (**Change** opens
   `chrome://extensions/shortcuts`), and the keys on the page, in Browse, element and area mode,
   in the comment popover and in the panel. **Open settings** in the popover opens the panel
@@ -804,7 +809,7 @@ select-parent), ClickUp and Air comment pins with a side list.
 | Client-side navigation                                                                                                                                  | Overlay detects URL changes (Navigation API) and switches page group and pins. An item whose comment is open while the app navigates belongs to the page where it was marked.                                                                                                                                                                                                              |
 | HMR or DOM replacement                                                                                                                                  | Placements are looked up again after DOM changes (once per frame); text items are found again by their text and context (at most every 300 ms). Missing for 1.5 s → "Not found" in the panel and the prompt, snapshot kept.                                                                                                                                                                |
 | Reload of a page that is not remembered                                                                                                                 | The overlay is gone with the page; a toolbar click starts it again, **Always enable here** makes it load by itself. Pins come back where their targets are.                                                                                                                                                                                                                                |
-| Remembered site, tabs already open                                                                                                                      | **Always enable here** applies from the next load of a page of that site; other tabs that are open already get the overlay with a toolbar click or a reload.                                                                                                                                                                                                                               |
+| Remembered site, tabs already open                                                                                                                      | **Always enable here** starts the overlay on the site's open tabs that run none, and applies to every page of that site loaded from then on.                                                                                                                                                                                                                                               |
 | Text item after a reload                                                                                                                                | Its selection is searched only inside the container it was captured in, within the first 20,000 characters of that container; text not found there puts the pin at the container.                                                                                                                                                                                                          |
 | Aggressive page CSS, huge z-index, strict CSP                                                                                                           | Closed shadow root, inline stylesheet, rem→px, top z-index; covered by an E2E fixture.                                                                                                                                                                                                                                                                                                     |
 | Modal dialogs, page popovers, fullscreen                                                                                                                | The overlay host is a manual popover in the top layer; while a modal dialog is open it lives inside that dialog (outside, everything is inert) and re-raises itself above later popovers.                                                                                                                                                                                                  |

@@ -328,9 +328,11 @@ async function copyAgain() {
 
 const siteError = ref('')
 
-/** Always enable here: Chrome asks for access inside the click, then the site is remembered. */
-function rememberSite() {
-  const origin = siteOrigin.value
+/**
+ * Always enable here, for the active page's site or one of Settings: Chrome asks for access
+ * inside the click, then the site is remembered.
+ */
+function rememberSite(origin = siteOrigin.value) {
   if (!origin) return
   siteError.value = ''
   browser.permissions
@@ -421,8 +423,9 @@ function setMode(next: unknown) {
           <SitePill
             :status="status"
             :remembered="remembered"
+            :how="startText"
             @start="startOverlay"
-            @remember="rememberSite"
+            @remember="rememberSite()"
             @forget="forgetting = siteOrigin"
           />
         </div>
@@ -598,6 +601,7 @@ function setMode(next: unknown) {
       :settings="settings"
       :shortcut="shortcut"
       @forget="(origin) => (forgetting = origin)"
+      @remember="rememberSite"
     />
     <section v-else data-testid="list-area" class="flex flex-1 flex-col overflow-y-auto">
       <!-- Rec's notes come first, on every site and also without one. -->
@@ -611,8 +615,16 @@ function setMode(next: unknown) {
       />
       <!-- A new site's pins are being read: neither the last site's list nor an empty state. -->
       <template v-if="site && loading" />
-      <!-- Empty states sit in the middle of the list area. -->
-      <div v-else-if="!site || !shown.length" class="flex flex-1 items-center justify-center p-6">
+      <!--
+        Empty states sit in the middle of the list area. Without a site, how to start comes
+        before Rec's notes: under many of them nobody would find it.
+      -->
+      <div
+        v-else-if="!site || !shown.length"
+        data-testid="empty-area"
+        class="flex items-center justify-center"
+        :class="!site && notes.length ? 'order-first border-b p-4' : 'flex-1 p-6'"
+      >
         <div data-testid="empty-state" class="max-w-72 space-y-3 text-center text-muted-foreground">
           <template v-if="!site">
             <p data-testid="tab-status">

@@ -9,7 +9,7 @@ import { isSiteOrigin } from '@/lib/settings'
 import { useSites } from './use-sites'
 
 const props = defineProps<{ remembered: string[] }>()
-const emit = defineEmits<{ forget: [origin: string] }>()
+const emit = defineEmits<{ forget: [origin: string]; remember: [origin: string] }>()
 const { sites } = useSites(toRef(props, 'remembered'))
 
 /** Only sites on the web open from here; local files have no address to open. */
@@ -23,7 +23,8 @@ function open(site: string) {
     <h3 class="text-xs font-medium text-muted-foreground">Sites</h3>
     <p class="text-xs text-muted-foreground">
       Each site keeps its own feedback. <strong class="font-medium">Auto</strong> sites load the
-      overlay by themselves.
+      overlay by themselves; on the others it starts with a click on the toolbar icon, until you
+      choose Always enable.
     </p>
     <ul v-if="sites.length" class="space-y-1">
       <li
@@ -62,6 +63,18 @@ function open(site: string) {
           title="Pages of this site load the overlay by themselves"
           >Auto</Badge
         >
+        <!-- Inside the click: Chrome asks for access only within it. -->
+        <Button
+          v-if="!entry.remembered && isSiteOrigin(entry.site)"
+          data-testid="enable-site"
+          variant="outline"
+          size="xs"
+          class="shrink-0"
+          :title="`Load the overlay on every page of ${entry.site} by itself`"
+          @click="emit('remember', entry.site)"
+        >
+          Always enable
+        </Button>
         <Button
           v-if="entry.remembered"
           data-testid="remove-site"

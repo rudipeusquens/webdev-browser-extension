@@ -7,9 +7,11 @@ import type { TabStatus } from './use-active-tab'
 
 // The site of the active tab in the middle of the title row: a dot for its state (green
 // active, grey not active, red refused or failed) and its name. Hovering or focusing it shows
-// its one action, if it has one (spec section 8).
+// its one action, if it has one; on a page Chrome tells the panel nothing about, how to start
+// there instead (spec section 8).
 
-const props = defineProps<{ status: TabStatus; remembered: boolean }>()
+/** `how`: how the overlay starts on a page the panel cannot start it on. */
+const props = defineProps<{ status: TabStatus; remembered: boolean; how: string }>()
 const emit = defineEmits<{ start: []; remember: []; forget: [] }>()
 
 /** How long the pointer rests before the action shows, and may wander off before it goes. */
@@ -49,10 +51,13 @@ const DOT: Record<TabStatus['kind'], string> = {
   failed: 'bg-red-500',
 }
 
-/** The one thing the pill offers: none on pages it cannot name or run on. */
-const action = computed<'forget' | 'remember' | 'start' | null>(() => {
+/**
+ * The one thing the pill offers: none on pages it cannot run on; on a page it cannot name
+ * (Chrome grants no access to it yet), only how to start.
+ */
+const action = computed<'forget' | 'remember' | 'start' | 'how' | null>(() => {
   const current = site.value
-  if (!current) return null
+  if (!current) return props.status.kind === 'idle' && !props.status.url ? 'how' : null
   if (props.status.kind === 'active') {
     // Local files cannot be remembered: Chrome grants no origin for them.
     if (!isSiteOrigin(current)) return null
@@ -156,8 +161,15 @@ onBeforeUnmount(() => clearTimeout(timer))
       @pointerenter="onPointer(true)"
       @pointerleave="onPointer(false)"
     >
+      <p
+        v-if="action === 'how'"
+        data-testid="start-how"
+        class="w-56 px-2 py-1 text-xs whitespace-normal text-muted-foreground"
+      >
+        {{ how }}
+      </p>
       <Button
-        v-if="action === 'forget'"
+        v-else-if="action === 'forget'"
         data-testid="forget-site"
         variant="ghost"
         size="xs"

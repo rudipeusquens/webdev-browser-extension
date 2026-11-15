@@ -7,7 +7,7 @@ import VoiceSettings from './VoiceSettings.vue'
 
 /** `shortcut`: the toolbar shortcut Chrome assigned, empty when there is none. */
 defineProps<{ settings: Settings; shortcut: string }>()
-const emit = defineEmits<{ forget: [origin: string] }>()
+const emit = defineEmits<{ forget: [origin: string]; remember: [origin: string] }>()
 </script>
 
 <template>
@@ -21,6 +21,7 @@ const emit = defineEmits<{ forget: [origin: string] }>()
       class="py-6"
       :remembered="settings.rememberedOrigins"
       @forget="(origin) => emit('forget', origin)"
+      @remember="(origin) => emit('remember', origin)"
     />
 
     <ShortcutList class="py-6" :toolbar="shortcut" />
