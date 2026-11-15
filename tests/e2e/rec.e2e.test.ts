@@ -177,8 +177,12 @@ describe('Rec in the panel', () => {
       const cdp = await panel.createCDPSession()
       await cdp.send('Browser.setDownloadBehavior', { behavior: 'allow', downloadPath: dir })
       await panel.click('[data-testid="open-settings"]')
-      const count = await panel.waitForSelector('[data-testid="archive-count"]')
-      const before = Number.parseInt((await count?.evaluate((el) => el.textContent)) ?? '', 10)
+      // The count is there once the archive is read.
+      const count = await panel.waitForFunction(() => {
+        const text = document.querySelector('[data-testid="archive-count"]')?.textContent ?? ''
+        return /\d+ dictation/.test(text) ? text : false
+      })
+      const before = Number.parseInt(String(await count.jsonValue()).trim(), 10)
       expect(before).toBeGreaterThanOrEqual(1)
       await panel.click('[data-testid="archive-export"]')
       let files: string[] = []

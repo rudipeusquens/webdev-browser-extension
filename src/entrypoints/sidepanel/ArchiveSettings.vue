@@ -26,8 +26,8 @@ import { zip } from '@/lib/zip'
 // this browser. The panel reads the archive itself (the same origin's IndexedDB); Export hands
 // it to the developer as a ZIP file, the only way it leaves.
 
-/** How many dictations it holds; null until it is read, or when it cannot be. */
-const count = ref<number | null>(null)
+/** How many dictations it holds: undefined until it is read, null when it cannot be. */
+const count = ref<number | null>()
 /** The bytes of its recordings. */
 const bytes = ref(0)
 const error = ref('')
@@ -90,7 +90,9 @@ async function clear() {
     </p>
     <div class="flex items-center gap-2">
       <span data-testid="archive-count" class="min-w-0 flex-1 text-xs">
-        {{ count === null ? 'Could not read the archive.' : plural(count, 'dictation') }}
+        <template v-if="count !== undefined">
+          {{ count === null ? 'Could not read the archive.' : plural(count, 'dictation') }}
+        </template>
         <span v-if="bytes" data-testid="archive-size" class="text-muted-foreground">
           · {{ size(bytes) }} of recordings
         </span>

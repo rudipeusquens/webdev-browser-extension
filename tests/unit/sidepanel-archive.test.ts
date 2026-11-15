@@ -93,6 +93,15 @@ describe('Settings: archive', () => {
     expect(await countArchive()).toBe(2)
   })
 
+  it('says nothing of its size before it is read', async () => {
+    await mountPanel()
+    byTestId('open-settings').click()
+    await flushPromises()
+    expect(byTestId('archive-count').textContent).not.toContain('Could not read')
+    await settle()
+    expect(byTestId('archive-count').textContent).toContain('0 dictations')
+  })
+
   it('deletes the archive only after a confirmation', async () => {
     await archiveAudio('j1', [new Uint8Array([1]).buffer])
     await archiveDictation({ ...entry, audio: 'j1' })
