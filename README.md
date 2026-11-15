@@ -132,6 +132,9 @@ names the site.
 - **Always enable here** (point at the site pill) asks Chrome for access to the site; the
   overlay then loads there by itself. **Forget this site** takes the access back; the pins
   stay.
+- A pill that says **Not active** is a page Chrome tells the panel nothing about: the
+  extension has no access to its site yet. Click the toolbar icon there (the pill says so
+  when you point at it); a site in Settings without **Auto** starts this way too.
 
 ### Code origin
 
@@ -223,7 +226,8 @@ The gear in the panel:
 - **Voice:** the key, the model, the language, the recording limit and the microphone (see
   Dictation).
 - **Sites:** every site with pins or access, with its number of open pins; **Auto** marks
-  the sites where the overlay loads by itself, with **Forget**.
+  the sites where the overlay loads by itself, with **Forget**; **Always enable** makes one
+  of the others load by itself.
 - **Keyboard shortcuts:** the list above, and **Change** for the toolbar shortcut.
 
 ## Privacy

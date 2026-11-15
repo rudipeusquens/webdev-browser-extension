@@ -4717,3 +4717,22 @@ went); a yield while the microphone started saved and closed the popover; `Esc`,
 page going sent a recording that had ended by itself (now only Retry sends it); a leave while
 a save was on its way stored the pin a second time; and Copy as prompt could copy pins still
 transcribed before the site's states were read.
+
+## Milestone 9a: "Not active" says how to start
+
+The owner saw **Not active** on a site listed in Settings and found nothing to click. A
+remembered site kept loading the overlay in every navigation tried (other pages and origins,
+history, a second tab); the label appears where Chrome tells the panel nothing about the page,
+which is a site without access: one listed for its feedback alone, or another origin of the
+same project. The hint how to start sat under the Rec notes, out of sight under many of them.
+
+### Task 91: The pill, the hint and Settings
+
+- Files: `src/entrypoints/sidepanel/{SitePill,App,SiteList,SettingsView}.vue`,
+  `src/entrypoints/background.ts`,
+  `tests/unit/{sidepanel-app,sidepanel-sites,background}.test.ts`,
+  `tests/e2e/remembered.e2e.test.ts`, the spec (section 8), `README.md`, `docs/smoke-test.md`
+- [x] Failing tests: the pill of a page Chrome tells nothing about says how to start; that
+      hint comes before the Rec notes; a site with feedback has **Always enable** in Settings,
+      asked for inside the click; a remembered site's open tabs get the overlay at once. Then
+      the changes.

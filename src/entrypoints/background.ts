@@ -89,6 +89,25 @@ export default defineBackground(() => {
     return ok()
   }
 
+  /** Starts the overlay on the open tabs of these origins that run none. */
+  async function startOnTabs(origins: string[]) {
+    const tabs = await browser.tabs.query({ url: origins.map(originPattern) })
+    for (const { id } of tabs) {
+      if (id === undefined || (await overlayRuns(id))) continue
+      await injectOverlay(id).catch(() => undefined)
+    }
+  }
+
+  /**
+   * Always enable here: the site's pages load the overlay from now on, and its open tabs get
+   * it at once (the registered script runs only when a page loads).
+   */
+  async function rememberSite(origin: string): Promise<Reply> {
+    const reply = await sites.remember(origin)
+    if (reply.ok) void startOnTabs([origin]).catch(() => undefined)
+    return reply
+  }
+
   /** The context menu entry only ever opens the panel and starts the overlay. */
   function activate(tab: Browser.tabs.Tab) {
     const tabId = openPanel(tab)
@@ -193,7 +212,7 @@ export default defineBackground(() => {
       case 'site:forget':
         if (!isPanelSender(sender)) return refuse('Sites are set in the panel.')
         return message.type === 'site:remember'
-          ? sites.remember(message.origin)
+          ? rememberSite(message.origin)
           : sites.forget(message.origin)
       case 'history:undo':
       case 'history:redo':

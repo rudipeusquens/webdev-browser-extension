@@ -73,6 +73,25 @@ describe('Settings: sites', () => {
     })
   })
 
+  it('always enables a site with feedback from its entry, inside the click', async () => {
+    await openSettings({
+      [collectionKey(LOCAL)]: withItems(LOCAL, `${LOCAL}/a`, 1),
+      [collectionKey(FILES)]: withItems(FILES, 'file:///srv/a.html', 1),
+      [SETTINGS_KEY]: { rememberedOrigins: [STAGING] },
+    })
+    const [files, local, staging] = rows()
+    // Local files cannot be remembered; a remembered site is enabled already.
+    expect(files!.querySelector('[data-testid="enable-site"]')).toBeNull()
+    expect(staging!.querySelector('[data-testid="enable-site"]')).toBeNull()
+    byTestId('enable-site', local!).click()
+    expect(fakeBrowser.permissions.request).toHaveBeenCalledWith({ origins: [`${LOCAL}/*`] })
+    await flushPromises()
+    expect(fakeBrowser.runtime.sendMessage).toHaveBeenCalledWith({
+      type: 'site:remember',
+      origin: LOCAL,
+    })
+  })
+
   it('opens a web site in a new tab from its address; local files have no address', async () => {
     const create = vi.spyOn(fakeBrowser.tabs, 'create').mockResolvedValue({} as never)
     await openSettings({

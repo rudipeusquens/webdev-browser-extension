@@ -981,12 +981,37 @@ describe('side panel', () => {
       await render()
       expect(pill().dataset.state).toBe('idle')
       expect(byTestId('title-site').textContent?.trim()).toBe('Not active')
-      expect(pill().tagName).not.toBe('BUTTON')
       expect(exists('start-overlay-center')).toBe(false)
       expect(byTestId('tab-status').textContent).toContain(
         'Click the toolbar icon or press Ctrl+Shift+K to annotate this page.',
       )
       expect(byTestId('tab-status').textContent).not.toContain('right-click')
+    })
+
+    it('says how to start in the pill of a page Chrome tells nothing about', async () => {
+      shortcutIs('Ctrl+Shift+K')
+      await render()
+      expect(pill().tagName).toBe('BUTTON')
+      pill().focus()
+      await flushPromises()
+      expect(byTestId('start-how').textContent).toContain(
+        'Click the toolbar icon or press Ctrl+Shift+K to annotate this page.',
+      )
+      expect(exists('start-overlay')).toBe(false)
+    })
+
+    it('puts how to start before the Rec notes, which may be many', async () => {
+      await fakeBrowser.storage.local.set({
+        notes: { version: 1, items: [{ id: 'n1', text: 'A note.', createdAt: 'T' }] },
+      })
+      await render()
+      expect(byTestId('empty-area').className).toContain('order-first')
+      expect(byTestId('empty-area').textContent).toContain('Click the toolbar icon')
+    })
+
+    it('keeps the empty state in the middle without notes', async () => {
+      await render()
+      expect(byTestId('empty-area').className).not.toContain('order-first')
     })
 
     it('names the context menu too while Settings has it on', async () => {
@@ -1404,9 +1429,12 @@ describe('side panel', () => {
       })
     })
 
-    it('offers nothing for an unknown tab or a file page', async () => {
+    it('offers no action for an unknown tab or a file page', async () => {
       await render()
-      expect(byTestId('site-pill').tagName).not.toBe('BUTTON')
+      byTestId('site-pill').focus()
+      await flushPromises()
+      // Only how to start: the panel cannot start the overlay there.
+      expect(document.querySelector('#site-actions button')).toBeNull()
       closePanel()
       overlayReply = { ...active, host: 'file', pageKey: 'file:///srv/app/index.html' }
       await render()

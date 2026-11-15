@@ -84,6 +84,28 @@ describe('remembered sites', () => {
     expect(await hosts()).toBe(0)
   })
 
+  it('starts the overlay on the other open tabs of a site it remembers', async () => {
+    const first = session.page
+    const second = await session.browser.newPage()
+    try {
+      await second.goto(`${server.origin}/plain/text.html`)
+      await sleep(500)
+      const count = () =>
+        second.evaluate(() => document.querySelectorAll('div[popover="manual"]').length)
+      expect(await count()).toBe(0)
+      await first.bringToFront()
+      await (await pillAction('remember-site')).click()
+      await pillAction('forget-site')
+      for (let i = 0; i < 50 && (await count()) !== 1; i++) await sleep(100)
+      expect(await count()).toBe(1)
+    } finally {
+      await second.close()
+      await first.bringToFront()
+    }
+    // The next test starts on a site that does not load the overlay by itself.
+    await forgetFromPill()
+  })
+
   it('lists the site in the settings and forgets it there', async () => {
     await (await pillAction('remember-site')).click()
     await pillAction('forget-site')

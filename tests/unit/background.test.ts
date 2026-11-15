@@ -536,6 +536,26 @@ describe('background: remembered sites', () => {
     expect((await loadSettings()).rememberedOrigins).toEqual([])
   })
 
+  it('starts the overlay on the open tabs of a site it remembers, where none runs', async () => {
+    const inject = vi.spyOn(fakeBrowser.scripting, 'executeScript').mockResolvedValue([] as never)
+    const query = vi
+      .spyOn(fakeBrowser.tabs, 'query')
+      .mockResolvedValue([{ id: 7 }, { id: 8 }] as never)
+    const running = { instance: 'one', host: 'a', pageKey: `${A}/`, mode: 'browse', pins: true }
+    vi.spyOn(fakeBrowser.tabs, 'sendMessage').mockImplementation((async (id: number) => {
+      if (id === 8) return running
+      throw new Error('No overlay.')
+    }) as never)
+    await send({ type: 'site:remember', origin: A }, panel)
+    await vi.waitFor(() => expect(inject).toHaveBeenCalled())
+    expect(query).toHaveBeenCalledWith({ url: [`${A}/*`] })
+    expect(inject).toHaveBeenCalledTimes(1)
+    expect(inject).toHaveBeenCalledWith({
+      target: { tabId: 7 },
+      files: ['/content-scripts/overlay.js'],
+    })
+  })
+
   it('refuses site changes from a page and from other pages of the extension', async () => {
     expect(await send({ type: 'site:remember', origin: A }, { ...panel, tab })).toMatchObject({
       ok: false,
