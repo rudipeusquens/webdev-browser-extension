@@ -1,6 +1,7 @@
 // OpenRouter's speech-to-text API (spec section 9). The only remote calls of the extension:
-// the transcription of a recording the developer stopped, and the free key check. Failures
-// carry a code and OpenRouter's reason, never the key.
+// the transcription of a recording the developer stopped, the correction of its transcript
+// by a language model, and the free key check. Failures carry a code and OpenRouter's reason,
+// never the key.
 
 import { clean } from '../text'
 import { MAX_DETAIL, type VoiceError } from './protocol'
@@ -13,12 +14,25 @@ export const TIMEOUT = 65_000
 /** The timeout for a recording of `ms`: 10 s more for each minute after the first. */
 export const timeoutFor = (ms: number) => TIMEOUT + 10_000 * Math.max(0, Math.ceil(ms / 60_000) - 1)
 
+/** The model that corrects a transcript, and its instructions. */
+export interface Correction {
+  model: string
+  prompt: string
+}
+
 export interface TranscribeRequest {
   key: string
   model: string
   /** `auto`, or an ISO-639-1 code. */
   language: string
+  /** Set while Settings has the correction on. */
+  correct?: Correction
 }
+
+/** The correction's timeout: 20 s, and 5 ms more for each character of the transcript. */
+export const correctTimeoutFor = (length: number) => 20_000 + 5 * length
+/** Most tokens of a corrected transcript: a token is at least two of its characters. */
+const answerTokens = (length: number) => Math.min(16_000, Math.ceil(length / 2) + 500)
 
 interface Options {
   signal?: AbortSignal
@@ -160,6 +174,63 @@ export async function transcribe(
   const trimmed = text.trim()
   if (!trimmed) throw new VoiceFailure('no-speech')
   return trimmed
+}
+
+const TAGS = /^\s*<transcript>\s*|\s*<\/transcript>\s*$/g
+
+/**
+ * The transcript as the model `correct.model` corrected it, on the instructions
+ * `correct.prompt`. The transcript goes as data between tags, never as instructions. A
+ * `VoiceFailure` when the request fails, or when the answer cannot be the same text corrected:
+ * empty, cut off, or far longer or shorter than the transcript. The caller keeps the transcript
+ * as it was then.
+ */
+export async function correctTranscript(
+  text: string,
+  key: string,
+  correct: Correction,
+  options: Options = {},
+): Promise<string> {
+  const body = {
+    model: correct.model,
+    messages: [
+      { role: 'system', content: correct.prompt },
+      { role: 'user', content: `<transcript>\n${text}\n</transcript>` },
+    ],
+    max_tokens: answerTokens(text.length),
+    provider: { data_collection: 'deny' },
+  }
+  const answer = await call(
+    '/chat/completions',
+    {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${key}`, 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    },
+    { timeout: correctTimeoutFor(text.length), ...options },
+  )
+  if (!answer.ok) {
+    const code = codeOf(answer.status)
+    throw new VoiceFailure(code, code === 'rejected' ? reasonOf(answer.body, key) : undefined)
+  }
+  const choice = (
+    answer.body as { choices?: { finish_reason?: unknown; message?: { content?: unknown } }[] }
+  )?.choices?.[0]
+  const content = choice?.message?.content
+  if (typeof content !== 'string' || choice?.finish_reason === 'length') {
+    throw new VoiceFailure('failed')
+  }
+  const corrected = content.replace(TAGS, '').trim()
+  // A correction changes words, not the length: anything else is an answer to the transcript,
+  // a summary or a refusal.
+  if (
+    !corrected ||
+    corrected.length > text.length * 2 + 100 ||
+    corrected.length < text.length / 2
+  ) {
+    throw new VoiceFailure('failed')
+  }
+  return corrected
 }
 
 /** Whether OpenRouter knows the key (`GET /key`, free). */

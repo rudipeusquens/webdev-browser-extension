@@ -123,6 +123,16 @@ Settings → **Voice**:
       entry says "No comment yet". Click **Copy as prompt**. → "Copied … left out: drafts and
       pins still transcribed"; the grey pin stays. Click it, type a comment, `Enter`. → It
       turns blue.
+- [ ] Settings → **Voice** → **Correct transcripts** is on. In **Instructions**, add a made-up
+      name at the end ("- Zorblax"), **Save**. **Rec**, say a sentence with that name, stop.
+      → The note spells it as written. Switch **Correct transcripts** off, dictate again. →
+      The text comes a moment sooner, as the transcription heard it. Switch it on again;
+      **Reset** puts the instructions back.
+- [ ] Settings → **Archive**. → It counts the dictations made so far, also the deleted
+      note's, and the size of their recordings. **Export**. → A file `dictations-<date>.zip`
+      is downloaded; `dictations.json` in it holds each text, when it was made and the
+      transcript before its correction, and `audio/` each recording, which plays. (Do not
+      attach it anywhere.)
 - [ ] Settings → **Voice** → **Recording limit**: "1 minute". Dictate in a pin for a minute.
       → At 1:00 the popover asks "Paused at 1:00. Keep recording?". **Keep**. → The clock
       goes on, and at 2:00 it asks again. **Stop**. → The popover closes and the text
@@ -136,6 +146,9 @@ Settings → **Voice**:
 - [ ] On the note, **Copy**. → "Copied note"; pasting gives its text. **Delete**. → The note
       is gone. **Undo** (also on `chrome://extensions`, where the pill says Not active). → It
       is back; **Redo** deletes it again.
+- [ ] Mute the microphone (its hardware switch, or the system's input volume at zero),
+      **Rec**, wait three seconds, stop. → The note says "Nothing was heard"; nothing was
+      sent (OpenRouter's activity shows no request). **Retry** sends it anyway.
 - [ ] **Rec** on a tab where the overlay does not run (`chrome://extensions`). → It works the
       same, and the notes are listed there too.
 - [ ] With an open pin: **Rec**, speak, stop, and click **Copy as prompt** while its note says

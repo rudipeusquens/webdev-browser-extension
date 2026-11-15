@@ -1,4 +1,8 @@
+import { mkdtemp, readdir, readFile, rm } from 'node:fs/promises'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
 import type { Page } from 'puppeteer'
+import { unzip } from '../unit/helpers/unzip'
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest'
 import { FAKE_TEXT, startFakeOpenRouter } from './fake-openrouter'
 import {
@@ -114,6 +118,115 @@ describe('Rec in the panel', () => {
     expect(await panel.$eval('[data-testid="filter-all"]', (el) => el.textContent)).toContain('0')
     for (let i = 0; i < 30 && (await offscreenDocuments(s)) > 0; i++) await sleep(100)
     expect(await offscreenDocuments(s)).toBe(0)
+  })
+
+  it('corrects the transcript before it is kept and copied, on the instructions of Settings', async () => {
+    fake.correct('Make the Button wider.')
+    await record(600)
+    await panel.click('[data-testid="rec"]')
+    await panel.waitForSelector('[data-testid="note-text"]')
+    expect(await noteTexts()).toEqual(['Make the Button wider.'])
+    expect(await clipboard()).toBe('Make the Button wider.')
+    const [request] = fake.corrections()
+    expect(fake.corrections()).toHaveLength(1)
+    expect(request?.authorization).toBe(`Bearer ${KEY}`)
+    const body = request?.body as { model: string; messages: { role: string; content: string }[] }
+    expect(body.model).toBe('anthropic/claude-haiku-5.5')
+    expect(body.messages.map((m) => m.role)).toEqual(['system', 'user'])
+    expect(body.messages[0]?.content).toContain('You correct transcripts')
+    expect(body.messages[1]?.content).toBe(`<transcript>\n${FAKE_TEXT}\n</transcript>`)
+    expect(await panel.$('[data-testid="note-uncorrected"]')).toBeNull()
+  })
+
+  it('keeps the transcript as it came when the correction fails, and marks the note', async () => {
+    fake.failCorrection(500)
+    await record(600)
+    await panel.click('[data-testid="rec"]')
+    await panel.waitForSelector('[data-testid="note-uncorrected"]')
+    expect(await noteTexts()).toEqual([FAKE_TEXT])
+  })
+
+  it('sends no transcript anywhere while the correction is off', async () => {
+    await panel.click('[data-testid="open-settings"]')
+    await panel.click('[data-testid="voice-correct-on"]')
+    await panel.waitForSelector('[data-testid="voice-correct-prompt"]', { hidden: true })
+    await panel.click('[data-testid="close-settings"]')
+    try {
+      await record(600)
+      await panel.click('[data-testid="rec"]')
+      await panel.waitForSelector('[data-testid="note-text"]')
+      expect(await noteTexts()).toEqual([FAKE_TEXT])
+      expect(fake.corrections()).toHaveLength(0)
+    } finally {
+      await panel.click('[data-testid="open-settings"]')
+      await panel.click('[data-testid="voice-correct-on"]')
+      await panel.waitForSelector('[data-testid="voice-correct-prompt"]')
+      await panel.click('[data-testid="close-settings"]')
+    }
+  })
+
+  it('keeps every text and recording in the archive, also of a deleted note, and exports them as a file', async () => {
+    const dir = await mkdtemp(join(tmpdir(), 'webdev-archive-'))
+    try {
+      fake.correct('Make the Button wider.')
+      await record(600)
+      await panel.click('[data-testid="rec"]')
+      await panel.waitForSelector('[data-testid="note-text"]')
+      await panel.click('[data-testid="note-delete"]')
+      await panel.waitForSelector('[data-testid="notes"]', { hidden: true })
+      const cdp = await panel.createCDPSession()
+      await cdp.send('Browser.setDownloadBehavior', { behavior: 'allow', downloadPath: dir })
+      await panel.click('[data-testid="open-settings"]')
+      // The count is there once the archive is read.
+      const count = await panel.waitForFunction(() => {
+        const text = document.querySelector('[data-testid="archive-count"]')?.textContent ?? ''
+        return /\d+ dictation/.test(text) ? text : false
+      })
+      const before = Number.parseInt(String(await count.jsonValue()).trim(), 10)
+      expect(before).toBeGreaterThanOrEqual(1)
+      await panel.click('[data-testid="archive-export"]')
+      let files: string[] = []
+      for (let i = 0; i < 50 && !files.some((f) => f.endsWith('.zip')); i++) {
+        await sleep(100)
+        files = await readdir(dir)
+      }
+      const file = files.find((f) => /^dictations-\d{4}-\d{2}-\d{2}\.zip$/.test(f))
+      expect(file).toBeDefined()
+      const zipped = unzip(new Uint8Array(await readFile(join(dir, file ?? ''))))
+      const exported = JSON.parse(new TextDecoder().decode(zipped.get('dictations.json'))) as {
+        version: number
+        dictations: { audioFiles?: string[] }[]
+      }
+      // The recording is in the file: WebM, as the microphone gave it.
+      const [audio] = exported.dictations.at(-1)?.audioFiles ?? []
+      expect(audio).toMatch(/^audio\/.+-1\.webm$/)
+      const recording = zipped.get(audio ?? '')
+      expect(recording?.length).toBeGreaterThan(100)
+      expect([...(recording?.subarray(0, 4) ?? [])]).toEqual([0x1a, 0x45, 0xdf, 0xa3])
+      expect(await panel.$eval('[data-testid="archive-size"]', (el) => el.textContent)).toContain(
+        'of recordings',
+      )
+      expect(exported.version).toBe(1)
+      expect(exported.dictations).toHaveLength(before)
+      expect(exported.dictations.at(-1)).toMatchObject({
+        kind: 'note',
+        text: 'Make the Button wider.',
+        raw: FAKE_TEXT,
+        model: 'openai/gpt-4o-mini-transcribe',
+        correctModel: 'anthropic/claude-haiku-5.5',
+      })
+      // Deleted only after a confirmation.
+      await panel.click('[data-testid="archive-clear"]')
+      await (await panel.waitForSelector('[data-testid="archive-clear-confirm"]'))?.click()
+      await panel.waitForSelector('[data-testid="archive-export"][disabled]')
+    } finally {
+      // The next test starts in Edit: the dialog is gone before Settings closes.
+      await panel.waitForSelector('[data-testid="archive-clear-confirm"]', { hidden: true })
+      if (await panel.$('[data-testid="close-settings"]')) {
+        await panel.click('[data-testid="close-settings"]')
+      }
+      await rm(dir, { recursive: true, force: true })
+    }
   })
 
   it('leaves the clipboard to Copy as prompt clicked while it was transcribed', async () => {

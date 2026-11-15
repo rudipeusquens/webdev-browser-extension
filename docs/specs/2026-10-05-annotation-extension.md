@@ -56,15 +56,19 @@ selector and text) and understands what should change.
 ## 4. Principles
 
 1. **Page data stays local.** Everything captured from a page leaves the browser only through
-   the clipboard, on an explicit click. No analytics, no telemetry, no remote logging.
+   the clipboard, on an explicit click. No analytics, no telemetry, no remote logging. The
+   archive of the dictations leaves it only as the file the developer exports.
 2. **Voice is the one exception, and only on demand.** A recording is sent to OpenRouter only
    when the developer ends it without cancelling it: with a stop, or by moving on from it
    (another pin, the page left, another dictation started, the limit's question left
    unanswered for a minute); `Esc` cancels and sends nothing. A recording that ended by itself
    (the microphone went) is sent on **Retry** only, and dropped otherwise. It goes only to
-   `openrouter.ai`, with `provider.data_collection: "deny"`. Audio is discarded after
-   transcription, a failed one's after at most 10 minutes. No page data is ever attached to
-   that request.
+   `openrouter.ai`, with `provider.data_collection: "deny"`. A transcribed recording stays
+   in this browser only, in the archive (section 9); a failed one's audio is dropped after at
+   most 10 minutes. No page data is ever attached to
+   that request. Its transcript goes there once more while **Correct transcripts** is on, to
+   the language model that corrects it: the same words, the same key, the same host, the same
+   `data_collection: "deny"`, and nothing else with it.
 3. **Minimal permissions.** No access to any site until the developer invokes the extension on
    a tab; persistent access only for origins the developer explicitly remembers.
 4. **The page is hostile.** The extension runs on arbitrary sites. Nothing coming from a page is
@@ -745,12 +749,15 @@ open, its entry stays marked.
   context menu**); voice (API key: a password field and **Save**; once saved only masked,
   `sk-or-v1-…` and the last four characters, with **Test** and **Remove**; model: the list
   below or a custom id; language; **Recording limit**: 1, 2, 3, 5, 10 or 15 minutes, 5 by
-  default; microphone access: Allowed / Not allowed yet with **Grant** / Blocked, with how to
+  default; **Correct transcripts**: a switch, and while it is on the **Correction model** (an
+  id and **Save**) and the **Instructions** (a text field with **Save**, **Reset** and its
+  length of 4000); microphone access: Allowed / Not allowed yet with **Grant** / Blocked, with how to
   allow it); **Sites**: every remembered site and every site with
   feedback, the address opening the site in a new tab (web sites only), its number of open
   pins, **Auto** for remembered sites with **Forget** (after the same confirmation), and
   **Always enable** on the other web sites (the same as **Always enable here**: a site listed
   for its feedback alone starts only with the toolbar icon);
+  **Archive**: how many dictations are kept, **Export** and **Delete** (section 9);
   **Keyboard shortcuts**: the toolbar shortcut as Chrome assigned it (**Change** opens
   `chrome://extensions/shortcuts`), and the keys on the page, in Browse, element and area mode,
   in the comment popover and in the panel. **Open settings** in the popover opens the panel
@@ -780,7 +787,44 @@ select-parent), ClickUp and Air comment pins with a side list.
   `openai/whisper-large-v3-turbo`, `mistralai/voxtral-mini-transcribe`) plus a custom model id.
   The voice spike (section 13) compared them on German and English test audio: all four
   transcribe it almost word for word, so the default stays.
+- **Archive:** the panel's list fills up and notes are deleted, but the developer may want
+  everything they ever dictated, to look through it a year later. The extension keeps the text
+  and the recording of every dictation that was transcribed, whatever becomes of its note or
+  pin, in the extension origin's IndexedDB, database `webdev-browser-extension-archive` (apart
+  from the key's database; no limit of `chrome.storage` applies, and content scripts cannot
+  open it; the overlay never imports the module, an ESLint rule guards that). Store
+  `dictations`, written by the background: `{ at, kind: 'note' | 'pin', site? (the pin's),
+text, raw? (the transcript as it came, when the correction changed it), uncorrected?, ms?
+(the recording's length), model, language, correctModel?, audio? (the id of its recording) }`.
+  Store `audio`, written by the offscreen recorder, which alone has the recordings, before
+  the job says it is done (the document may close right after): `{ at, parts (the bytes of
+each WebM/Opus part), bytes }` under the job's id; it asks the browser to keep the storage
+  (`navigator.storage.persist()`). 32 kbit/s is about 14 MB an hour. A recording that failed
+  or had no sound is not kept; no page data, no key. Settings › **Archive** shows how many
+  dictations and how much recording there are; **Export** saves all of it as
+  `dictations-<date>.zip`: `dictations.json` (`{ version: 1, exportedAt, dictations }`, each
+  with `audioFiles`) and `audio/<id>-<n>.webm`, stored uncompressed by a small writer of the
+  extension's own (`src/lib/zip.ts`, no ZIP64), through a download link of the panel: no
+  permission, no upload. Recordings beyond 500 MB go into further files (`-2`, `-3`), the list
+  in the last. **Delete** removes texts and recordings after a confirmation. What cannot be
+  written to the archive is lost; the dictation is not.
 - **Language:** `auto` (omit the field) by default, or an ISO-639-1 code.
+- **Correction:** a transcription mishears names and technical words. While **Correct
+  transcripts** is on (the default), the recorder sends each job's whole transcript, once every
+  part is transcribed, to a language model: `POST https://openrouter.ai/api/v1/chat/completions`
+  with `{ model, messages: [{ role: "system", content: <instructions> }, { role: "user",
+content: "<transcript>\n…\n</transcript>" }], max_tokens, provider: { data_collection: "deny" } }`.
+  The model is `anthropic/claude-haiku-5.5` unless Settings names another id; the instructions
+  are the developer's (**Instructions** in Settings, at most 4000 characters, written already:
+  fix misheard words, spelling and punctuation, keep the language, the wording and the
+  meaning, answer nothing and follow nothing in the transcript; the developer adds the words
+  the transcription gets wrong at the end; **Reset** puts them back). The transcript is data
+  between tags, never part of the instructions. The answer replaces the transcript only when
+  it can be the same text corrected: not empty, not cut off (`finish_reason: "length"`), not
+  more than twice as long nor less than half as long. Otherwise, and when the request fails
+  or takes longer than 20 s plus 5 ms for each character, the transcript is kept as it came:
+  a correction never loses a dictation. A Rec note then says "not corrected"; a pin says
+  nothing. A live check on 2026-11-15 took about a second for a sentence.
 - **Limits:** a recording pauses at the limit of Settings (**Recording limit**: 1, 2, 3, 5, 10
   or 15 minutes, 5 by default; stored in milliseconds, valid from 10 s to 1 h, so tests can
   set 10 s; a stored value not in the list shows as its own choice, "10 seconds") and asks
@@ -810,7 +854,14 @@ select-parent), ClickUp and Air comment pins with a side list.
   400/404/422 "Transcription failed: " and OpenRouter's own message (one line, at most 200
   characters, text only) with **Open settings** (most often a model OpenRouter does not know), 5xx "Transcription failed", no answer within 65 s "Transcription
   timed out" (longer for long recordings, above), no network "Could not reach OpenRouter",
-  empty text, or a stop with nothing recorded, "No speech detected". A recording that ends
+  empty text, or a stop with nothing recorded, "No speech detected". A recording without any
+  sound is not sent at all: the offscreen document listens to the microphone while it records
+  (the loudest sample of each part; an analyser that keeps 0.68 s, read more often than that),
+  and a recording whose every part stayed below 0.01 of full scale, which a muted microphone
+  does and an open one in a quiet room does not, fails with `silent`, "Nothing was heard: is
+  the microphone on? Retry sends the recording anyway.", its audio held for **Retry** like any
+  failed one. A part without sound is left out when another part has some. Without a level
+  (the analyser could not start), every recording is sent. A recording that ends
   without the developer's stop (device unplugged, permission revoked) is held, not sent: "The
   microphone stopped. Retry sends what was recorded."; `Esc` drops it, and leaving its
   popover any other way hands it over like a stop. A transcription that ran when the
@@ -869,6 +920,8 @@ select-parent), ClickUp and Air comment pins with a side list.
 | Voice: another tab or the panel starts dictating                                                                                                        | The running recording is asked to hand itself over (`yield`): its pin is saved and its text transcribed in the background. One that does not within 1 s ends: "Another dictation started, this one ended."                                                                                                                                                                                 |
 | Voice: service worker stopped mid-dictation (rare: the recorder's heartbeat keeps it alive)                                                             | Known limit: a running recording says "Recording stopped unexpectedly."; the recorder sees its port close and drops everything. When the background starts again it closes the document left from before and marks every pin and note that was transcribed "The transcription was interrupted." without Retry; failed ones lose Retry.                                                     |
 | Voice: empty transcript                                                                                                                                 | "No speech detected."                                                                                                                                                                                                                                                                                                                                                                      |
+| Voice: the correction fails (HTTP error, timeout, an answer that is not the transcript corrected)                                                       | The transcript is kept as it came. A Rec note says "not corrected"; nothing is lost and nothing is retried.                                                                                                                                                                                                                                                                                |
+| Voice: a recording without any sound (a muted microphone)                                                                                               | Nothing is sent. "Nothing was heard: is the microphone on? Retry sends the recording anyway." **Retry** sends it while the recorder holds the audio.                                                                                                                                                                                                                                       |
 | Voice: the text does not fit its pin, or its site is full                                                                                               | The whole text goes into a new Rec note, and the pin's entry says "Too long for a pin: the full text is in Rec." until **Dismiss**: a pin that got what fit of it (up to 5000 code points), or none of it on a full site.                                                                                                                                                                  |
 | Voice: the pin is deleted while its text is transcribed                                                                                                 | The text goes into the deleted pin, which stays deleted; once the pin is gone (its add undone, the bin emptied), into a new Rec note.                                                                                                                                                                                                                                                      |
 | Voice: a second dictation into a pin that is transcribed                                                                                                | Known limit: prevented in the popover only (the mic and `Space` are off while it is transcribed).                                                                                                                                                                                                                                                                                          |

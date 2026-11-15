@@ -101,9 +101,17 @@ export function createNotes(now = () => new Date().toISOString(), clock = () => 
       })
     },
 
-    /** The transcript arrived; false when the note was deleted meanwhile. */
-    fill(id: string, text: string): Promise<boolean> {
-      return change(id, (note) => ({ id: note.id, text, createdAt: note.createdAt }))
+    /**
+     * The transcript arrived, `uncorrected` when its correction failed; false when the note was
+     * deleted meanwhile.
+     */
+    fill(id: string, text: string, uncorrected = false): Promise<boolean> {
+      return change(id, (note) => ({
+        id: note.id,
+        text,
+        createdAt: note.createdAt,
+        ...(uncorrected && { uncorrected }),
+      }))
     },
 
     /** Transcribing again, or failed. */

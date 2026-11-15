@@ -5,9 +5,15 @@ import { YIELD_WAIT } from '@/lib/background/voice'
 import { addAnnotation, emptyCollection } from '@/lib/collection/ops'
 import { collectionKey, loadSite } from '@/lib/collection/store'
 import { NOTES_KEY } from '@/lib/notes/model'
+import { loadArchive } from '@/lib/voice/archive'
 import { jobsKey } from '@/lib/voice/jobs'
 import { deleteKey, storeKey } from '@/lib/voice/key'
-import { DEFAULT_MODEL, VOICE_KEY } from '@/lib/voice/settings'
+import {
+  DEFAULT_CORRECT_MODEL,
+  DEFAULT_MODEL,
+  DEFAULT_PROMPT,
+  VOICE_KEY,
+} from '@/lib/voice/settings'
 import { elementInput } from './helpers/collection'
 import { fakeChrome, send, stored } from './helpers/background'
 import {
@@ -23,7 +29,8 @@ const KEY = 'sk-or-v1-' + '0a1b'.repeat(16)
 const OTHER_KEY = 'sk-or-v1-' + '9f8e'.repeat(16)
 const SITE = 'http://localhost:3000'
 const PAGE = `${SITE}/settings`
-const REQUEST = { key: KEY, model: DEFAULT_MODEL, language: 'auto' }
+const CORRECT = { model: DEFAULT_CORRECT_MODEL, prompt: DEFAULT_PROMPT }
+const REQUEST = { key: KEY, model: DEFAULT_MODEL, language: 'auto', correct: CORRECT }
 
 /** Lets pending work settle: IndexedDB's tasks run on real setImmediate, timers are fake. */
 async function flush() {
@@ -168,10 +175,29 @@ describe('background: dictation', () => {
       expect(recorder.posted.at(-1)).toEqual({
         type: 'stop',
         job: expect.any(String),
-        request: { key: OTHER_KEY, model: 'c/d', language: 'fr' },
+        request: { key: OTHER_KEY, model: 'c/d', language: 'fr', correct: CORRECT },
       })
       expect(client.posted.at(-1)).toEqual({ state: 'handed', to: { pin: 'd1' } })
       expect(await stored(jobsKey(SITE))).toEqual({ d1: { state: 'transcribing' } })
+    })
+
+    it('asks for the correction Settings has, and for none while it is off', async () => {
+      await fakeBrowser.storage.local.set({
+        [VOICE_KEY]: { correctModel: 'e/f', correctPrompt: 'Fix.\n- Vue' },
+      })
+      const first = await started()
+      first.client.receive({ type: 'stop', keep: { pin: 'd1' } })
+      await flush()
+      expect(first.recorder.posted.at(-1)).toMatchObject({
+        request: { correct: { model: 'e/f', prompt: 'Fix.\n- Vue' } },
+      })
+      await fakeBrowser.storage.local.set({ [VOICE_KEY]: { correct: false } })
+      first.client.receive({ type: 'start' })
+      await flush()
+      first.client.receive({ type: 'stop', keep: { pin: 'd1' } })
+      await flush()
+      const { request } = first.recorder.posted.at(-1) as { request: object }
+      expect(request).toEqual({ key: KEY, model: DEFAULT_MODEL, language: 'auto' })
     })
 
     it('fills its text into the pin, also after the port went', async () => {
@@ -391,6 +417,97 @@ describe('background: dictation', () => {
       await flush()
       expect(((await stored(NOTES_KEY)) as { items: unknown[] }).items).toEqual([
         { id, text: 'Hello there.', createdAt: expect.any(String) },
+      ])
+    })
+
+    it('keeps every text in the archive, whatever becomes of its note or pin', async () => {
+      const { client, recorder } = await started(panel())
+      client.receive({ type: 'stop', keep: { note: true } })
+      await flush()
+      recorder.receive({
+        job: lastJob(recorder),
+        state: 'done',
+        text: 'Use Tailwind.',
+        cut: false,
+        raw: 'Use tail wind.',
+        ms: 2400,
+        kept: true,
+      })
+      await flush()
+      const kept = lastJob(recorder)
+      const id = ((await stored(NOTES_KEY)) as { items: { id: string }[] }).items[0]?.id
+      await send({ type: 'note:delete', id }, panelSender())
+      // A pin's dictation too, with its site; this pin is gone, so the text became a note.
+      const page = await started()
+      page.client.receive({ type: 'stop', keep: { pin: 'gone' } })
+      await flush()
+      page.recorder.receive({
+        job: lastJob(page.recorder),
+        state: 'done',
+        text: 'As it came.',
+        cut: false,
+        uncorrected: true,
+      })
+      await flush()
+      expect(await loadArchive()).toEqual([
+        {
+          at: expect.any(String),
+          kind: 'note',
+          text: 'Use Tailwind.',
+          raw: 'Use tail wind.',
+          ms: 2400,
+          model: DEFAULT_MODEL,
+          language: 'auto',
+          correctModel: DEFAULT_CORRECT_MODEL,
+          // Its recording lies in the archive under the job's id.
+          audio: kept,
+        },
+        {
+          at: expect.any(String),
+          kind: 'pin',
+          site: SITE,
+          text: 'As it came.',
+          uncorrected: true,
+          model: DEFAULT_MODEL,
+          language: 'auto',
+          correctModel: DEFAULT_CORRECT_MODEL,
+        },
+      ])
+    })
+
+    it('keeps nothing of a dictation that failed', async () => {
+      const { client, recorder } = await started(panel())
+      client.receive({ type: 'stop', keep: { note: true } })
+      await flush()
+      recorder.receive({
+        job: lastJob(recorder),
+        state: 'failed',
+        error: 'no-speech',
+        retry: false,
+      })
+      await flush()
+      expect(await loadArchive()).toEqual([])
+    })
+
+    it('marks a note whose correction failed', async () => {
+      const { client, recorder } = await started(panel())
+      client.receive({ type: 'stop', keep: { note: true } })
+      await flush()
+      recorder.receive({
+        job: lastJob(recorder),
+        state: 'done',
+        text: 'As it came.',
+        cut: false,
+        uncorrected: true,
+      })
+      await flush()
+      expect(((await stored(NOTES_KEY)) as { items: unknown[] }).items).toEqual([
+        {
+          id: expect.any(String),
+          text: 'As it came.',
+          createdAt: expect.any(String),
+          uncorrected: true,
+        },
       ])
     })
 

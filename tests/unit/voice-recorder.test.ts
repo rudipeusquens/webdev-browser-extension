@@ -7,7 +7,7 @@ import {
   type MediaRecorderLike,
   type RecorderDeps,
 } from '@/lib/voice/recorder'
-import { HOLD_BYTES, HOLD_TIME } from '@/lib/voice/recorder-jobs'
+import { HOLD_BYTES, HOLD_TIME, SILENT_PEAK } from '@/lib/voice/recorder-jobs'
 
 const REQUEST: TranscribeRequest = { key: 'test-key-1', model: 'a/b', language: 'auto' }
 const LIMIT = 300_000
@@ -56,9 +56,13 @@ function setup(overrides: Partial<RecorderDeps> = {}) {
   const emitted: RecorderMessage[] = []
   const transcribe = vi.fn<RecorderDeps['transcribe']>(async () => 'Make it wider.')
   /** The microphone's level the monitor reports: speech unless a test makes it quiet. */
-  const level = { now: 0.5, stopped: 0 }
+  const level = { now: 0.5, stopped: 0, peak: 0.5 }
   const deps: RecorderDeps = {
-    monitor: () => ({ level: () => level.now, stop: () => void level.stopped++ }),
+    monitor: () => ({
+      level: () => level.now,
+      peak: () => level.peak,
+      stop: () => void level.stopped++,
+    }),
     permission: vi.fn(async () => 'granted' as PermissionState),
     getUserMedia: vi.fn(async () => stream),
     record: () => {
@@ -67,6 +71,7 @@ function setup(overrides: Partial<RecorderDeps> = {}) {
       return m
     },
     transcribe,
+    correct: vi.fn<RecorderDeps['correct']>(async (transcript) => `${transcript} (corrected)`),
     emit: (m) => emitted.push(m),
     ...overrides,
   }
@@ -107,7 +112,7 @@ describe('the recording', () => {
     expect(timeout).toBe(timeoutFor(0))
     // The background took the recording at its stop: its end says nothing.
     expect(r.states()).toEqual(['starting', 'recording', 'j1:transcribing', 'j1:done'])
-    expect(r.last()).toEqual({ job: 'j1', state: 'done', text: 'Make it wider.', cut: false })
+    expect(r.last()).toMatchObject({ job: 'j1', state: 'done', text: 'Make it wider.', cut: false })
   })
 
   it('pauses at the limit and asks; resumed, it pauses again a whole limit later', async () => {
@@ -152,7 +157,7 @@ describe('the recording', () => {
     expect(await text(transcribe.mock.calls[1]?.[0])).toBe('two end')
     expect(transcribe.mock.calls[0]?.[3]).toBe(timeoutFor(60_000))
     expect(transcribe.mock.calls[1]?.[3]).toBe(timeoutFor(30_000))
-    expect(r.last()).toEqual({
+    expect(r.last()).toMatchObject({
       job: 'j1',
       state: 'done',
       text: 'First part. Second part.',
@@ -172,7 +177,234 @@ describe('the recording', () => {
     await flush()
     await r.stop('j1')
     await flush()
-    expect(r.last()).toEqual({ job: 'j1', state: 'done', text: 'Spoken.', cut: false })
+    expect(r.last()).toMatchObject({ job: 'j1', state: 'done', text: 'Spoken.', cut: false })
+  })
+
+  it('says how long the recording was, and the transcript before its correction', async () => {
+    const r = setup()
+    await r.start(60_000)
+    await vi.advanceTimersByTimeAsync(60_000)
+    r.recorder.command({ type: 'resume' })
+    await vi.advanceTimersByTimeAsync(1)
+    await vi.advanceTimersByTimeAsync(30_000)
+    await r.stop('j1', { ...REQUEST, correct: { model: 'c/d', prompt: 'Fix.' } })
+    await flush()
+    expect(r.last()).toEqual({
+      job: 'j1',
+      state: 'done',
+      text: 'Make it wider. Make it wider. (corrected)',
+      cut: false,
+      raw: 'Make it wider. Make it wider.',
+      ms: 90_000,
+    })
+    // A correction that changed nothing, and no correction, name no other transcript.
+    const same = setup({ correct: vi.fn(async (transcript: string) => transcript) })
+    await same.start()
+    await same.stop('j1', { ...REQUEST, correct: { model: 'c/d', prompt: 'Fix.' } })
+    expect(same.last()).toEqual({
+      job: 'j1',
+      state: 'done',
+      text: 'Make it wider.',
+      cut: false,
+      ms: 0,
+    })
+  })
+
+  it('keeps a transcribed recording for the archive before it says done, and none that failed', async () => {
+    const keep = vi.fn<NonNullable<RecorderDeps['keep']>>(async () => undefined)
+    const r = setup({ keep })
+    await r.start()
+    r.media[0]?.chunk('one ')
+    await r.stop('j1')
+    expect(keep).toHaveBeenCalledTimes(1)
+    expect(keep.mock.calls[0]?.[0]).toBe('j1')
+    expect(await text(keep.mock.calls[0]?.[1][0]?.audio)).toBe('one end')
+    expect(r.last()).toMatchObject({ job: 'j1', state: 'done', kept: true })
+
+    // The archive refuses: the text still arrives, and names no recording.
+    const full = setup({ keep: vi.fn(async () => Promise.reject(new Error('quota'))) })
+    await full.start()
+    await full.stop('j1')
+    expect(full.last()).toMatchObject({ job: 'j1', state: 'done', text: 'Make it wider.' })
+    expect(full.last()).not.toHaveProperty('kept')
+
+    const failing = setup({
+      keep,
+      transcribe: vi.fn(async () => Promise.reject(new VoiceFailure('offline'))),
+    })
+    await failing.start()
+    await failing.stop('j2')
+    expect(keep).toHaveBeenCalledTimes(1)
+  })
+
+  describe('with a correction', () => {
+    const CORRECTED: TranscribeRequest = {
+      ...REQUEST,
+      correct: { model: 'c/d', prompt: 'Fix.' },
+    }
+
+    it('corrects the whole transcript once, after every part is transcribed', async () => {
+      const transcribe = vi
+        .fn<RecorderDeps['transcribe']>()
+        .mockResolvedValueOnce('First part.')
+        .mockResolvedValueOnce('Second part.')
+      const r = setup({ transcribe })
+      await r.start(10_000)
+      await vi.advanceTimersByTimeAsync(10_000)
+      r.recorder.command({ type: 'resume' })
+      // The stretch the limit ended hands over its last chunk first.
+      await vi.advanceTimersByTimeAsync(1)
+      await r.stop('j1', CORRECTED)
+      await flush()
+      expect(r.deps.correct).toHaveBeenCalledTimes(1)
+      const [transcript, request, signal] = vi.mocked(r.deps.correct).mock.calls[0] ?? []
+      expect(transcript).toBe('First part. Second part.')
+      expect(request).toEqual(CORRECTED)
+      expect(signal).toBeInstanceOf(AbortSignal)
+      expect(r.last()).toMatchObject({
+        job: 'j1',
+        state: 'done',
+        text: 'First part. Second part. (corrected)',
+        cut: false,
+      })
+    })
+
+    it('asks for none when the request names none', async () => {
+      const r = setup()
+      await r.start()
+      await r.stop('j1')
+      expect(r.deps.correct).not.toHaveBeenCalled()
+      expect(r.last()).toMatchObject({
+        job: 'j1',
+        state: 'done',
+        text: 'Make it wider.',
+        cut: false,
+      })
+    })
+
+    it('keeps the transcript as it came when the correction fails, and says so', async () => {
+      const r = setup({
+        correct: vi.fn(async () => {
+          throw new VoiceFailure('timeout')
+        }),
+      })
+      await r.start()
+      await r.stop('j1', CORRECTED)
+      expect(r.last()).toMatchObject({
+        job: 'j1',
+        state: 'done',
+        text: 'Make it wider.',
+        cut: false,
+        uncorrected: true,
+      })
+    })
+
+    it('corrects what fits a pin of a transcript that is too long, and cuts the answer too', async () => {
+      const long = 'x'.repeat(20_500)
+      const r = setup({
+        transcribe: vi.fn(async () => long),
+        correct: vi.fn(async (transcript: string) => `${transcript}yy`),
+      })
+      await r.start()
+      await r.stop('j1', CORRECTED)
+      expect(vi.mocked(r.deps.correct).mock.calls[0]?.[0]).toHaveLength(20_000)
+      const done = r.last() as { text: string; cut: boolean }
+      expect(done.text).toHaveLength(20_000)
+      expect(done.cut).toBe(true)
+    })
+
+    it('says nothing of a job dropped while it is corrected', async () => {
+      let abort: AbortSignal | undefined
+      const r = setup({
+        correct: vi.fn(
+          (_: string, __: TranscribeRequest, signal: AbortSignal) =>
+            new Promise<string>((_resolve, reject) => {
+              abort = signal
+              signal.addEventListener('abort', () => reject(signal.reason))
+            }),
+        ),
+      })
+      await r.start()
+      await r.stop('j1', CORRECTED)
+      r.recorder.command({ type: 'drop', job: 'j1' })
+      await flush()
+      expect(abort?.aborted).toBe(true)
+      expect(r.states()).toEqual(['starting', 'recording', 'j1:transcribing'])
+    })
+  })
+
+  describe('without any sound', () => {
+    const SILENT = { job: 'j1', state: 'failed', error: 'silent', retry: true }
+
+    it('sends nothing and says so; Retry sends the recording anyway', async () => {
+      const r = setup()
+      r.level.peak = SILENT_PEAK / 2
+      await r.start()
+      r.media[0]?.chunk('one ')
+      await r.stop('j1')
+      expect(r.transcribe).not.toHaveBeenCalled()
+      expect(r.states()).toEqual(['starting', 'recording', 'j1:failed'])
+      expect(r.last()).toEqual(SILENT)
+      expect(r.track.stopped).toBe(true)
+      r.recorder.command({ type: 'retry', job: 'j1', request: REQUEST })
+      await flush()
+      expect(r.transcribe).toHaveBeenCalledTimes(1)
+      expect(await text(r.transcribe.mock.calls[0]?.[0])).toBe('one end')
+      expect(r.last()).toMatchObject({
+        job: 'j1',
+        state: 'done',
+        text: 'Make it wider.',
+        cut: false,
+      })
+    })
+
+    it('gives up its Retry after a while, like every held recording', async () => {
+      const r = setup()
+      r.level.peak = 0
+      await r.start()
+      await r.stop('j1')
+      await vi.advanceTimersByTimeAsync(HOLD_TIME)
+      expect(r.last()).toEqual({ ...SILENT, retry: false })
+    })
+
+    it('sends a recording with the faintest sound, and one whose level is unknown', async () => {
+      const faint = setup()
+      faint.level.peak = SILENT_PEAK
+      await faint.start()
+      await faint.stop('j1')
+      expect(faint.transcribe).toHaveBeenCalledTimes(1)
+
+      const unknown = setup({ monitor: () => ({ level: () => 0, stop: () => undefined }) })
+      await unknown.start()
+      await unknown.stop('j1')
+      expect(unknown.transcribe).toHaveBeenCalledTimes(1)
+
+      const none = setup({ monitor: undefined })
+      await none.start()
+      await none.stop('j1')
+      expect(none.transcribe).toHaveBeenCalledTimes(1)
+    })
+
+    it('leaves out the stretch without sound when another has some', async () => {
+      const r = setup()
+      await r.start(10_000)
+      r.media[0]?.chunk('spoken ')
+      await vi.advanceTimersByTimeAsync(10_000)
+      r.recorder.command({ type: 'resume' })
+      await vi.advanceTimersByTimeAsync(1)
+      r.level.peak = 0
+      r.media[1]?.chunk('nothing ')
+      await r.stop('j1')
+      await flush()
+      expect(r.transcribe).toHaveBeenCalledTimes(1)
+      expect(await text(r.transcribe.mock.calls[0]?.[0])).toBe('spoken end')
+      expect(r.last()).toMatchObject({
+        job: 'j1',
+        state: 'done',
+        text: 'Make it wider.',
+        cut: false,
+      })
+    })
   })
 
   it('sends a paused recording when stopped, with a timeout for its length', async () => {
@@ -313,7 +545,7 @@ describe('the recording', () => {
     await r.stop('j1')
     await flush()
     expect(transcribe).toHaveBeenCalledTimes(2)
-    expect(r.last()).toEqual({
+    expect(r.last()).toMatchObject({
       job: 'j1',
       state: 'done',
       text: 'First part. Second part.',
@@ -425,7 +657,7 @@ describe('the jobs', () => {
     answers[1]?.('Second.')
     answers[0]?.('First.')
     await flush()
-    expect(r.emitted.filter((m) => 'job' in m && m.state === 'done')).toEqual([
+    expect(r.emitted.filter((m) => 'job' in m && m.state === 'done')).toMatchObject([
       { job: 'j2', state: 'done', text: 'Second.', cut: false },
       { job: 'j1', state: 'done', text: 'First.', cut: false },
     ])
@@ -456,7 +688,7 @@ describe('the jobs', () => {
     expect(transcribe).toHaveBeenCalledTimes(2)
     expect(await text(transcribe.mock.calls[1]?.[0])).toBe('voice end')
     expect(transcribe.mock.calls[1]?.[1]).toEqual(fixed)
-    expect(r.last()).toEqual({ job: 'j1', state: 'done', text: 'Second try.', cut: false })
+    expect(r.last()).toMatchObject({ job: 'j1', state: 'done', text: 'Second try.', cut: false })
     // Done: nothing is left to retry.
     r.recorder.command({ type: 'retry', job: 'j1', request: fixed })
     await flush()

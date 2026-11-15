@@ -416,10 +416,11 @@ describe('dictating a comment', () => {
     await panel.select('[data-testid="voice-model"]', 'openai/whisper-large-v3-turbo')
     await panel.select('[data-testid="voice-limit"]', '600000')
     await sleep(300)
-    expect((await stored()).voice).toEqual({
+    expect((await stored()).voice).toMatchObject({
       model: 'openai/whisper-large-v3-turbo',
       language: 'de',
       limit: 600_000,
+      correct: true,
     })
 
     await s.page.bringToFront()

@@ -24,6 +24,8 @@ describe('the overlay key guard', () => {
     ['imports the key module', "export { loadKey } from '@/lib/voice/key'"],
     ['imports it relatively', "import { loadKey } from '../../lib/voice/key'\nvoid loadKey"],
     ['imports it with its extension', "export { loadKey } from '@/lib/voice/key.ts'"],
+    ['imports the archive', "export { loadArchive } from '@/lib/voice/archive'"],
+    ['imports it relatively too', "import { x } from '../../lib/voice/archive.ts'\nvoid x"],
   ])(
     'fails when the overlay %s',
     async (_, code) => {

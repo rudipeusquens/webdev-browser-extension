@@ -1,6 +1,8 @@
 // The jobs of the offscreen recorder (recorder.ts, spec section 5): each stopped recording is
-// transcribed here, its parts one after another, while the next recording may already run. A
-// failed job keeps its audio for Retry, for a while.
+// transcribed here, its parts one after another, and its transcript corrected by a language
+// model where Settings asks for it, while the next recording may already run. A
+// recording without any sound is not sent (a muted microphone costs no request). A failed job
+// keeps its audio for Retry, for a while.
 
 import { type TranscribeRequest, timeoutFor, VoiceFailure } from './openrouter'
 import { type JobEvent, MAX_TEXT, type VoiceError } from './protocol'
@@ -12,6 +14,10 @@ export interface JobDeps {
     signal: AbortSignal,
     timeout: number,
   ): Promise<string>
+  /** The transcript corrected, as the request's `correct` asks; it throws when it cannot. */
+  correct(text: string, request: TranscribeRequest, signal: AbortSignal): Promise<string>
+  /** Keeps a transcribed recording in the archive under its job's id; without it, none is. */
+  keep?(id: string, segments: Segment[]): Promise<void>
   emit(message: JobEvent): void
 }
 
@@ -34,7 +40,17 @@ function cut(text: string, max: number): { text: string; cut: boolean } {
 export interface Segment {
   audio: Blob
   ms: number
+  /** The loudest sample while it was recorded, 0 to 1; unknown without a level monitor. */
+  peak?: number
 }
+
+/**
+ * A part whose loudest sample stayed below this had no sound in it: a muted microphone gives
+ * exact silence, an open one in a quiet room well above it. Speech peaks beyond 0.1.
+ */
+export const SILENT_PEAK = 0.01
+
+const isSilent = (segment: Segment) => segment.peak !== undefined && segment.peak < SILENT_PEAK
 
 interface Job {
   segments: Segment[]
@@ -49,10 +65,15 @@ export function createJobs(deps: JobDeps) {
   const jobs = new Map<string, Job>()
   let expiry: ReturnType<typeof setTimeout> | undefined
 
-  /** The job's stretches one after another; silence in one leaves it out. */
+  /**
+   * The job's stretches one after another; silence in one leaves it out, and one without any
+   * sound is not sent while another has some (all of them are when Retry asks for a recording
+   * without any).
+   */
   async function transcribeAll(job: Job, request: TranscribeRequest, signal: AbortSignal) {
     const texts: string[] = []
-    for (const { audio, ms } of job.segments) {
+    const heard = job.segments.filter((segment) => !isSilent(segment))
+    for (const { audio, ms } of heard.length > 0 ? heard : job.segments) {
       try {
         texts.push(await deps.transcribe(audio, request, signal, timeoutFor(ms)))
       } catch (error) {
@@ -73,10 +94,41 @@ export function createJobs(deps: JobDeps) {
     deps.emit({ job: id, state: 'transcribing' })
     const current = () => jobs.get(id) === job && job.controller === controller
     try {
-      const answer = await transcribeAll(job, request, controller.signal)
+      const transcript = cut(await transcribeAll(job, request, controller.signal), MAX_TEXT)
+      if (!current()) return
+      let answer = transcript
+      let uncorrected = false
+      if (request.correct) {
+        // A correction that fails loses nothing: the transcript is kept as it came.
+        try {
+          const corrected = cut(
+            await deps.correct(transcript.text, request, controller.signal),
+            MAX_TEXT,
+          )
+          answer = { text: corrected.text, cut: transcript.cut || corrected.cut }
+        } catch {
+          uncorrected = true
+        }
+        if (!current()) return
+      }
+      // Before the job says it is done: the document may close right after.
+      const kept =
+        deps.keep !== undefined &&
+        (await deps.keep(id, job.segments).then(
+          () => true,
+          () => false,
+        ))
       if (!current()) return
       jobs.delete(id)
-      deps.emit({ job: id, state: 'done', ...cut(answer, MAX_TEXT) })
+      deps.emit({
+        job: id,
+        state: 'done',
+        ...answer,
+        ...(kept && { kept }),
+        ...(uncorrected && { uncorrected }),
+        ...(answer.text !== transcript.text && { raw: transcript.text }),
+        ms: Math.round(job.segments.reduce((sum, segment) => sum + segment.ms, 0)),
+      })
     } catch (error) {
       if (!current()) return
       job.controller = undefined
@@ -125,8 +177,17 @@ export function createJobs(deps: JobDeps) {
   }
 
   return {
-    /** A stopped recording becomes the job `id`, transcribed now. */
+    /**
+     * A stopped recording becomes the job `id`, transcribed now. One without any sound is
+     * held instead, and nothing is sent: Retry sends it anyway.
+     */
     add(id: string, segments: Segment[], request: TranscribeRequest) {
+      if (segments.length > 0 && segments.every(isSilent)) {
+        jobs.set(id, { segments, held: { at: Date.now(), error: 'silent' } })
+        failed(id, 'silent', undefined, true)
+        keepHeld()
+        return
+      }
       jobs.set(id, { segments })
       void send(id, request)
     },

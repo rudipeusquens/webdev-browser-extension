@@ -29,6 +29,7 @@ import {
 } from '@/lib/messages'
 import { isSiteOrigin, originPattern } from '@/lib/settings'
 import { VIEW_KEY } from '@/lib/view'
+import { archiveDictation } from '@/lib/voice/archive'
 import { loadKey } from '@/lib/voice/key'
 
 /** A refusal: its shape is the same in every reply type of the background. */
@@ -42,7 +43,12 @@ export default defineBackground(() => {
   void migrate()
   const anchors = createAnchorStore()
   const sites = createSites()
-  const voice = createVoice({ fill, notes: createNotes(), dictations: createDictations() })
+  const voice = createVoice({
+    fill,
+    notes: createNotes(),
+    dictations: createDictations(),
+    archive: archiveDictation,
+  })
   // Queued before any dictation: what an earlier background left transcribing is lost.
   void voice.recover()
 

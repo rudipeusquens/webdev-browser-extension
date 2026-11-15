@@ -17,10 +17,15 @@ export interface MediaRecorderLike {
   onstop: ((e: Event) => void) | null
 }
 
-/** The microphone's level, for the pauses where a long recording is cut into parts. */
+/**
+ * The microphone's level: for the pauses where a long recording is cut into parts, and to tell
+ * a recording without any sound, which is not sent.
+ */
 export interface LevelMonitor {
   /** RMS of the last moment, 0 to 1. */
   level(): number
+  /** The loudest sample since the last call, 0 to 1; without it, every recording is sent. */
+  peak?(): number
   stop(): void
 }
 
@@ -208,7 +213,13 @@ export function createRecorder(deps: RecorderDeps) {
   /** A part handed over its last chunk: cut, at the limit, at a stop, or by itself. */
   function partEnded(recording: MediaRecorderLike, slot: number, chunks: Blob[], from: number) {
     const end = cutAt.get(recording) ?? recorded()
-    parts[slot] = { audio: new Blob(chunks, { type: 'audio/webm' }), ms: Math.max(0, end - from) }
+    // Read before the microphone is released (a part that ended by itself).
+    const peak = monitor?.peak?.()
+    parts[slot] = {
+      audio: new Blob(chunks, { type: 'audio/webm' }),
+      ms: Math.max(0, end - from),
+      ...(peak !== undefined && { peak }),
+    }
     if (media === recording) {
       media = undefined
       if (phase === 'paused') {

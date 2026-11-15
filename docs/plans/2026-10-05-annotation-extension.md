@@ -4754,3 +4754,94 @@ belong to none (the owner deleted one on a tab without the overlay).
       without its text keeps no step, the limits; `note:undo` and `note:redo` from the panel
       only; the site's steps carry when they were done, and the panel's Undo and Redo take
       the newer of both histories, also without a site. Then the history.
+
+## Milestone 9c: No request for a recording without sound
+
+A recording made with the microphone muted was sent, and paid for, to come back as "No speech
+detected".
+
+### Task 93: The loudest sample of each part
+
+- Files: `src/lib/voice/{recorder,recorder-jobs,protocol}.ts`,
+  `src/entrypoints/offscreen/main.ts`, `tests/unit/{voice-recorder,voice-openrouter}.test.ts`,
+  `tests/e2e/silence.e2e.test.ts`, the spec (sections 9, 10), `README.md`, `docs/smoke-test.md`
+- [x] Failing tests: a recording whose every part stayed below `SILENT_PEAK` sends nothing
+      and fails with `silent` and Retry, which sends it anyway; the faintest sound, and an
+      unknown level, are sent; a part without sound is left out next to one with some; end to
+      end with a silent file as Chrome's fake microphone. Then the monitor's `peak()` (a second
+      analyser over 0.68 s) and the check where a stopped recording becomes a job.
+
+## Milestone 9d: Transcripts corrected by a language model
+
+The transcription mishears names and technical words. The owner asked for a second step: the
+transcript goes to a small language model through OpenRouter, with instructions from a text
+field in Settings that are written already and take the words the transcription gets wrong.
+
+Decisions made while building, the owner's to change: the correction is **on** by default; a
+failed correction keeps the transcript as it came (a Rec note says so, a pin does not); the
+shadcn-vue CLI could not be installed (pnpm's trust check refused one of its dependencies), so
+`Textarea` is written by hand after the component it would have copied.
+
+### Task 94: The request and its guard
+
+- Files: `src/lib/voice/{openrouter,settings,protocol,recorder-jobs}.ts`,
+  `src/entrypoints/offscreen/main.ts`,
+  `tests/unit/{voice-openrouter,voice-settings,voice-protocol,voice-recorder}.test.ts`,
+  `tests/live/correct.live.test.ts`
+- [x] Failing tests: `correctTranscript` posts the transcript between tags under the
+      instructions, with `data_collection: "deny"`, a timeout and a token limit by its length;
+      it fails for an empty, cut-off, far longer or far shorter answer and for HTTP errors; a
+      job corrects its whole transcript once and keeps it as it came (`uncorrected`) when that
+      fails; the settings default, validate and fall back field by field. Then the request.
+      Live: the default model fixes the listed words and follows no instruction in a
+      transcript.
+
+### Task 95: Settings, the note's mark, end to end
+
+- Files: `src/lib/{messages.ts,notes/model.ts}`, `src/lib/background/{voice,voice-settings,notes}.ts`,
+  `src/components/ui/textarea/`, `src/entrypoints/sidepanel/{VoiceSettings,NoteList}.vue`,
+  `tests/unit/{messages,background-voice,background-voice-settings,sidepanel-voice,sidepanel-rec}.test.ts`,
+  `tests/e2e/{fake-openrouter.ts,rec.e2e.test.ts,voice.e2e.test.ts}`, the spec (sections 4, 8,
+  9, 10), `README.md`, `docs/smoke-test.md`
+- [x] Failing tests: `voice:set` takes the three fields, each alone; the background sends the
+      correction with each job while it is on; the panel's switch, model and instructions with
+      Save and Reset; a note whose correction failed says "not corrected"; end to end with a
+      fake that answers `chat/completions`. Then the settings and the mark.
+
+## Milestone 9e: The archive of the dictations
+
+The owner dictates a lot and deletes notes to keep the list short, but wants to keep
+everything they ever dictated and export it, to look through it a year later.
+
+Decisions: the owner asked for the recordings too (about 14 MB an hour); made while
+building, the owner's to change: the archive has no switch and no limit, and the export is a
+ZIP file written without a library.
+
+### Task 96: The archive
+
+- Files: `src/lib/voice/{archive,protocol,recorder-jobs}.ts`, `src/lib/background/voice.ts`,
+  `src/entrypoints/{background.ts,sidepanel/ArchiveSettings.vue,sidepanel/SettingsView.vue}`,
+  `eslint.config.mjs`,
+  `tests/unit/{voice-archive,sidepanel-archive,background-voice,voice-recorder,voice-protocol,eslint-overlay-key}.test.ts`,
+  `tests/e2e/rec.e2e.test.ts`, the spec (sections 4, 8, 9), `README.md`,
+  `docs/smoke-test.md`, `AGENTS.md`, `docs/images`
+- [x] Failing tests: entries are added, read in order, counted and cleared in a database of
+      their own, and validated on reading; a job's `done` names the transcript before its
+      correction and the recording's length; the background archives every text with where
+      it went and the models, and nothing of a failure; Settings counts, exports a JSON file
+      and deletes after a confirmation; the overlay may not import the module; end to end, a
+      deleted note's text is in the downloaded file. Then the archive.
+
+### Task 97: The recordings
+
+- Files: `src/lib/{zip.ts,voice/archive.ts,voice/protocol.ts,voice/recorder-jobs.ts}`,
+  `src/lib/background/voice.ts`,
+  `src/entrypoints/{offscreen/main.ts,sidepanel/ArchiveSettings.vue}`,
+  `tests/unit/{zip,voice-archive,sidepanel-archive,voice-recorder,voice-protocol,background-voice}.test.ts`,
+  `tests/unit/helpers/unzip.ts`, `tests/e2e/rec.e2e.test.ts`, the spec (sections 4, 9),
+  `README.md`, `docs/smoke-test.md`
+- [x] Failing tests: the recorder keeps a transcribed recording under its job's id before it
+      says done, and none of a failure; the text names it; the export is ZIP entries, each
+      part a file, a new file when one is full, the list in the last; the ZIP writer's CRC and
+      a file the system's `unzip` accepts; end to end, the downloaded file holds a WebM
+      recording. Then the store, the writer and the export.

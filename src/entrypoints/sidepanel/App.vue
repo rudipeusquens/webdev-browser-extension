@@ -435,9 +435,12 @@ function setMode(next: unknown) {
         <h1 data-testid="panel-title" class="font-semibold">
           {{ showSettings ? 'Settings' : 'Edit' }}
         </h1>
-        <!-- In the middle of the row, kept clear of what sits at either side. -->
+        <!--
+          In the middle of the row, kept clear of what sits at either side; above the buttons
+          below, which its action covers (disabled, they would show through it otherwise).
+        -->
         <div
-          class="absolute top-1/2 left-1/2 flex -translate-x-1/2 -translate-y-1/2 justify-center"
+          class="absolute top-1/2 left-1/2 z-30 flex -translate-x-1/2 -translate-y-1/2 justify-center"
           :class="showSettings ? 'w-[calc(100%-10rem)]' : 'w-[calc(100%-14rem)]'"
         >
           <SitePill

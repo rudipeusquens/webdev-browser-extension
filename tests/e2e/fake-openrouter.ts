@@ -1,7 +1,7 @@
 import { createServer, type IncomingMessage } from 'node:http'
 import type { AddressInfo } from 'node:net'
 
-// A local stand-in for OpenRouter's two endpoints (spec section 12): CI never calls the real
+// A local stand-in for OpenRouter's three endpoints (spec section 12): CI never calls the real
 // API. The E2E harness points a copy of the build at it.
 
 export interface SeenRequest {
@@ -35,6 +35,8 @@ async function read(req: IncomingMessage): Promise<string> {
 export async function startFakeOpenRouter() {
   const requests: SeenRequest[] = []
   const answers: Answer[] = []
+  /** What the next corrections answer: a corrected text, or a failure. */
+  const corrections: Answer[] = []
   /** Keys `GET /api/v1/key` calls valid. */
   const validKeys = new Set<string>()
   const server = createServer(async (req, res) => {
@@ -67,6 +69,18 @@ export async function startFakeOpenRouter() {
       if (!res.destroyed) json(answer.status, answer.body)
       return
     }
+    if (path === '/api/v1/chat/completions' && req.method === 'POST') {
+      const answer = corrections.shift()
+      if (answer && answer.status !== 200) return json(answer.status, answer.body)
+      // Without a queued answer, the transcript comes back as it is.
+      const sent = (body as { messages?: { content?: string }[] }).messages?.at(-1)?.content ?? ''
+      const content =
+        (answer?.body as string | undefined) ??
+        sent.replace(/^<transcript>\n/, '').replace(/\n<\/transcript>$/, '')
+      return json(200, {
+        choices: [{ finish_reason: 'stop', message: { role: 'assistant', content } }],
+      })
+    }
     json(404, { error: { message: 'Not found' } })
   })
   await new Promise<void>((done) => server.listen(0, '127.0.0.1', done))
@@ -78,9 +92,15 @@ export async function startFakeOpenRouter() {
     transcriptions: () => requests.filter((r) => r.path === '/api/v1/audio/transcriptions'),
     /** The next transcription answers so. */
     reply: (status: number, body: unknown, delay?: number) => answers.push({ status, body, delay }),
+    corrections: () => requests.filter((r) => r.path === '/api/v1/chat/completions'),
+    /** The next correction answers with this text, or fails with this status. */
+    correct: (text: string) => corrections.push({ status: 200, body: text }),
+    failCorrection: (status: number) =>
+      corrections.push({ status, body: { error: { message: 'No' } } }),
     reset() {
       requests.length = 0
       answers.length = 0
+      corrections.length = 0
       validKeys.clear()
     },
     close: () =>
