@@ -431,8 +431,10 @@ describe('background: dictation', () => {
         cut: false,
         raw: 'Use tail wind.',
         ms: 2400,
+        kept: true,
       })
       await flush()
+      const kept = lastJob(recorder)
       const id = ((await stored(NOTES_KEY)) as { items: { id: string }[] }).items[0]?.id
       await send({ type: 'note:delete', id }, panelSender())
       // A pin's dictation too, with its site; this pin is gone, so the text became a note.
@@ -457,6 +459,8 @@ describe('background: dictation', () => {
           model: DEFAULT_MODEL,
           language: 'auto',
           correctModel: DEFAULT_CORRECT_MODEL,
+          // Its recording lies in the archive under the job's id.
+          audio: kept,
         },
         {
           at: expect.any(String),

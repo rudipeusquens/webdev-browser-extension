@@ -210,6 +210,33 @@ describe('the recording', () => {
     })
   })
 
+  it('keeps a transcribed recording for the archive before it says done, and none that failed', async () => {
+    const keep = vi.fn<NonNullable<RecorderDeps['keep']>>(async () => undefined)
+    const r = setup({ keep })
+    await r.start()
+    r.media[0]?.chunk('one ')
+    await r.stop('j1')
+    expect(keep).toHaveBeenCalledTimes(1)
+    expect(keep.mock.calls[0]?.[0]).toBe('j1')
+    expect(await text(keep.mock.calls[0]?.[1][0]?.audio)).toBe('one end')
+    expect(r.last()).toMatchObject({ job: 'j1', state: 'done', kept: true })
+
+    // The archive refuses: the text still arrives, and names no recording.
+    const full = setup({ keep: vi.fn(async () => Promise.reject(new Error('quota'))) })
+    await full.start()
+    await full.stop('j1')
+    expect(full.last()).toMatchObject({ job: 'j1', state: 'done', text: 'Make it wider.' })
+    expect(full.last()).not.toHaveProperty('kept')
+
+    const failing = setup({
+      keep,
+      transcribe: vi.fn(async () => Promise.reject(new VoiceFailure('offline'))),
+    })
+    await failing.start()
+    await failing.stop('j2')
+    expect(keep).toHaveBeenCalledTimes(1)
+  })
+
   describe('with a correction', () => {
     const CORRECTED: TranscribeRequest = {
       ...REQUEST,

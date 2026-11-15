@@ -323,6 +323,7 @@ export function createVoice(deps: VoiceDeps) {
         model: request.model,
         language: request.language,
         ...(request.correct && { correctModel: request.correct.model }),
+        ...(e.kept && { audio: e.job }),
       })
       // An archive that cannot be written loses this entry only.
       .catch(() => undefined)

@@ -129,8 +129,10 @@ Settings → **Voice**:
       The text comes a moment sooner, as the transcription heard it. Switch it on again;
       **Reset** puts the instructions back.
 - [ ] Settings → **Archive**. → It counts the dictations made so far, also the deleted
-      note's. **Export**. → A file `dictations-<date>.json` is downloaded; it holds each text,
-      when it was made and the transcript before its correction. (Do not attach it anywhere.)
+      note's, and the size of their recordings. **Export**. → A file `dictations-<date>.zip`
+      is downloaded; `dictations.json` in it holds each text, when it was made and the
+      transcript before its correction, and `audio/` each recording, which plays. (Do not
+      attach it anywhere.)
 - [ ] Settings → **Voice** → **Recording limit**: "1 minute". Dictate in a pin for a minute.
       → At 1:00 the popover asks "Paused at 1:00. Keep recording?". **Keep**. → The clock
       goes on, and at 2:00 it asks again. **Stop**. → The popover closes and the text

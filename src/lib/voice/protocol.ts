@@ -143,7 +143,8 @@ export type JobEvent =
   /**
    * `uncorrected`: the correction was asked for and failed; the text is the transcript as it
    * came. `raw`: the transcript as it came, when the correction changed it. `ms`: how long the
-   * recording was. The last two are for the archive.
+   * recording was. `kept`: the recorder put the recording into the archive, under the job's
+   * id. The last three are for the archive.
    */
   | {
       job: string
@@ -153,6 +154,7 @@ export type JobEvent =
       uncorrected?: true
       raw?: string
       ms?: number
+      kept?: true
     }
   | ({ job: string } & Failed)
 
@@ -218,7 +220,8 @@ export function isJobEvent(x: unknown): x is JobEvent {
       return hasKeys(x, ['job', 'state'])
     case 'done':
       return (
-        hasKeys(x, ['job', 'state', 'text', 'cut'], ['uncorrected', 'raw', 'ms']) &&
+        hasKeys(x, ['job', 'state', 'text', 'cut'], ['uncorrected', 'raw', 'ms', 'kept']) &&
+        (x.kept === undefined || x.kept === true) &&
         isText(x.text, MAX_TEXT) &&
         typeof x.cut === 'boolean' &&
         (x.uncorrected === undefined || x.uncorrected === true) &&

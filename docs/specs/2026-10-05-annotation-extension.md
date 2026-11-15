@@ -63,8 +63,9 @@ selector and text) and understands what should change.
    (another pin, the page left, another dictation started, the limit's question left
    unanswered for a minute); `Esc` cancels and sends nothing. A recording that ended by itself
    (the microphone went) is sent on **Retry** only, and dropped otherwise. It goes only to
-   `openrouter.ai`, with `provider.data_collection: "deny"`. Audio is discarded after
-   transcription, a failed one's after at most 10 minutes. No page data is ever attached to
+   `openrouter.ai`, with `provider.data_collection: "deny"`. A transcribed recording stays
+   in this browser only, in the archive (section 9); a failed one's audio is dropped after at
+   most 10 minutes. No page data is ever attached to
    that request. Its transcript goes there once more while **Correct transcripts** is on, to
    the language model that corrects it: the same words, the same key, the same host, the same
    `data_collection: "deny"`, and nothing else with it.
@@ -787,18 +788,26 @@ select-parent), ClickUp and Air comment pins with a side list.
   The voice spike (section 13) compared them on German and English test audio: all four
   transcribe it almost word for word, so the default stays.
 - **Archive:** the panel's list fills up and notes are deleted, but the developer may want
-  everything they ever dictated, to look through it a year later. The background keeps the
-  text of every dictation that was transcribed, whatever becomes of its note or pin, in the
-  extension origin's IndexedDB, database `webdev-browser-extension-archive`, store
-  `dictations` (apart from the key's database; no limit of `chrome.storage` applies, and
-  content scripts cannot open it; the overlay never imports the module, an ESLint rule guards
-  that). An entry: `{ at, kind: 'note' | 'pin', site? (the pin's), text, raw? (the transcript
-as it came, when the correction changed it), uncorrected?, ms? (the recording's length),
-model, language, correctModel? }`. No audio is kept (32 kbit/s is 14 MB an hour), no page
-  data, no key. Settings › **Archive** shows how many there are, **Export** saves all of them
-  as `dictations-<date>.json` (`{ version: 1, exportedAt, dictations }`, through a download
-  link of the panel: no permission, no upload), and **Delete** removes them after a
-  confirmation. An entry that cannot be written is lost; the dictation is not.
+  everything they ever dictated, to look through it a year later. The extension keeps the text
+  and the recording of every dictation that was transcribed, whatever becomes of its note or
+  pin, in the extension origin's IndexedDB, database `webdev-browser-extension-archive` (apart
+  from the key's database; no limit of `chrome.storage` applies, and content scripts cannot
+  open it; the overlay never imports the module, an ESLint rule guards that). Store
+  `dictations`, written by the background: `{ at, kind: 'note' | 'pin', site? (the pin's),
+text, raw? (the transcript as it came, when the correction changed it), uncorrected?, ms?
+(the recording's length), model, language, correctModel?, audio? (the id of its recording) }`.
+  Store `audio`, written by the offscreen recorder, which alone has the recordings, before
+  the job says it is done (the document may close right after): `{ at, parts (the bytes of
+each WebM/Opus part), bytes }` under the job's id; it asks the browser to keep the storage
+  (`navigator.storage.persist()`). 32 kbit/s is about 14 MB an hour. A recording that failed
+  or had no sound is not kept; no page data, no key. Settings › **Archive** shows how many
+  dictations and how much recording there are; **Export** saves all of it as
+  `dictations-<date>.zip`: `dictations.json` (`{ version: 1, exportedAt, dictations }`, each
+  with `audioFiles`) and `audio/<id>-<n>.webm`, stored uncompressed by a small writer of the
+  extension's own (`src/lib/zip.ts`, no ZIP64), through a download link of the panel: no
+  permission, no upload. Recordings beyond 500 MB go into further files (`-2`, `-3`), the list
+  in the last. **Delete** removes texts and recordings after a confirmation. What cannot be
+  written to the archive is lost; the dictation is not.
 - **Language:** `auto` (omit the field) by default, or an ISO-639-1 code.
 - **Correction:** a transcription mishears names and technical words. While **Correct
   transcripts** is on (the default), the recorder sends each job's whole transcript, once every

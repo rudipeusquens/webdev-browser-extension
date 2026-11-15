@@ -4813,8 +4813,9 @@ shadcn-vue CLI could not be installed (pnpm's trust check refused one of its dep
 The owner dictates a lot and deletes notes to keep the list short, but wants to keep
 everything they ever dictated and export it, to look through it a year later.
 
-Decisions made while building, the owner's to change: only text is kept, no audio (14 MB an
-hour, in a browser profile); the archive has no switch and no limit; the export is JSON.
+Decisions: the owner asked for the recordings too (about 14 MB an hour); made while
+building, the owner's to change: the archive has no switch and no limit, and the export is a
+ZIP file written without a library.
 
 ### Task 96: The archive
 
@@ -4830,3 +4831,17 @@ hour, in a browser profile); the archive has no switch and no limit; the export 
       it went and the models, and nothing of a failure; Settings counts, exports a JSON file
       and deletes after a confirmation; the overlay may not import the module; end to end, a
       deleted note's text is in the downloaded file. Then the archive.
+
+### Task 97: The recordings
+
+- Files: `src/lib/{zip.ts,voice/archive.ts,voice/protocol.ts,voice/recorder-jobs.ts}`,
+  `src/lib/background/voice.ts`,
+  `src/entrypoints/{offscreen/main.ts,sidepanel/ArchiveSettings.vue}`,
+  `tests/unit/{zip,voice-archive,sidepanel-archive,voice-recorder,voice-protocol,background-voice}.test.ts`,
+  `tests/unit/helpers/unzip.ts`, `tests/e2e/rec.e2e.test.ts`, the spec (sections 4, 9),
+  `README.md`, `docs/smoke-test.md`
+- [x] Failing tests: the recorder keeps a transcribed recording under its job's id before it
+      says done, and none of a failure; the text names it; the export is ZIP entries, each
+      part a file, a new file when one is full, the list in the last; the ZIP writer's CRC and
+      a file the system's `unzip` accepts; end to end, the downloaded file holds a WebM
+      recording. Then the store, the writer and the export.

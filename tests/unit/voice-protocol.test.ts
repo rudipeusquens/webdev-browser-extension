@@ -63,6 +63,7 @@ describe('the dictation protocol', () => {
     { job: JOB, state: 'done', text: 'x'.repeat(20_000), cut: true },
     { job: JOB, state: 'done', text: 'As it came.', cut: false, uncorrected: true },
     { job: JOB, state: 'done', text: 'Tailwind.', cut: false, raw: 'Tail wind.', ms: 1200 },
+    { job: JOB, state: 'done', text: 'Kept.', cut: false, kept: true },
     { job: JOB, state: 'failed', error: 'rate-limited', retry: true },
     { job: JOB, state: 'failed', error: 'rejected', detail: 'Unknown model', retry: true },
   ])("accepts a job's $state", (event) => {
@@ -76,6 +77,7 @@ describe('the dictation protocol', () => {
     ['an endless text', { job: JOB, state: 'done', text: 'x'.repeat(20_001), cut: true }],
     ['a text that is no string', { job: JOB, state: 'done', text: 42, cut: false }],
     ['a corrected flag', { job: JOB, state: 'done', text: 'a', cut: false, uncorrected: false }],
+    ['a kept flag that is none', { job: JOB, state: 'done', text: 'a', cut: false, kept: 'j1' }],
     ['a negative length', { job: JOB, state: 'done', text: 'a', cut: false, ms: -1 }],
     [
       'an endless raw text',

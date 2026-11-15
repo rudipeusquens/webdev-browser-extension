@@ -232,9 +232,10 @@ The gear in the panel:
   (off by default).
 - **Voice:** the key, the model, the language, the recording limit, the correction with its
   instructions, and the microphone (see Dictation).
-- **Archive:** the text of every dictation is kept in this browser, also after its note or
-  pin is deleted. **Export** saves all of it as a JSON file (when, where it went, the text and
-  the transcript before its correction); the bin deletes it. The recordings are not kept.
+- **Archive:** the text and the recording of every dictation are kept in this browser, also
+  after its note or pin is deleted. **Export** saves all of it as a ZIP file: `dictations.json`
+  (when, where it went, the text and the transcript before its correction) and the recordings
+  as WebM files; the bin deletes it. Recordings take about 14 MB an hour.
 - **Sites:** every site with pins or access, with its number of open pins; **Auto** marks
   the sites where the overlay loads by itself, with **Forget**; **Always enable** makes one
   of the others load by itself.

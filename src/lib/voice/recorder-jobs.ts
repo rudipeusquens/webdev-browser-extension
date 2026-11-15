@@ -16,6 +16,8 @@ export interface JobDeps {
   ): Promise<string>
   /** The transcript corrected, as the request's `correct` asks; it throws when it cannot. */
   correct(text: string, request: TranscribeRequest, signal: AbortSignal): Promise<string>
+  /** Keeps a transcribed recording in the archive under its job's id; without it, none is. */
+  keep?(id: string, segments: Segment[]): Promise<void>
   emit(message: JobEvent): void
 }
 
@@ -109,11 +111,20 @@ export function createJobs(deps: JobDeps) {
         }
         if (!current()) return
       }
+      // Before the job says it is done: the document may close right after.
+      const kept =
+        deps.keep !== undefined &&
+        (await deps.keep(id, job.segments).then(
+          () => true,
+          () => false,
+        ))
+      if (!current()) return
       jobs.delete(id)
       deps.emit({
         job: id,
         state: 'done',
         ...answer,
+        ...(kept && { kept }),
         ...(uncorrected && { uncorrected }),
         ...(answer.text !== transcript.text && { raw: transcript.text }),
         ms: Math.round(job.segments.reduce((sum, segment) => sum + segment.ms, 0)),

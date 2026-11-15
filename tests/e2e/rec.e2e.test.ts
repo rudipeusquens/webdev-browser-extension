@@ -2,6 +2,7 @@ import { mkdtemp, readdir, readFile, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import type { Page } from 'puppeteer'
+import { unzip } from '../unit/helpers/unzip'
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest'
 import { FAKE_TEXT, startFakeOpenRouter } from './fake-openrouter'
 import {
@@ -164,7 +165,7 @@ describe('Rec in the panel', () => {
     }
   })
 
-  it('keeps every text in the archive, also of a deleted note, and exports it as a file', async () => {
+  it('keeps every text and recording in the archive, also of a deleted note, and exports them as a file', async () => {
     const dir = await mkdtemp(join(tmpdir(), 'webdev-archive-'))
     try {
       fake.correct('Make the Button wider.')
@@ -181,16 +182,26 @@ describe('Rec in the panel', () => {
       expect(before).toBeGreaterThanOrEqual(1)
       await panel.click('[data-testid="archive-export"]')
       let files: string[] = []
-      for (let i = 0; i < 50 && !files.some((f) => f.endsWith('.json')); i++) {
+      for (let i = 0; i < 50 && !files.some((f) => f.endsWith('.zip')); i++) {
         await sleep(100)
         files = await readdir(dir)
       }
-      const file = files.find((f) => /^dictations-\d{4}-\d{2}-\d{2}\.json$/.test(f))
+      const file = files.find((f) => /^dictations-\d{4}-\d{2}-\d{2}\.zip$/.test(f))
       expect(file).toBeDefined()
-      const exported = JSON.parse(await readFile(join(dir, file ?? ''), 'utf8')) as {
+      const zipped = unzip(new Uint8Array(await readFile(join(dir, file ?? ''))))
+      const exported = JSON.parse(new TextDecoder().decode(zipped.get('dictations.json'))) as {
         version: number
-        dictations: Record<string, unknown>[]
+        dictations: { audioFiles?: string[] }[]
       }
+      // The recording is in the file: WebM, as the microphone gave it.
+      const [audio] = exported.dictations.at(-1)?.audioFiles ?? []
+      expect(audio).toMatch(/^audio\/.+-1\.webm$/)
+      const recording = zipped.get(audio ?? '')
+      expect(recording?.length).toBeGreaterThan(100)
+      expect([...(recording?.subarray(0, 4) ?? [])]).toEqual([0x1a, 0x45, 0xdf, 0xa3])
+      expect(await panel.$eval('[data-testid="archive-size"]', (el) => el.textContent)).toContain(
+        'of recordings',
+      )
       expect(exported.version).toBe(1)
       expect(exported.dictations).toHaveLength(before)
       expect(exported.dictations.at(-1)).toMatchObject({

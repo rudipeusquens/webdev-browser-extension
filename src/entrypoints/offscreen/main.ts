@@ -4,6 +4,7 @@
 // everything in it.
 
 import { browser } from 'wxt/browser'
+import { archiveAudio } from '@/lib/voice/archive'
 import { correctTranscript, transcribe, VoiceFailure } from '@/lib/voice/openrouter'
 import { isRecorderCommand, RECORDER_PORT, type RecorderMessage } from '@/lib/voice/protocol'
 import { createMediaRecorder, createRecorder, type LevelMonitor } from '@/lib/voice/recorder'
@@ -81,6 +82,14 @@ const recorder = createRecorder({
   correct: (text, request, signal) => {
     if (!request.correct) throw new VoiceFailure('failed')
     return correctTranscript(text, request.key, request.correct, { signal })
+  },
+  keep: async (id, segments) => {
+    // The archive is meant to last: ask the browser not to clear it when space runs low.
+    void navigator.storage?.persist?.().catch(() => false)
+    await archiveAudio(
+      id,
+      await Promise.all(segments.map((segment) => segment.audio.arrayBuffer())),
+    )
   },
   emit: post,
 })
