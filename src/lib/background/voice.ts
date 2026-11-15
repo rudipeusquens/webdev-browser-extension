@@ -6,12 +6,14 @@
 // corrected) in the background, its text goes into its pin
 // (`fill`) or its Rec note, whatever becomes of the port that started it, and what a pin
 // cannot hold goes into a note. A port that closes while it records ends that recording. The
-// document closes once no recording runs and no job is left.
+// document closes once no recording runs and no job is left. Every text that arrives is also
+// kept in the archive.
 
 import { browser, type Browser } from 'wxt/browser'
 import type { Reply } from '../messages'
 import { newId } from '../ids'
 import { loadKey } from '../voice/key'
+import type { ArchivedDictation } from '../voice/archive'
 import type { JobView } from '../voice/jobs'
 import type { TranscribeRequest } from '../voice/openrouter'
 import {
@@ -50,6 +52,8 @@ export interface VoiceDeps {
   fill(site: string, id: string, text: string): Promise<Filled>
   notes: NotesWriter
   dictations: DictationsWriter
+  /** Keeps a dictation's text for good (src/lib/voice/archive.ts). */
+  archive(entry: ArchivedDictation): Promise<void>
 }
 
 interface Session {
@@ -76,6 +80,8 @@ interface Job {
   target: Target
   /** Failed, with the audio held for Retry. */
   held: boolean
+  /** What it was last sent with: the archive names the models. */
+  request: TranscribeRequest
 }
 
 /** Whether `message` went out; false when that side is gone. */
@@ -282,6 +288,7 @@ export function createVoice(deps: VoiceDeps) {
       }
       jobs.delete(e.job)
       const { target } = job
+      void keep(job, e)
       if (target.kind === 'note') {
         await deps.notes.fill(target.id, e.text, e.uncorrected)
       } else {
@@ -298,6 +305,28 @@ export function createVoice(deps: VoiceDeps) {
     } finally {
       closeIfIdle()
     }
+  }
+
+  /** The dictation's text goes into the archive, whatever becomes of its pin or note. */
+  async function keep(job: Job, e: Extract<JobEvent, { state: 'done' }>) {
+    if (!e.text) return
+    const { target, request } = job
+    await deps
+      .archive({
+        at: new Date().toISOString(),
+        kind: target.kind,
+        ...(target.kind === 'pin' && { site: target.site }),
+        text: e.text,
+        ...(e.raw && { raw: e.raw }),
+        ...(e.uncorrected && { uncorrected: true }),
+        ...(e.ms !== undefined && { ms: e.ms }),
+        model: request.model,
+        language: request.language,
+        ...(request.correct && { correctModel: request.correct.model }),
+        ...(e.kept && { audio: e.job }),
+      })
+      // An archive that cannot be written loses this entry only.
+      .catch(() => undefined)
   }
 
   /** Asks the running recording to hand itself over; ends it after YIELD_WAIT otherwise. */
@@ -401,9 +430,12 @@ export function createVoice(deps: VoiceDeps) {
       const job = newId()
       // The recorder went meanwhile: so did the recording.
       if (recording !== s || !recorder) {
-        return void show({ target, held: false }, { state: 'failed', error: 'lost', retry: false })
+        return void show(
+          { target, held: false, request },
+          { state: 'failed', error: 'lost', retry: false },
+        )
       }
-      jobs.set(job, { target, held: false })
+      jobs.set(job, { target, held: false, request })
       recording = undefined
       s.started = false
       released?.()
@@ -487,6 +519,7 @@ export function createVoice(deps: VoiceDeps) {
     const [id, job] = found
     if (jobs.get(id) !== job || !recorder) return { ok: false, error: GONE }
     job.held = false
+    job.request = request
     post(recorder, { type: 'retry', job: id, request })
     return { ok: true }
   }

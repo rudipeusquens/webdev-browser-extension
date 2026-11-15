@@ -7,6 +7,8 @@ import globals from 'globals'
 import tseslint from 'typescript-eslint'
 
 const NO_KEY_MESSAGE = 'The overlay never reads the OpenRouter key.'
+const NO_ARCHIVE_MESSAGE =
+  "The overlay never opens the archive: its indexedDB is the page's, not the extension's."
 
 // `eslint-config-prettier` stays last — it turns off rules that fight Prettier, which owns
 // formatting.
@@ -46,6 +48,10 @@ export default defineConfig(
             {
               regex: 'voice/key(\\.ts)?$',
               message: NO_KEY_MESSAGE,
+            },
+            {
+              regex: 'voice/archive(\\.ts)?$',
+              message: NO_ARCHIVE_MESSAGE,
             },
           ],
         },

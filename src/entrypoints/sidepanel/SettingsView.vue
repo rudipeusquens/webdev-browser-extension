@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import type { Settings } from '@/lib/settings'
+import ArchiveSettings from './ArchiveSettings.vue'
 import GeneralSettings from './GeneralSettings.vue'
 import ShortcutList from './ShortcutList.vue'
 import SiteList from './SiteList.vue'
@@ -16,6 +17,8 @@ const emit = defineEmits<{ forget: [origin: string]; remember: [origin: string] 
     <GeneralSettings class="py-6" :settings="settings" />
 
     <VoiceSettings class="py-6" />
+
+    <ArchiveSettings class="py-6" />
 
     <SiteList
       class="py-6"
