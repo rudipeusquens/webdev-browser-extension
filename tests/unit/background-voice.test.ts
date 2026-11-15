@@ -688,5 +688,32 @@ describe('background: requests from the popover', () => {
     for (const type of ['note:retry', 'note:delete']) {
       expect(await send({ type, id: 'n1' }, overlayAt())).toMatchObject({ ok: false })
     }
+    for (const type of ['note:undo', 'note:redo']) {
+      expect(await send({ type }, overlayAt())).toMatchObject({ ok: false })
+    }
+  })
+
+  it("undoes and redoes a note's Delete for the panel", async () => {
+    await fakeBrowser.storage.local.set({
+      [NOTES_KEY]: { version: 1, items: [{ id: 'n1', text: 'Kept.', createdAt: 'T' }] },
+    })
+    const ids = async () =>
+      ((await stored(NOTES_KEY)) as { items: { id: string }[] } | undefined)?.items.map(
+        (n) => n.id,
+      ) ?? []
+    expect(await send({ type: 'note:undo' }, panelSender())).toEqual({
+      ok: false,
+      error: 'Nothing to undo.',
+    })
+    expect(await send({ type: 'note:delete', id: 'n1' }, panelSender())).toEqual({ ok: true })
+    expect(await ids()).toEqual([])
+    expect(await send({ type: 'note:undo' }, panelSender())).toEqual({ ok: true })
+    expect(await ids()).toEqual(['n1'])
+    expect(await send({ type: 'note:redo' }, panelSender())).toEqual({ ok: true })
+    expect(await ids()).toEqual([])
+    expect(await send({ type: 'note:redo' }, panelSender())).toEqual({
+      ok: false,
+      error: 'Nothing to redo.',
+    })
   })
 })

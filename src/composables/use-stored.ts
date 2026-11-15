@@ -26,13 +26,14 @@ export function keepNewest<T>(apply: (value: T) => void): {
 }
 
 /**
- * A key of `storage.local` as a ref: read, then kept up to date. The key may change (the
+ * A key of `storage.local` (or `storage.session`) as a ref: read, then kept up to date. The key may change (the
  * site's dictations follow the active site); `null` stands for none. `loaded` is false until
  * the key was read: what depends on it can wait.
  */
 export function useStored<T>(
   key: Ref<string | null>,
   parse: (value: unknown) => T,
+  area: 'local' | 'session' = 'local',
 ): { value: Ref<T>; loaded: Ref<boolean> } {
   const value = shallowRef<T>(parse(undefined))
   const loaded = ref(false)
@@ -46,11 +47,16 @@ export function useStored<T>(
       loaded.value = !now
       if (!now) return
       const newestValue = keepNewest((next: T) => (value.value = next))
-      stop = watchStored(now, parse, (next) => {
-        newestValue.changed(next)
-        loaded.value = true
-      })
-      void loadStored(now, parse).then((read) => {
+      stop = watchStored(
+        now,
+        parse,
+        (next) => {
+          newestValue.changed(next)
+          loaded.value = true
+        },
+        area,
+      )
+      void loadStored(now, parse, area).then((read) => {
         if (key.value !== now) return
         newestValue.loaded(read)
         loaded.value = true

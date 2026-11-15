@@ -4736,3 +4736,21 @@ same project. The hint how to start sat under the Rec notes, out of sight under 
       hint comes before the Rec notes; a site with feedback has **Always enable** in Settings,
       asked for inside the click; a remembered site's open tabs get the overlay at once. Then
       the changes.
+
+## Milestone 9b: Undo of a deleted Rec note
+
+A note's **Delete** was for good, and Undo stayed disabled: the history is per site, and notes
+belong to none (the owner deleted one on a tab without the overlay).
+
+### Task 92: A history for the notes
+
+- Files: `src/lib/notes/history.ts`, `src/lib/background/{notes,voice,history,writer}.ts`,
+  `src/lib/{messages,storage}.ts`, `src/composables/use-stored.ts`,
+  `src/entrypoints/{background.ts,sidepanel/App.vue,sidepanel/NoteList.vue}`,
+  `tests/unit/{background-notes,background-voice,background-history,messages,sidepanel-rec}.test.ts`,
+  `tests/e2e/rec.e2e.test.ts`, the spec (sections 5, 8, 11), `README.md`, `docs/smoke-test.md`
+- [x] Failing tests: a deleted note with its text is a step in `notesHistory`
+      (`storage.session`); undo puts it back in its place, redo deletes it again, a note
+      without its text keeps no step, the limits; `note:undo` and `note:redo` from the panel
+      only; the site's steps carry when they were done, and the panel's Undo and Redo take
+      the newer of both histories, also without a site. Then the history.

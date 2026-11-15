@@ -21,6 +21,8 @@ export const LABELS_PREFIX = 'historyLabels:'
 export interface Step {
   /** What the panel's tooltip names: "Delete item 3", "Mark 4 items done", "Clear all". */
   label: string
+  /** When it was done (undo) or undone (redo): Undo in the panel takes the newest step. */
+  at?: number
   items: { id: string; before?: Annotation; after?: Annotation }[]
   pages: { key: string; before?: PageInfo; after?: PageInfo }[]
   nextNumber: [number, number]
@@ -35,6 +37,9 @@ export interface History {
 export interface Labels {
   undo?: string
   redo?: string
+  /** When the step each names was done or undone (see Step). */
+  undoAt?: number
+  redoAt?: number
 }
 
 type Side = 'before' | 'after'
@@ -160,10 +165,16 @@ export async function loadHistory(site: string): Promise<History> {
   return isHistory(stored) ? stored : { undo: [], redo: [] }
 }
 
-export const labelsOf = (h: History): Labels => ({
-  ...(h.undo.length > 0 && { undo: h.undo.at(-1)?.label }),
-  ...(h.redo.length > 0 && { redo: h.redo.at(-1)?.label }),
-})
+export const labelsOf = (h: History): Labels => {
+  const undo = h.undo.at(-1)
+  const redo = h.redo.at(-1)
+  return {
+    ...(undo && { undo: undo.label }),
+    ...(redo && { redo: redo.label }),
+    ...(undo?.at !== undefined && { undoAt: undo.at }),
+    ...(redo?.at !== undefined && { redoAt: redo.at }),
+  }
+}
 
 /** The history without its oldest step: an undo step first, then a redo step. */
 const withoutOldest = (h: History): History =>
@@ -217,10 +228,12 @@ export async function loadLabels(site: string): Promise<Labels> {
     labelsKey(site),
     (stored) => {
       if (typeof stored !== 'object' || stored === null) return {}
-      const { undo, redo } = stored as Labels
+      const { undo, redo, undoAt, redoAt } = stored as Labels
       return {
         ...(typeof undo === 'string' && { undo }),
         ...(typeof redo === 'string' && { redo }),
+        ...(typeof undoAt === 'number' && { undoAt }),
+        ...(typeof redoAt === 'number' && { redoAt }),
       }
     },
     'session',

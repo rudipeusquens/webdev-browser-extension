@@ -6,7 +6,8 @@ import type { Note } from '@/lib/notes/model'
 import { dictationFailure } from '@/lib/voice/protocol'
 
 // The Rec notes (spec section 8), above the pages: what Rec dictated, the newest first, the
-// same on every site. Each has its own Copy and Delete; nothing else in the panel touches them.
+// same on every site. Each has its own Copy and Delete (Undo brings back one that had its
+// text); nothing else in the panel touches them.
 // A click on a note shows all of its text, another shows two lines again.
 
 const props = defineProps<{ notes: Note[] }>()
@@ -103,7 +104,7 @@ function when(iso: string): string {
             size="icon-sm"
             class="mt-1 shrink-0 text-muted-foreground"
             aria-label="Delete the note"
-            title="Delete for good"
+            :title="note.text && !note.job ? 'Delete (Undo brings it back)' : 'Delete for good'"
             @click="emit('remove', note.id)"
           >
             <Trash2Icon />

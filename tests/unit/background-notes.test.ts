@@ -2,6 +2,8 @@ import { describe, expect, it } from 'vitest'
 import { createDictations } from '@/lib/background/dictations'
 import { createNotes } from '@/lib/background/notes'
 import { addAnnotation, emptyCollection } from '@/lib/collection/ops'
+import { fakeBrowser } from 'wxt/testing/fake-browser'
+import { NOTES_HISTORY_KEY, NOTES_HISTORY_LIMITS, parseNotesHistory } from '@/lib/notes/history'
 import { NOTE_LIMITS, NOTES_KEY, parseNotes } from '@/lib/notes/model'
 import { copyable, interrupted, type JobView, jobsKey, parseJobs } from '@/lib/voice/jobs'
 import { stored } from './helpers/background'
@@ -25,6 +27,106 @@ describe('the Rec notes', () => {
     expect(await stored(NOTES_KEY)).toBeUndefined()
     expect(await notes.fill(id, 'Too late.')).toBe(false)
     expect(await notes.remove(id)).toBe(false)
+  })
+
+  describe('undo of a delete', () => {
+    const history = async () =>
+      parseNotesHistory(
+        (await fakeBrowser.storage.session.get(NOTES_HISTORY_KEY))[NOTES_HISTORY_KEY],
+      )
+
+    it('brings the note back where it was, and redo deletes it again', async () => {
+      let time = 0
+      let tick = 100
+      const notes = createNotes(
+        () => `T${++time}`,
+        () => ++tick,
+      )
+      const a = (await notes.create({ text: 'First.' })).id
+      const b = (await notes.create({ text: 'Second.' })).id
+      const c = (await notes.create({ text: 'Third.' })).id
+      await notes.remove(b)
+      expect((await items()).map((n) => n.id)).toEqual([a, c])
+      expect(await history()).toEqual({
+        undo: [{ note: { id: b, text: 'Second.', createdAt: 'T2' }, at: 101 }],
+        redo: [],
+      })
+      expect(await notes.undo()).toEqual({ evicted: [] })
+      expect((await items()).map((n) => n.id)).toEqual([a, b, c])
+      expect((await history()).redo).toEqual([
+        { note: { id: b, text: 'Second.', createdAt: 'T2' }, at: 102 },
+      ])
+      expect(await notes.undo()).toBeNull()
+      expect(await notes.redo()).toBe(true)
+      expect((await items()).map((n) => n.id)).toEqual([a, c])
+      expect(await notes.redo()).toBe(false)
+      expect(await notes.undo()).toEqual({ evicted: [] })
+      expect((await items()).map((n) => n.id)).toEqual([a, b, c])
+    })
+
+    it('brings back the last note too: the list was empty', async () => {
+      const notes = createNotes(() => 'T1')
+      const { id } = await notes.create({ text: 'Only one.' })
+      await notes.remove(id)
+      expect(await stored(NOTES_KEY)).toBeUndefined()
+      await notes.undo()
+      expect(await items()).toEqual([{ id, text: 'Only one.', createdAt: 'T1' }])
+      // Nothing left either way: the key goes.
+      await notes.redo()
+      await notes.undo()
+      await notes.remove(id)
+      expect((await history()).redo).toEqual([])
+    })
+
+    it('keeps no step for a note that waits for its text or failed', async () => {
+      const notes = createNotes()
+      const waiting = (await notes.create({ job: { state: 'transcribing' } })).id
+      await notes.remove(waiting)
+      expect(await history()).toEqual({ undo: [], redo: [] })
+      expect(await notes.undo()).toBeNull()
+    })
+
+    it('has nothing to redo after another delete', async () => {
+      const notes = createNotes()
+      const a = (await notes.create({ text: 'A.' })).id
+      const b = (await notes.create({ text: 'B.' })).id
+      await notes.remove(a)
+      await notes.undo()
+      await notes.remove(b)
+      expect((await history()).redo).toEqual([])
+      expect((await history()).undo.map((s) => s.note.id)).toEqual([b])
+    })
+
+    it('makes room for a note it brings back: the oldest goes, and its id comes back', async () => {
+      const notes = createNotes()
+      const first = (await notes.create({ text: 'first' })).id
+      const second = (await notes.create({ text: 'second' })).id
+      await notes.remove(second)
+      for (let i = 0; i < NOTE_LIMITS.count - 1; i++) await notes.create({ text: `n${i}` })
+      expect(await notes.undo()).toEqual({ evicted: [first] })
+      expect(await items()).toHaveLength(NOTE_LIMITS.count)
+    })
+
+    it('keeps the newest 20 steps', async () => {
+      const notes = createNotes()
+      for (let i = 0; i < NOTES_HISTORY_LIMITS.steps + 3; i++) {
+        await notes.remove((await notes.create({ text: `n${i}` })).id)
+      }
+      const { undo } = await history()
+      expect(undo).toHaveLength(NOTES_HISTORY_LIMITS.steps)
+      expect(undo.at(-1)?.note.text).toBe(`n${NOTES_HISTORY_LIMITS.steps + 2}`)
+    })
+
+    it('reads no malformed step', () => {
+      const good = { note: { id: 'n1', text: 'Kept.', createdAt: 'T' }, at: 5 }
+      expect(
+        parseNotesHistory({
+          undo: [good, { note: { id: 'n2', text: '', createdAt: 'T' }, at: 5 }, { at: 1 }, null],
+          redo: 'no',
+        }),
+      ).toEqual({ undo: [good], redo: [] })
+      expect(parseNotesHistory(undefined)).toEqual({ undo: [], redo: [] })
+    })
   })
 
   it('keep the newest 50: the oldest go, and their ids come back', async () => {

@@ -511,12 +511,26 @@ export function createVoice(deps: VoiceDeps) {
     /** Retry on a Rec note whose dictation failed. */
     retryNote: (id: string) => retry(heldJob(isNote(id))),
 
-    /** Delete on a Rec note: it goes for good, and its job with it. */
+    /** Delete on a Rec note: its job goes with it; Undo brings back one that had its text. */
     async deleteNote(id: string): Promise<Reply> {
       drop([...jobs].find(([, job]) => isNote(id)(job.target)))
       await deps.notes.remove(id)
       closeIfIdle()
       return { ok: true }
+    },
+
+    /** Undo of a note's Delete: the note is back; what it pushed beyond the limit goes. */
+    async undoNote(): Promise<Reply> {
+      const undone = await deps.notes.undo()
+      if (!undone) return { ok: false, error: 'Nothing to undo.' }
+      dropNotes(undone.evicted)
+      closeIfIdle()
+      return { ok: true }
+    },
+
+    /** Redo of it: the note is deleted again. */
+    async redoNote(): Promise<Reply> {
+      return (await deps.notes.redo()) ? { ok: true } : { ok: false, error: 'Nothing to redo.' }
     },
 
     /**

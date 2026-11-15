@@ -287,6 +287,10 @@ export default defineBackground(() => {
         return message.type === 'note:retry'
           ? voice.retryNote(message.id)
           : voice.deleteNote(message.id)
+      case 'note:undo':
+      case 'note:redo':
+        if (!isPanelSender(sender)) return refuse('Undo and Redo are buttons of the panel.')
+        return message.type === 'note:undo' ? voice.undoNote() : voice.redoNote()
       case 'voice:grant':
       case 'voice:settings': {
         const { tab } = sender

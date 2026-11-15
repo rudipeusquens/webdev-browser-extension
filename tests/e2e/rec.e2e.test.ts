@@ -47,10 +47,16 @@ describe('Rec in the panel', () => {
     await worker.evaluate(async () => {
       const { storage } = (
         globalThis as unknown as {
-          chrome: { storage: { local: { remove(k: string): Promise<void> } } }
+          chrome: {
+            storage: {
+              local: { remove(k: string): Promise<void> }
+              session: { remove(k: string): Promise<void> }
+            }
+          }
         }
       ).chrome
       await storage.local.remove('notes')
+      await storage.session.remove('notesHistory')
     })
     await panel.waitForSelector('[data-testid="notes"]', { hidden: true })
   })
@@ -207,6 +213,21 @@ describe('Rec in the panel', () => {
         document.querySelector('[data-testid="copy-status"]')?.textContent === 'Copied dictation',
     )
     expect(await clipboard()).toBe(FAKE_TEXT)
+    expect(await noteTexts()).toEqual([FAKE_TEXT])
+    // Its Delete is undone and redone there too, with the buttons and with the key.
+    await panel.click('[data-testid="note-delete"]')
+    await panel.waitForSelector('[data-testid="notes"]', { hidden: true })
+    await panel.waitForSelector('[data-testid="undo"]:not([disabled])')
+    await panel.click('[data-testid="undo"]')
+    await panel.waitForSelector('[data-testid="note-text"]')
+    expect(await noteTexts()).toEqual([FAKE_TEXT])
+    await panel.click('[data-testid="redo"]')
+    await panel.waitForSelector('[data-testid="notes"]', { hidden: true })
+    await panel.click('[data-testid="panel-title"]')
+    await panel.keyboard.down('Control')
+    await panel.keyboard.press('KeyZ')
+    await panel.keyboard.up('Control')
+    await panel.waitForSelector('[data-testid="note-text"]')
     expect(await noteTexts()).toEqual([FAKE_TEXT])
   })
 

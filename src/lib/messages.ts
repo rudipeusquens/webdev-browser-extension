@@ -121,8 +121,12 @@ export type DictationMessage = {
   id: string
 }
 
-/** Panel → background: a Rec note's dictation is sent again, or the note goes. */
-export type NoteMessage = { type: 'note:retry' | 'note:delete'; id: string }
+/**
+ * Panel → background: a Rec note's dictation is sent again, or the note goes; the note deleted
+ * last comes back (`note:undo`) or goes again (`note:redo`).
+ */
+export type NoteMessage =
+  { type: 'note:retry' | 'note:delete'; id: string } | { type: 'note:undo' | 'note:redo' }
 
 /**
  * `storage.session` entry the background writes for **Open settings**: the panel of that window
@@ -297,6 +301,8 @@ export function isBackgroundMessage(x: unknown): x is BackgroundMessage {
     case 'voice:grant':
     case 'voice:settings':
     case 'voice:ready':
+    case 'note:undo':
+    case 'note:redo':
       return hasKeys(x, ['type'])
     case 'note:retry':
     case 'note:delete':

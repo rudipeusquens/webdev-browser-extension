@@ -317,6 +317,15 @@ interface Step {
 interface HistoryLabels {
   undo?: string
   redo?: string
+  // When the step each names was done (undo) or undone (redo).
+  undoAt?: number
+  redoAt?: number
+}
+// key "notesHistory": the deleted Rec notes Undo brings back, at most 20 steps each way and
+// 500 kB.
+interface NotesHistory {
+  undo: { note: Note; at: number }[]
+  redo: { note: Note; at: number }[]
 }
 ```
 
@@ -347,6 +356,14 @@ what the step changed; Redo applies it again; a new change clears the redo steps
 refuses (and drops the history) when an item it would put back has changed since, which only
 happens if the history and the collection got out of step. The history lasts for the browser
 session.
+
+Rec notes belong to no site, so their **Delete** has a history of its own (`notesHistory`),
+the same on every site and on a tab without the overlay. It holds the notes that were deleted
+with their text; a note deleted while it waits for its text, or failed, goes for good with its
+job. Undo puts the note back where it was by its time, Redo deletes it again, another Delete
+clears the redo steps. The panel's **Undo** and **Redo** take the newer of the site's step and
+the notes' step, by when each was done or undone, so they go back through what the developer
+did in order.
 
 Anchor status (found or missing) is not part of the collection: each overlay reports which
 items of its page it found, an item counts as missing after 1.5 s without a place on the page
@@ -681,13 +698,13 @@ open, its entry stays marked.
     not lose the text: the note gets it, and it is not copied. A recording started in a pin
     makes Rec hand itself over, and Rec makes one in a pin do the same.
   - **Rec notes** at the very top of the list area, before the first page, under the heading
-    **Rec**, newest first: the same on every site and also without one (above the start hint).
+    **Rec**, newest first: the same on every site and also without one (below the start hint).
     Each shows a mic icon, its text in two lines (a click shows all of it, another click two
     lines again), when it was made (the time today, else the day and time, "9 Oct, 14:30"),
     and "Transcribing…" while it waits, or its failure with **Retry** (while the recorder holds
     the audio) and **Open settings** where it helps. Its own buttons: **Copy** (the text as it
-    is, "Copied note"; through the copy command, as Rec) and **Delete** (for good at once, no
-    undo: notes belong to no site, and the undo history is per site). Copy as prompt, Copy
+    is, "Copied note"; through the copy command, as Rec) and **Delete** (at once; **Undo**
+    brings back a note that had its text, on every tab). Copy as prompt, Copy
     again, Clear all, Empty bin, the filter and **Pins** never touch notes.
   - List of the active site only, grouped by page and set apart by a line (current page first,
     with **This page** before its path). Headings show the path; with **Show page titles** in
@@ -937,7 +954,7 @@ select-parent), ClickUp and Air comment pins with a side list.
   **Dismiss** of a pin's dictation (`dictation:retry`, `dictation:dismiss`) come from a page of
   that pin's site or from the panel; copying, clearing, emptying the bin, reopening, undo and
   redo, the filter, the Settings options, **Retry** and **Delete** of a Rec note (`note:retry`,
-  `note:delete`) and starting the overlay from the panel (`tab:start`, which Chrome refuses on
+  `note:delete`, `note:undo`, `note:redo`) and starting the overlay from the panel (`tab:start`, which Chrome refuses on
   tabs the extension may not run on), remembering and forgetting sites and Go to are accepted
   only from the panel's URL. Before it starts an overlay and before Go to, the background asks
   the tab's overlay (`overlay:status`, `overlay:leave`, which first closes and keeps an open
