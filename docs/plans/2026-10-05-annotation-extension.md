@@ -4754,3 +4754,19 @@ belong to none (the owner deleted one on a tab without the overlay).
       without its text keeps no step, the limits; `note:undo` and `note:redo` from the panel
       only; the site's steps carry when they were done, and the panel's Undo and Redo take
       the newer of both histories, also without a site. Then the history.
+
+## Milestone 9c: No request for a recording without sound
+
+A recording made with the microphone muted was sent, and paid for, to come back as "No speech
+detected".
+
+### Task 93: The loudest sample of each part
+
+- Files: `src/lib/voice/{recorder,recorder-jobs,protocol}.ts`,
+  `src/entrypoints/offscreen/main.ts`, `tests/unit/{voice-recorder,voice-openrouter}.test.ts`,
+  `tests/e2e/silence.e2e.test.ts`, the spec (sections 9, 10), `README.md`, `docs/smoke-test.md`
+- [x] Failing tests: a recording whose every part stayed below `SILENT_PEAK` sends nothing
+      and fails with `silent` and Retry, which sends it anyway; the faintest sound, and an
+      unknown level, are sent; a part without sound is left out next to one with some; end to
+      end with a silent file as Chrome's fake microphone. Then the monitor's `peak()` (a second
+      analyser over 0.68 s) and the check where a stopped recording becomes a job.

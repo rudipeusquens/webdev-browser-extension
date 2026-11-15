@@ -7,7 +7,7 @@ import {
   type MediaRecorderLike,
   type RecorderDeps,
 } from '@/lib/voice/recorder'
-import { HOLD_BYTES, HOLD_TIME } from '@/lib/voice/recorder-jobs'
+import { HOLD_BYTES, HOLD_TIME, SILENT_PEAK } from '@/lib/voice/recorder-jobs'
 
 const REQUEST: TranscribeRequest = { key: 'test-key-1', model: 'a/b', language: 'auto' }
 const LIMIT = 300_000
@@ -56,9 +56,13 @@ function setup(overrides: Partial<RecorderDeps> = {}) {
   const emitted: RecorderMessage[] = []
   const transcribe = vi.fn<RecorderDeps['transcribe']>(async () => 'Make it wider.')
   /** The microphone's level the monitor reports: speech unless a test makes it quiet. */
-  const level = { now: 0.5, stopped: 0 }
+  const level = { now: 0.5, stopped: 0, peak: 0.5 }
   const deps: RecorderDeps = {
-    monitor: () => ({ level: () => level.now, stop: () => void level.stopped++ }),
+    monitor: () => ({
+      level: () => level.now,
+      peak: () => level.peak,
+      stop: () => void level.stopped++,
+    }),
     permission: vi.fn(async () => 'granted' as PermissionState),
     getUserMedia: vi.fn(async () => stream),
     record: () => {
@@ -173,6 +177,70 @@ describe('the recording', () => {
     await r.stop('j1')
     await flush()
     expect(r.last()).toEqual({ job: 'j1', state: 'done', text: 'Spoken.', cut: false })
+  })
+
+  describe('without any sound', () => {
+    const SILENT = { job: 'j1', state: 'failed', error: 'silent', retry: true }
+
+    it('sends nothing and says so; Retry sends the recording anyway', async () => {
+      const r = setup()
+      r.level.peak = SILENT_PEAK / 2
+      await r.start()
+      r.media[0]?.chunk('one ')
+      await r.stop('j1')
+      expect(r.transcribe).not.toHaveBeenCalled()
+      expect(r.states()).toEqual(['starting', 'recording', 'j1:failed'])
+      expect(r.last()).toEqual(SILENT)
+      expect(r.track.stopped).toBe(true)
+      r.recorder.command({ type: 'retry', job: 'j1', request: REQUEST })
+      await flush()
+      expect(r.transcribe).toHaveBeenCalledTimes(1)
+      expect(await text(r.transcribe.mock.calls[0]?.[0])).toBe('one end')
+      expect(r.last()).toEqual({ job: 'j1', state: 'done', text: 'Make it wider.', cut: false })
+    })
+
+    it('gives up its Retry after a while, like every held recording', async () => {
+      const r = setup()
+      r.level.peak = 0
+      await r.start()
+      await r.stop('j1')
+      await vi.advanceTimersByTimeAsync(HOLD_TIME)
+      expect(r.last()).toEqual({ ...SILENT, retry: false })
+    })
+
+    it('sends a recording with the faintest sound, and one whose level is unknown', async () => {
+      const faint = setup()
+      faint.level.peak = SILENT_PEAK
+      await faint.start()
+      await faint.stop('j1')
+      expect(faint.transcribe).toHaveBeenCalledTimes(1)
+
+      const unknown = setup({ monitor: () => ({ level: () => 0, stop: () => undefined }) })
+      await unknown.start()
+      await unknown.stop('j1')
+      expect(unknown.transcribe).toHaveBeenCalledTimes(1)
+
+      const none = setup({ monitor: undefined })
+      await none.start()
+      await none.stop('j1')
+      expect(none.transcribe).toHaveBeenCalledTimes(1)
+    })
+
+    it('leaves out the stretch without sound when another has some', async () => {
+      const r = setup()
+      await r.start(10_000)
+      r.media[0]?.chunk('spoken ')
+      await vi.advanceTimersByTimeAsync(10_000)
+      r.recorder.command({ type: 'resume' })
+      await vi.advanceTimersByTimeAsync(1)
+      r.level.peak = 0
+      r.media[1]?.chunk('nothing ')
+      await r.stop('j1')
+      await flush()
+      expect(r.transcribe).toHaveBeenCalledTimes(1)
+      expect(await text(r.transcribe.mock.calls[0]?.[0])).toBe('spoken end')
+      expect(r.last()).toEqual({ job: 'j1', state: 'done', text: 'Make it wider.', cut: false })
+    })
   })
 
   it('sends a paused recording when stopped, with a timeout for its length', async () => {

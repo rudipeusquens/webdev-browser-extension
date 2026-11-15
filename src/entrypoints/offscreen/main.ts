@@ -20,7 +20,14 @@ const post = (message: RecorderMessage) => {
   }
 }
 
-/** The microphone's level (RMS of the last moment): pauses are where long recordings are cut. */
+/** The longest stretch an analyser keeps: 0.68 s at 48 kHz. */
+const PEAK_WINDOW = 32_768
+
+/**
+ * The microphone's level (RMS of the last moment): pauses are where long recordings are cut.
+ * And its loudest sample: a second analyser keeps a long stretch, read before that stretch has
+ * passed, so nothing between two readings is missed.
+ */
 function monitorLevel(stream: MediaStream): LevelMonitor {
   const context = new AudioContext()
   void context.resume().catch(() => undefined)
@@ -29,6 +36,20 @@ function monitorLevel(stream: MediaStream): LevelMonitor {
   analyser.fftSize = 2048
   source.connect(analyser)
   const samples = new Float32Array(analyser.fftSize)
+  const long = context.createAnalyser()
+  long.fftSize = PEAK_WINDOW
+  source.connect(long)
+  const stretch = new Float32Array(long.fftSize)
+  let loudest = 0
+  const listen = () => {
+    long.getFloatTimeDomainData(stretch)
+    for (const sample of stretch) {
+      const size = Math.abs(sample)
+      if (size > loudest) loudest = size
+    }
+  }
+  const every = Math.max(100, Math.floor(((PEAK_WINDOW / context.sampleRate) * 1000 * 3) / 4))
+  const listening = setInterval(listen, every)
   return {
     level() {
       analyser.getFloatTimeDomainData(samples)
@@ -36,7 +57,14 @@ function monitorLevel(stream: MediaStream): LevelMonitor {
       for (const sample of samples) sum += sample * sample
       return Math.sqrt(sum / samples.length)
     },
+    peak() {
+      listen()
+      const peak = loudest
+      loudest = 0
+      return peak
+    },
     stop() {
+      clearInterval(listening)
       source.disconnect()
       void context.close().catch(() => undefined)
     },

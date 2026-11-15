@@ -163,7 +163,8 @@ to the end of the comment a moment later. **Undo** in the panel takes it out aga
 A recording pauses at the limit, 5 minutes by default, and asks **Keep recording?**: **Keep**
 goes on, **Stop** ends it, and without an answer it stops after a minute. If a transcription
 fails, the entry says why, with **Retry**, which sends the same recording again within ten
-minutes. Text too long for a pin goes whole into a Rec note (below).
+minutes. A recording without any sound (a muted microphone) is not sent at all: the entry
+says "Nothing was heard", and **Retry** sends it anyway. Text too long for a pin goes whole into a Rec note (below).
 
 **Model** (default `openai/gpt-4o-mini-transcribe`), **Language** (default: detect
 automatically) and **Recording limit** are in the same section.

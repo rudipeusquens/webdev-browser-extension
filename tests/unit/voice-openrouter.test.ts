@@ -286,6 +286,7 @@ describe('voiceErrorText', () => {
     ['timeout', 'Transcription timed out.'],
     ['offline', 'Could not reach OpenRouter.'],
     ['no-speech', 'No speech detected.'],
+    ['silent', 'Nothing was heard: is the microphone on? Retry sends the recording anyway.'],
     ['interrupted', 'Recording stopped unexpectedly.'],
     ['taken', 'Another dictation started, this one ended.'],
     ['mic-lost', 'The microphone stopped. Retry sends what was recorded.'],

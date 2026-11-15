@@ -20,6 +20,7 @@ export type VoiceError =
   | 'timeout'
   | 'offline'
   | 'no-speech'
+  | 'silent'
   | 'interrupted'
   | 'taken'
   | 'mic-lost'
@@ -39,6 +40,8 @@ const TEXTS: Record<VoiceError, string> = {
   timeout: 'Transcription timed out.',
   offline: 'Could not reach OpenRouter.',
   'no-speech': 'No speech detected.',
+  // Nothing was sent: the microphone gave no sound at all (muted, or the wrong one).
+  silent: 'Nothing was heard: is the microphone on? Retry sends the recording anyway.',
   interrupted: 'Recording stopped unexpectedly.',
   // Also a recording held for Retry ends when another dictation starts.
   taken: 'Another dictation started, this one ended.',
