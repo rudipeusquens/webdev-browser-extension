@@ -5,6 +5,7 @@ import {
   createMediaRecorder,
   createRecorder,
   type MediaRecorderLike,
+  MICROPHONE,
   type RecorderDeps,
 } from '@/lib/voice/recorder'
 import { HOLD_BYTES, HOLD_TIME, SILENT_PEAK } from '@/lib/voice/recorder-jobs'
@@ -830,5 +831,11 @@ describe('createMediaRecorder', () => {
       { stream, options: { mimeType: 'audio/webm;codecs=opus', audioBitsPerSecond: 32_000 } },
     ])
     vi.unstubAllGlobals()
+  })
+})
+
+describe('MICROPHONE', () => {
+  it('asks for audio without echo cancellation, and for nothing else', () => {
+    expect(MICROPHONE).toEqual({ audio: { echoCancellation: false } })
   })
 })

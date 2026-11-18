@@ -7,7 +7,12 @@ import { browser } from 'wxt/browser'
 import { archiveAudio } from '@/lib/voice/archive'
 import { correctTranscript, transcribe, VoiceFailure } from '@/lib/voice/openrouter'
 import { isRecorderCommand, RECORDER_PORT, type RecorderMessage } from '@/lib/voice/protocol'
-import { createMediaRecorder, createRecorder, type LevelMonitor } from '@/lib/voice/recorder'
+import {
+  createMediaRecorder,
+  createRecorder,
+  type LevelMonitor,
+  MICROPHONE,
+} from '@/lib/voice/recorder'
 
 /** Port messages keep the background's service worker alive (Chrome 114+). */
 const HEARTBEAT = 10_000
@@ -76,7 +81,7 @@ const recorder = createRecorder({
   monitor: monitorLevel,
   permission: () =>
     navigator.permissions.query({ name: 'microphone' as PermissionName }).then((s) => s.state),
-  getUserMedia: () => navigator.mediaDevices.getUserMedia({ audio: true }),
+  getUserMedia: () => navigator.mediaDevices.getUserMedia(MICROPHONE),
   record: createMediaRecorder,
   transcribe: (audio, request, signal, timeout) => transcribe(audio, request, { signal, timeout }),
   correct: (text, request, signal) => {

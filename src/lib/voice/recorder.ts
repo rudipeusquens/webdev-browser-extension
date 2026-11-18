@@ -40,6 +40,14 @@ export interface RecorderDeps extends JobDeps {
   emit(message: RecorderMessage): void
 }
 
+/**
+ * The microphone without the browser's echo cancellation: with it, a recording that started
+ * while a video played lost its first words (the file began in the middle of the sentence;
+ * seen on Linux with Bluetooth headphones, 2026-11-18). What the speakers play is recorded
+ * along; noise suppression and gain control stay as the browser sets them.
+ */
+export const MICROPHONE: MediaStreamConstraints = { audio: { echoCancellation: false } }
+
 /** Opus in WebM, which OpenRouter takes; 32 kbit/s is plenty for speech. */
 export const createMediaRecorder = (stream: MediaStream): MediaRecorderLike =>
   new MediaRecorder(stream, { mimeType: 'audio/webm;codecs=opus', audioBitsPerSecond: 32_000 })
