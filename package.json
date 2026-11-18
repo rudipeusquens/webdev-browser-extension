@@ -1,6 +1,6 @@
 {
   "name": "webdev-browser-extension",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "private": true,
   "description": "Chrome extension that turns highlights and comments on a web page into a prompt for an AI coding agent.",
   "license": "MIT",

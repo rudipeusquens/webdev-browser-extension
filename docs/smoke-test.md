@@ -149,6 +149,8 @@ Settings → **Voice**:
 - [ ] Mute the microphone (its hardware switch, or the system's input volume at zero),
       **Rec**, wait three seconds, stop. → The note says "Nothing was heard"; nothing was
       sent (OpenRouter's activity shows no request). **Retry** sends it anyway.
+- [ ] Play a video with sound in another tab, over headphones. **Rec**, speak at once, stop.
+      → The note has the sentence from its first word.
 - [ ] **Rec** on a tab where the overlay does not run (`chrome://extensions`). → It works the
       same, and the notes are listed there too.
 - [ ] With an open pin: **Rec**, speak, stop, and click **Copy as prompt** while its note says
